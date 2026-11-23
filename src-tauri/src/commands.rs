@@ -984,6 +984,56 @@ pub fn sftp_cancel(st: State<'_, AppState>, transfer_id: u32) {
     }
 }
 
+// ---------------------------------------------------------------- clipboard
+// Read and written here rather than with navigator.clipboard, which the web
+// view may refuse (it asks for a user gesture or a permission).
+
+const CLIPBOARD_MAX: usize = 8 * 1024 * 1024;
+
+/// One clipboard handle for the app's lifetime (on Linux, copied text is
+/// only available while its owner is alive).
+fn with_clipboard<T>(
+    f: impl FnOnce(&mut arboard::Clipboard) -> Result<T, arboard::Error>,
+) -> Result<T, arboard::Error> {
+    static CB: std::sync::Mutex<Option<arboard::Clipboard>> = std::sync::Mutex::new(None);
+    let mut g = CB.lock().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() {
+        *g = Some(arboard::Clipboard::new()?);
+    }
+    let r = f(g.as_mut().expect("clipboard set above"));
+    if r.is_err() {
+        *g = None; // reopen next time
+    }
+    r
+}
+
+#[tauri::command]
+pub async fn clipboard_read(st: State<'_, AppState>) -> Res<String> {
+    st.ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(|| {
+        let text = with_clipboard(|c| c.get_text()).unwrap_or_default();
+        if text.len() > CLIPBOARD_MAX {
+            return Err(CoreError::invalid("The clipboard holds more than 8 MB of text, which is too much to paste."));
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|e| CoreError::invalid(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn clipboard_write(st: State<'_, AppState>, text: String) -> Res<()> {
+    st.ensure_unlocked()?;
+    if text.len() > CLIPBOARD_MAX {
+        return Err(CoreError::invalid("That selection is too large to copy."));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        with_clipboard(|c| c.set_text(text)).map_err(|_| CoreError::invalid("Couldn't copy to the clipboard."))
+    })
+    .await
+    .map_err(|e| CoreError::invalid(e.to_string()))?
+}
+
 // ---------------------------------------------------------------- fonts
 
 /// Font families installed on this PC (for the font picker).

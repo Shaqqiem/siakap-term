@@ -211,6 +211,10 @@ pub struct Settings {
     pub tab_status_fallback: bool,
     /// Disconnect every terminal when the vault locks (manual or auto-lock).
     pub lock_disconnects: bool,
+    /// Right-click in a terminal copies the selection, or pastes when nothing
+    /// is selected (Shift+right-click shows the menu). Off: right-click shows
+    /// the menu.
+    pub right_click_paste: bool,
 }
 
 impl Default for Settings {
@@ -243,6 +247,7 @@ impl Default for Settings {
             tab_status: true,
             tab_status_fallback: true,
             lock_disconnects: false,
+            right_click_paste: true,
         }
     }
 }

@@ -33,7 +33,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 async function pasteInto(el: HTMLInputElement | HTMLTextAreaElement, what: string) {
   try {
-    const text = await navigator.clipboard.readText();
+    const text = await api.clipboardRead();
     if (!text) return toast("The clipboard does not contain text.", "error");
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;

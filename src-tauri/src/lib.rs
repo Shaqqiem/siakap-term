@@ -111,6 +111,8 @@ pub fn run() {
             commands::sftp_upload,
             commands::sftp_cancel,
             commands::fonts_list,
+            commands::clipboard_read,
+            commands::clipboard_write,
             commands::security_key_state,
             commands::security_key_action,
         ])

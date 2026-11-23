@@ -98,7 +98,7 @@ master password**.
 | Close a pane | The x in the pane's corner, right-click → *Close this pane*, `Ctrl+Shift+W`, or Enter once the session has ended |
 | Move a tab | Drag it left or right. Right-click a tab to rename, duplicate or close tabs |
 | Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
-| Copy and paste | Right-click in the terminal, or `Ctrl+Shift+C` and `Ctrl+Shift+V`; copy on select is in Settings |
+| Copy and paste | Right-click pastes; with text selected, right-click copies it. Shift+right-click for the menu. Also `Ctrl+Shift+C` and `Ctrl+Shift+V`. Both are in *Settings → Look* |
 | Organise sessions | The folder button makes a folder; drag sessions onto it. Right-click a session or folder for more. Click a folder to collapse it |
 | Change the font | *Settings → Look → Font* lists the fonts installed on your PC, fixed-width ones first |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |

@@ -141,6 +141,7 @@ export class SettingsPanel {
     const tabStatus = chk(s.tabStatus);
     const tabStatusFallback = chk(s.tabStatusFallback);
     const lockDisconnects = chk(s.lockDisconnects);
+    const rightClickPaste = chk(s.rightClickPaste);
     // Applies at once (not with Save): it needs the master password to turn off.
     const vs = await api.vaultStatus();
     const askOnOpen = h("input", { type: "checkbox", checked: !vs.remembered, disabled: !vs.rememberAvailable || vs.passwordless }) as HTMLInputElement;
@@ -186,6 +187,7 @@ export class SettingsPanel {
         tabStatus: tabStatus.checked,
         tabStatusFallback: tabStatusFallback.checked,
         lockDisconnects: lockDisconnects.checked,
+        rightClickPaste: rightClickPaste.checked,
         fontFamily: fontFamily.value,
         fontSize: Number(fontSize.value),
         background: bg.value,
@@ -251,6 +253,8 @@ export class SettingsPanel {
         field("Font", fontPick, fontCache.length ? undefined : "Couldn't list the fonts on this PC. Type a font name under Advanced settings."),
         preview,
         field("Text size", textSize),
+        h("label", { class: "check" }, rightClickPaste, " Right-click pastes"),
+        h("small", { class: "muted" }, "With text selected, right-click copies it instead. Shift+right-click shows the menu. Off: right-click shows the menu."),
         h("h4", {}, "Security"),
         ...(vs.passwordless
           ? [

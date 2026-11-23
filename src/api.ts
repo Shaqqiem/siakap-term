@@ -82,6 +82,7 @@ export interface Settings {
   tabStatus: boolean;
   tabStatusFallback: boolean;
   lockDisconnects: boolean;
+  rightClickPaste: boolean;
 }
 export interface KnownHost {
   host: string;
@@ -214,6 +215,8 @@ export const api = {
 
   pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
   pickSave: (purpose: "download" | "export", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
+  clipboardRead: () => invoke<string>("clipboard_read"),
+  clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>

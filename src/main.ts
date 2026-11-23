@@ -113,6 +113,12 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.5.1",
+    title: "Right-click to paste",
+    text: "Right-click in a terminal to paste. If text is selected, right-click copies it instead. Shift+right-click shows the menu. You can turn this off in Settings, under Look.",
+    target: "#workspace",
+  },
+  {
     since: "0.5.0",
     title: "Folders, right-click menus and tidier tabs",
     text: "Make folders with the folder button and drag sessions onto them. Right-click sessions, folders, tabs and terminals for more options, including Copy and Paste. Drag tabs to reorder them, and pick any installed font in Settings.",

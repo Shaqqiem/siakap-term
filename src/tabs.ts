@@ -219,7 +219,7 @@ export class TabManager {
       }
     });
     term.onSelectionChange(() => {
-      if (this.settings.copyOnSelect && term.hasSelection()) navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+      if (this.settings.copyOnSelect && term.hasSelection()) api.clipboardWrite(term.getSelection()).catch(() => {});
     });
     // Paste protection: intercept the browser paste before xterm sees it.
     el.addEventListener(
@@ -249,14 +249,27 @@ export class TabManager {
   /** Right-click inside a terminal. */
   private paneMenu(pane: Pane, e: MouseEvent) {
     const sel = pane.term.hasSelection() ? pane.term.getSelection() : "";
+    if (this.settings?.rightClickPaste && !e.shiftKey) {
+      // Like Windows Terminal and PuTTY: copy a selection, otherwise paste.
+      e.preventDefault();
+      e.stopPropagation();
+      this.focus(pane);
+      if (sel) {
+        void api.clipboardWrite(sel).then(() => toast("Copied.", "ok", 1200), () => toast("Clipboard is not available.", "error"));
+        pane.term.clearSelection();
+      } else if (pane.status !== "closed") {
+        api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error"));
+      }
+      return;
+    }
     const count = panesOf(pane.tab.root).length;
     const canSplit = pane.kind !== "serial" && count < MAX_PANES;
     const entries: MenuEntry[] = [
-      { label: "Copy", disabled: !sel, action: () => navigator.clipboard.writeText(sel) },
+      { label: "Copy", disabled: !sel, action: () => api.clipboardWrite(sel) },
       {
         label: "Paste",
         disabled: pane.status === "closed",
-        action: () => navigator.clipboard.readText().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error")),
+        action: () => api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error")),
       },
       { label: "Select all", action: () => pane.term.selectAll() },
       { label: "Clear screen", action: () => pane.term.clear() },
@@ -283,13 +296,13 @@ export class TabManager {
     if (e.type !== "keydown") return true;
     const ctrlShift = e.ctrlKey && e.shiftKey && !e.altKey;
     if (ctrlShift && e.code === "KeyC") {
-      if (pane.term.hasSelection()) navigator.clipboard.writeText(pane.term.getSelection()).catch(() => {});
+      if (pane.term.hasSelection()) api.clipboardWrite(pane.term.getSelection()).catch(() => {});
       e.preventDefault();
       return false;
     }
     if (ctrlShift && e.code === "KeyV") {
       e.preventDefault();
-      navigator.clipboard.readText().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error"));
+      api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error"));
       return false;
     }
     // Let app shortcuts bubble to the window handler.
@@ -879,7 +892,7 @@ function showLink(uri: string) {
     ),
     actions: [
       h("button", { onclick: () => close() }, "Close"),
-      h("button", { class: "primary", onclick: () => (navigator.clipboard.writeText(uri).catch(() => {}), toast("Link copied.", "ok", 1500), close()) }, "Copy link"),
+      h("button", { class: "primary", onclick: () => (api.clipboardWrite(uri).catch(() => {}), toast("Link copied.", "ok", 1500), close()) }, "Copy link"),
     ],
   }));
 }
