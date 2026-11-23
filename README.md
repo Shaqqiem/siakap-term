@@ -77,6 +77,10 @@ security key button needs [usbipd-win](https://github.com/dorssel/usbipd-win) 4.
 The first time it starts, Siakap asks you to choose a master password and creates the vault at
 `%APPDATA%\dev.siakap.terminal\vault.json`. Use at least 12 characters (a short sentence works well). There's no recovery if you forget the password.
 
+If you'd rather not type it every time, untick **Settings → Security → Ask for the master password when Siakap
+opens** (it asks for the password once to confirm). Siakap then opens straight away on this PC, for your Windows
+account only. The Lock button and auto-lock still ask for the password. Tick the box again to go back.
+
 ## Using it
 
 | What | How |

@@ -61,7 +61,9 @@ fn normalize(s: &str) -> String {
 fn valid_bus_id(b: &str) -> bool {
     // ^\d+-\d+(?:\.\d+)*$
     let Some((a, rest)) = b.split_once('-') else { return false };
-    !a.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && rest.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    !a.is_empty()
+        && a.chars().all(|c| c.is_ascii_digit())
+        && rest.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn identity_matches(instance: &str, needle: &str) -> bool {
@@ -100,7 +102,8 @@ fn is_guid(s: &str) -> bool {
 /// Parse and strictly validate `usbipd state` output. Returns Yubico devices only.
 pub fn parse_state(json: &str) -> Result<Vec<Device>> {
     let root: Value = serde_json::from_str(json).map_err(|_| state_error("The state response was not valid JSON."))?;
-    let devices = root.get("Devices").and_then(Value::as_array).ok_or_else(|| state_error("The Devices array is missing."))?;
+    let devices =
+        root.get("Devices").and_then(Value::as_array).ok_or_else(|| state_error("The Devices array is missing."))?;
     let mut out = Vec::new();
     let mut seen_bus = std::collections::HashSet::new();
     for raw in devices {
@@ -202,7 +205,11 @@ pub fn find_selected(devices: &[Device], sel: &Selection) -> Result<Device> {
 
 /// After acting: is the same key (by sharing identity) connected in the
 /// expected state? Err(reason) while not yet verified.
-pub fn check_post_state(snapshot: &[Device], selected: &Device, expect_attached: bool) -> std::result::Result<Device, String> {
+pub fn check_post_state(
+    snapshot: &[Device],
+    selected: &Device,
+    expect_attached: bool,
+) -> std::result::Result<Device, String> {
     let same: Vec<&Device> = snapshot
         .iter()
         .filter(|d| match &selected.persisted_guid {
@@ -213,7 +220,9 @@ pub fn check_post_state(snapshot: &[Device], selected: &Device, expect_attached:
     match same.as_slice() {
         [] => Err("The selected key's identity is not in the latest device list.".into()),
         [d] if d.bus_id.is_none() => Err("The key is briefly disconnected while Windows re-detects it.".into()),
-        [d] if d.attached != expect_attached => Err(format!("The key at BUSID {} is still {}.", d.bus_id.as_deref().unwrap_or("?"), d.state.to_lowercase())),
+        [d] if d.attached != expect_attached => {
+            Err(format!("The key at BUSID {} is still {}.", d.bus_id.as_deref().unwrap_or("?"), d.state.to_lowercase()))
+        }
         [d] => Ok((*d).clone()),
         _ => Err("More than one device has the selected identity; none was guessed.".into()),
     }
@@ -250,7 +259,8 @@ fn usbipd() -> Result<String> {
 }
 
 fn read_state(exe: &str, timeout: Duration) -> Result<Vec<Device>> {
-    let out = run_capture_timeout(exe, &["state"], timeout).map_err(|e| CoreError::usbipd(format!("Could not read the USB device state: {e}")))?;
+    let out = run_capture_timeout(exe, &["state"], timeout)
+        .map_err(|e| CoreError::usbipd(format!("Could not read the USB device state: {e}")))?;
     if !out.success {
         return Err(CoreError::usbipd(format!("Could not read the USB device state: {}", out.stderr.trim())));
     }
@@ -272,23 +282,41 @@ pub fn act(attach: bool, sel: &Selection) -> Result<Outcome> {
     let device = find_selected(&read_state(&exe, STATE_TIMEOUT)?, sel)?;
     let bus = device.bus_id.clone().unwrap_or_default();
     if attach && device.attached {
-        return Ok(Outcome { kind: "already".into(), title: "Already attached".into(), message: format!("The key at BUSID {bus} is already attached to WSL. Nothing was changed."), bus_id: bus });
+        return Ok(Outcome {
+            kind: "already".into(),
+            title: "Already attached".into(),
+            message: format!("The key at BUSID {bus} is already attached to WSL. Nothing was changed."),
+            bus_id: bus,
+        });
     }
     if !attach && !device.attached {
-        return Ok(Outcome { kind: "already".into(), title: "Already detached".into(), message: format!("The key at BUSID {bus} is already available to Windows. Nothing was changed."), bus_id: bus });
+        return Ok(Outcome {
+            kind: "already".into(),
+            title: "Already detached".into(),
+            message: format!("The key at BUSID {bus} is already available to Windows. Nothing was changed."),
+            bus_id: bus,
+        });
     }
     if attach && !device.shared {
         return Err(CoreError::usbipd(format!(
             "The security key at BUSID {bus} is not shared yet.\n\nSharing is a one-time step that needs administrator rights. Ask IT, or run this once in an administrator terminal:\n\nusbipd bind --busid {bus}\n\nSiakap did not change anything and does not ask for administrator rights itself."
         )));
     }
-    let args: Vec<&str> = if attach { vec!["attach", "--wsl", "--busid", &bus] } else { vec!["detach", "--busid", &bus] };
+    let args: Vec<&str> =
+        if attach { vec!["attach", "--wsl", "--busid", &bus] } else { vec!["detach", "--busid", &bus] };
     let out = run_capture_timeout(&exe, &args, ACTION_TIMEOUT).map_err(|e| {
-        CoreError::usbipd(format!("usbipd {} did not finish: {e}\n\nCheck the key's current state before trying again.", args[0]))
+        CoreError::usbipd(format!(
+            "usbipd {} did not finish: {e}\n\nCheck the key's current state before trying again.",
+            args[0]
+        ))
     })?;
     if !out.success {
         let hint = if attach { "\n\nKeep a WSL terminal open, then try again." } else { "" };
-        return Err(CoreError::usbipd(format!("Could not {} the security key: {}{hint}", if attach { "attach" } else { "detach" }, out.stderr.trim())));
+        return Err(CoreError::usbipd(format!(
+            "Could not {} the security key: {}{hint}",
+            if attach { "attach" } else { "detach" },
+            out.stderr.trim()
+        )));
     }
     // Verify by stable identity, waiting out USB re-enumeration.
     let start = Instant::now();
@@ -301,8 +329,15 @@ pub fn act(attach: bool, sel: &Selection) -> Result<Outcome> {
                     let b = d.bus_id.unwrap_or_default();
                     return Ok(Outcome {
                         kind: "done".into(),
-                        title: if attach { "Security key attached to WSL".into() } else { "Security key back on Windows".into() },
-                        message: format!("BUSID {b}. {}", if attach { "Ready for use in WSL." } else { "Available to Windows again." }),
+                        title: if attach {
+                            "Security key attached to WSL".into()
+                        } else {
+                            "Security key back on Windows".into()
+                        },
+                        message: format!(
+                            "BUSID {b}. {}",
+                            if attach { "Ready for use in WSL." } else { "Available to Windows again." }
+                        ),
                         bus_id: b,
                     });
                 }
@@ -340,10 +375,22 @@ mod tests {
     #[test]
     fn parses_and_recommends_the_usual_key() {
         let j = state_json(&[
-            dev_json(Some("1-3"), KEY, "USB Input Device,  Microsoft Usbccid Smartcard Reader (WUDF)", Some(GUID), None),
+            dev_json(
+                Some("1-3"),
+                KEY,
+                "USB Input Device,  Microsoft Usbccid Smartcard Reader (WUDF)",
+                Some(GUID),
+                None,
+            ),
             dev_json(Some("1-4"), "USB\\VID_046D&PID_C52B\\6&1", "Mouse", None, None),
             dev_json(Some("2-1"), "USB\\VID_1050&PID_0406\\7&1", "FIDO only", None, None),
-            dev_json(None, "USB\\VID_1050&PID_0407\\9&9", "USB Input Device, Microsoft Usbccid Smartcard Reader (WUDF)", Some("0b8e1d7a-aaaa-bbbb-cccc-ddddeeeeffff"), None),
+            dev_json(
+                None,
+                "USB\\VID_1050&PID_0407\\9&9",
+                "USB Input Device, Microsoft Usbccid Smartcard Reader (WUDF)",
+                Some("0b8e1d7a-aaaa-bbbb-cccc-ddddeeeeffff"),
+                None,
+            ),
         ]);
         let d = parse_state(&j).unwrap();
         assert_eq!(d.len(), 3, "Yubico only");
@@ -358,7 +405,8 @@ mod tests {
     #[test]
     fn rejects_inconsistent_state() {
         // Invalid BUSID anywhere.
-        assert!(parse_state(&state_json(&[dev_json(Some("1-3; calc"), "USB\\VID_046D&PID_1\\1", "x", None, None)])).is_err());
+        assert!(parse_state(&state_json(&[dev_json(Some("1-3; calc"), "USB\\VID_046D&PID_1\\1", "x", None, None)]))
+            .is_err());
         // Attached but not shared.
         assert!(parse_state(&state_json(&[dev_json(Some("1-3"), KEY, "k", None, Some("172.20.0.2"))])).is_err());
         // Attached but disconnected.
@@ -367,7 +415,11 @@ mod tests {
         assert!(parse_state(&state_json(&[dev_json(Some("1-3"), KEY, "k", Some("nope"), None)])).is_err());
         assert!(parse_state(&state_json(&[dev_json(Some("1-3"), KEY, "k", Some(GUID), Some("not-an-ip"))])).is_err());
         // Repeated BUSID.
-        assert!(parse_state(&state_json(&[dev_json(Some("1-3"), KEY, "k", Some(GUID), None), dev_json(Some("1-3"), KEY, "k", None, None)])).is_err());
+        assert!(parse_state(&state_json(&[
+            dev_json(Some("1-3"), KEY, "k", Some(GUID), None),
+            dev_json(Some("1-3"), KEY, "k", None, None)
+        ]))
+        .is_err());
         assert!(parse_state("{}").is_err());
         assert!(parse_state("not json").is_err());
     }
@@ -385,7 +437,8 @@ mod tests {
     #[test]
     fn selection_must_be_the_same_device() {
         let d = parse_state(&state_json(&[dev_json(Some("1-3"), KEY, "k", Some(GUID), None)])).unwrap();
-        let sel = Selection { bus_id: "1-3".into(), instance_id: KEY.into(), persisted_guid: Some(GUID.to_uppercase()) };
+        let sel =
+            Selection { bus_id: "1-3".into(), instance_id: KEY.into(), persisted_guid: Some(GUID.to_uppercase()) };
         assert!(find_selected(&d, &sel).is_ok());
         let moved = Selection { bus_id: "1-4".into(), ..sel.clone() };
         assert!(find_selected(&d, &moved).is_err());
@@ -402,7 +455,8 @@ mod tests {
         // Missing entirely: never success, even for detach.
         assert!(check_post_state(&[], before, false).is_err());
         // Attached on a new BUSID with a new name: verified by sharing identity.
-        let after = parse_state(&state_json(&[dev_json(Some("1-7"), KEY, "Renamed", Some(GUID), Some("172.20.0.2"))])).unwrap();
+        let after =
+            parse_state(&state_json(&[dev_json(Some("1-7"), KEY, "Renamed", Some(GUID), Some("172.20.0.2"))])).unwrap();
         assert_eq!(check_post_state(&after, before, true).unwrap().bus_id.as_deref(), Some("1-7"));
         assert!(check_post_state(&after, before, false).is_err());
     }
@@ -410,6 +464,9 @@ mod tests {
     #[test]
     fn outcome_json_matches_the_frontend() {
         let o = Outcome { kind: "done".into(), title: "t".into(), message: "m".into(), bus_id: "1-3".into() };
-        assert_eq!(serde_json::to_value(o).unwrap(), serde_json::json!({"kind":"done","title":"t","message":"m","busId":"1-3"}));
+        assert_eq!(
+            serde_json::to_value(o).unwrap(),
+            serde_json::json!({"kind":"done","title":"t","message":"m","busId":"1-3"})
+        );
     }
 }

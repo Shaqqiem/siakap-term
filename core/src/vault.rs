@@ -94,6 +94,14 @@ pub struct Vault {
     unlocked: Option<Unlocked>,
 }
 
+struct ParsedFile {
+    aad: Vec<u8>,
+    salt: [u8; SALT_LEN],
+    params: KdfParams,
+    nonce: Vec<u8>,
+    ct: Vec<u8>,
+}
+
 struct Unlocked {
     key: Zeroizing<[u8; 32]>,
     salt: [u8; SALT_LEN],
@@ -138,6 +146,47 @@ impl Vault {
     /// Decrypt the vault. Fails with `WrongPassword` on a wrong password *or*
     /// any tampering (AEAD cannot tell the two apart, by design).
     pub fn unlock(&mut self, password: &str) -> Result<()> {
+        let f = self.read_file()?;
+        let key = derive_key(password, &f.salt, f.params)?;
+        self.open(f, key)
+    }
+
+    /// Unlock with a key saved by [`Vault::device_key`]. Fails if the master
+    /// password changed since (different salt) or the key is wrong.
+    pub fn unlock_with_device_key(&mut self, blob: &[u8]) -> Result<()> {
+        if blob.len() != SALT_LEN + 32 {
+            return Err(CoreError::wrong_password());
+        }
+        let f = self.read_file()?;
+        if !ct_eq(&blob[..SALT_LEN], &f.salt) {
+            return Err(CoreError::wrong_password());
+        }
+        let mut key = Zeroizing::new([0u8; 32]);
+        key.copy_from_slice(&blob[SALT_LEN..]);
+        self.open(f, key)
+    }
+
+    /// The unlocked vault's salt and key, for saving under the Windows
+    /// account's protection (opening without the master password).
+    pub fn device_key(&self) -> Result<Zeroizing<Vec<u8>>> {
+        let u = self.unlocked.as_ref().ok_or_else(CoreError::locked)?;
+        let mut v = Zeroizing::new(Vec::with_capacity(SALT_LEN + 32));
+        v.extend_from_slice(&u.salt);
+        v.extend_from_slice(u.key.as_ref());
+        Ok(v)
+    }
+
+    /// Check the master password of the unlocked vault.
+    pub fn verify_password(&self, password: &str) -> Result<()> {
+        let u = self.unlocked.as_ref().ok_or_else(CoreError::locked)?;
+        let check = derive_key(password, &u.salt, u.params)?;
+        if !ct_eq(check.as_ref(), u.key.as_ref()) {
+            return Err(CoreError::wrong_password());
+        }
+        Ok(())
+    }
+
+    fn read_file(&self) -> Result<ParsedFile> {
         if !self.exists() {
             return Err(CoreError::NoVault { message: "No vault exists yet.".into() });
         }
@@ -157,17 +206,19 @@ impl Vault {
             return Err(CoreError::format("bad nonce"));
         }
         let ct = B64.decode(&file.ciphertext).map_err(|_| CoreError::format("bad ciphertext"))?;
+        params.check()?;
+        Ok(ParsedFile { aad: aad(file.version, &file.kdf), salt, params, nonce, ct })
+    }
 
-        let key = derive_key(password, &salt, params)?;
+    fn open(&mut self, f: ParsedFile, key: Zeroizing<[u8; 32]>) -> Result<()> {
         let cipher = XChaCha20Poly1305::new(key.as_ref().into());
-        let aad = aad(file.version, &file.kdf);
         let plain = Zeroizing::new(
             cipher
-                .decrypt(XNonce::from_slice(&nonce), Payload { msg: &ct, aad: &aad })
+                .decrypt(XNonce::from_slice(&f.nonce), Payload { msg: &f.ct, aad: &f.aad })
                 .map_err(|_| CoreError::wrong_password())?,
         );
         let data: VaultData = serde_json::from_slice(&plain)?;
-        self.unlocked = Some(Unlocked { key, salt, params, data });
+        self.unlocked = Some(Unlocked { key, salt: f.salt, params: f.params, data });
         Ok(())
     }
 

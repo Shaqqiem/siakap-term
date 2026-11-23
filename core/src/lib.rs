@@ -19,6 +19,7 @@ pub mod mobaxterm;
 pub mod model;
 pub mod process;
 pub mod pty;
+pub mod remember;
 pub mod security_key;
 pub mod serial;
 pub mod sftp;

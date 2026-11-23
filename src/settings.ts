@@ -1,7 +1,7 @@
 // Settings panel: appearance, behaviour, security, known hosts.
 import { icon } from "./icons";
 import { api, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo } from "./api";
-import { $, confirmDialog, field, h, modal, select, toast } from "./ui";
+import { $, confirmDialog, field, h, modal, promptDialog, select, toast } from "./ui";
 
 const THEMES: Record<string, { label: string; background: string; foreground: string; cursor: string; selection: string }> = {
   dark: { label: "Dark (default)", background: "#11151c", foreground: "#d8dee9", cursor: "#88c0d0", selection: "#3b4252" },
@@ -106,6 +106,37 @@ export class SettingsPanel {
     const tabStatus = chk(s.tabStatus);
     const tabStatusFallback = chk(s.tabStatusFallback);
     const lockDisconnects = chk(s.lockDisconnects);
+    // Applies at once (not with Save): it needs the master password to turn off.
+    const vs = await api.vaultStatus();
+    const askOnOpen = h("input", { type: "checkbox", checked: !vs.remembered, disabled: !vs.rememberAvailable }) as HTMLInputElement;
+    askOnOpen.addEventListener("change", async () => {
+      const ask = askOnOpen.checked;
+      askOnOpen.disabled = true;
+      try {
+        if (ask) {
+          await api.vaultSetRemember(false);
+          toast("Siakap will ask for the master password when it opens.", "ok");
+        } else {
+          const pw = await promptDialog("Open without the master password", "Master password", {
+            password: true,
+            okLabel: "Turn off",
+            hint: "Siakap will open straight away on this PC, for your Windows account only. Anyone who can sign in to your Windows account can then open your sessions and saved passwords.",
+            validate: (v) => (v ? null : "Enter your master password."),
+          });
+          if (pw === null) {
+            askOnOpen.checked = true;
+            return;
+          }
+          await api.vaultSetRemember(true, pw);
+          toast("Siakap will open without asking for the master password on this PC.", "ok");
+        }
+      } catch (e) {
+        askOnOpen.checked = !ask;
+        toast(messageOf(e), "error");
+      } finally {
+        askOnOpen.disabled = !vs.rememberAvailable;
+      }
+    });
 
     const save = async () => {
       const next: Settings = {
@@ -184,6 +215,14 @@ export class SettingsPanel {
         field("Theme", theme),
         field("Text size", textSize),
         h("h4", {}, "Security"),
+        h("label", { class: "check" }, askOnOpen, " Ask for the master password when Siakap opens"),
+        h(
+          "small",
+          { class: "muted" },
+          vs.rememberAvailable
+            ? "Off: Siakap opens straight away on this PC, for your Windows account only. The Lock button and auto-lock still ask for the password."
+            : "Turning this off is only available on Windows.",
+        ),
         field("Lock the app", autoLock, "When nobody has used Siakap for this long, it locks and asks for the master password."),
         h("label", { class: "check" }, lockDisconnects, " Disconnect all sessions when Siakap locks"),
         h("small", { class: "muted" }, "Off: open terminals keep running but stay hidden until you unlock. On: every terminal is closed when Siakap locks."),

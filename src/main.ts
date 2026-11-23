@@ -112,6 +112,12 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.4.3",
+    title: "Skip the master password if you like",
+    text: "In Settings, under Security, you can untick Ask for the master password when Siakap opens. Siakap then opens straight away on this PC, for your Windows account only. Lock still asks for it.",
+    target: '.rail button[data-panel="settings"]',
+  },
+  {
     since: "0.4.1",
     title: "Choose which security key to move",
     text: "Key now lists your connected security keys. Pick one, then Attach to WSL or Detach. Siakap checks afterwards that the key really moved.",
@@ -587,7 +593,15 @@ void listen("vault-locked", () => showLock("unlock", "Locked after inactivity.")
     const st = await api.vaultStatus();
     newInstall = !st.exists;
     if (st.unlocked) await onUnlocked();
-    else showLock(st.exists ? "unlock" : "create");
+    else if (st.exists && st.remembered) {
+      // The user turned off "ask for the master password when Siakap opens".
+      try {
+        await api.vaultUnlockRemembered();
+        await onUnlocked();
+      } catch (e) {
+        showLock("unlock", messageOf(e));
+      }
+    } else showLock(st.exists ? "unlock" : "create");
   } catch (e) {
     showLock("unlock", messageOf(e));
   }

@@ -42,6 +42,14 @@ well (Settings > Security).
 seconds, before it is checked. On Linux and macOS the vault file is readable by your user only (0600); on Windows it
 sits in your per-user AppData folder.
 
+**Opening without the master password (optional, off by default).** If you untick *Ask for the master password when
+Siakap opens*, Siakap saves the vault key in `remember.json` next to the vault, encrypted by Windows (DPAPI,
+`CryptProtectData`) for your Windows account, with an app-specific extra value. Only your Windows account on this PC
+can decrypt it; copying the files to another PC or account doesn't open the vault. Turning the option off needs the
+master password. Ticking the box again deletes the file, and changing the master password replaces it. If the saved key
+can't be used, Siakap deletes it and asks for the password. The Lock button and auto-lock still need the password.
+The option isn't offered on Linux or macOS.
+
 **SSH host keys.** The first time you connect to a host, you see its SHA-256 fingerprint and decide whether to trust
 it. Trusted keys are stored inside the vault, not in a plain `known_hosts` file. If a host later presents a different
 key, the connection is refused with a warning, and nothing in the UI lets you click past it. This includes a key of a
@@ -99,6 +107,9 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
 
 - **Malware running as you while the vault is unlocked.** It can read memory, log keystrokes, watch the clipboard or
   drive the app. No desktop app can defend against that.
+- **Your Windows account, if you open without the master password.** With that option on, anyone or any program that
+  can use your signed-in Windows account can open the vault: someone at your unlocked PC, malware running as you, or
+  an attacker who learns your Windows password. Keep the option off on shared PCs, and lock Windows when you walk away.
 - **A weak master password.** Argon2id makes guessing slow, not impossible. New master passwords must be at least 12
   characters, use more than a handful of different characters and not be a well-known weak password, but these checks
   can't measure real strength. A short sentence of unrelated words is a good choice. Vaults created before this rule

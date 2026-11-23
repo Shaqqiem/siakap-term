@@ -61,7 +61,10 @@ pub fn run_capture_timeout(program: &str, args: &[&str], timeout: std::time::Dur
         if start.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{program} did not finish within {} s", timeout.as_secs())));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("{program} did not finish within {} s", timeout.as_secs()),
+            ));
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     };

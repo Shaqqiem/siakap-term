@@ -48,6 +48,12 @@ impl AppState {
         }
     }
 
+    /// Where the Windows-protected vault key is kept when the user chose to
+    /// open Siakap without the master password.
+    pub fn remember_path(&self) -> PathBuf {
+        self.vault().path().with_file_name("remember.json")
+    }
+
     /// Fail unless the vault is unlocked. Used by every command that touches
     /// sessions, terminals, files or devices: "locked" means locked.
     pub fn ensure_unlocked(&self) -> Result<()> {

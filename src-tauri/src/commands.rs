@@ -19,6 +19,7 @@ use siakap_core::model::{
     SessionKind, SessionSecret, Settings,
 };
 use siakap_core::pty::{self, EventSink, LocalPty, ShellInfo, TermEvent};
+use siakap_core::remember;
 use siakap_core::security_key;
 use siakap_core::serial::{self, SerialConfig, SerialTerm};
 use siakap_core::sftp::{Entry, Sftp};
@@ -37,12 +38,55 @@ type Res<T> = std::result::Result<T, CoreError>;
 pub struct VaultStatus {
     exists: bool,
     unlocked: bool,
+    /// This build can open the vault without the master password (Windows).
+    remember_available: bool,
+    /// The user turned that on: the key is saved for this Windows account.
+    remembered: bool,
 }
 
 #[tauri::command]
 pub fn vault_status(st: State<'_, AppState>) -> VaultStatus {
+    let remembered = remember::available() && remember::exists(&st.remember_path());
     let v = st.vault();
-    VaultStatus { exists: v.exists(), unlocked: v.is_unlocked() }
+    VaultStatus { exists: v.exists(), unlocked: v.is_unlocked(), remember_available: remember::available(), remembered }
+}
+
+/// Open the vault with the key saved for this Windows account. If that fails
+/// (password changed, profile moved, file damaged) the saved key is removed
+/// and the user types the master password as usual.
+#[tauri::command]
+pub async fn vault_unlock_remembered(st: State<'_, AppState>) -> Res<()> {
+    let path = st.remember_path();
+    let r = remember::load(&path).and_then(|k| st.vault().unlock_with_device_key(&k));
+    if r.is_err() {
+        let _ = remember::clear(&path);
+        return Err(CoreError::invalid(
+            "Siakap couldn't open without the master password this time (it may have been changed). Enter it below. You can turn the option on again in Settings.",
+        ));
+    }
+    st.touch();
+    Ok(())
+}
+
+/// Turn "ask for the master password when Siakap opens" off (`remember`
+/// true, needs the master password) or back on (deletes the saved key).
+#[tauri::command]
+pub async fn vault_set_remember(st: State<'_, AppState>, remember: bool, password: Option<String>) -> Res<()> {
+    st.ensure_unlocked()?;
+    let path = st.remember_path();
+    if !remember {
+        return remember::clear(&path);
+    }
+    let password = Zeroizing::new(password.unwrap_or_default());
+    let delay = st.unlock_delay();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    let ok = st.vault().verify_password(&password);
+    st.unlock_result(ok.is_ok());
+    ok?;
+    let key = st.vault().device_key()?;
+    remember::save(&path, &key)
 }
 
 #[tauri::command]
@@ -76,7 +120,16 @@ pub fn vault_lock(st: State<'_, AppState>) {
 #[tauri::command]
 pub async fn vault_change_password(st: State<'_, AppState>, old: String, new: String) -> Res<()> {
     let (old, new) = (Zeroizing::new(old), Zeroizing::new(new));
-    st.vault().change_password(&old, &new)
+    st.vault().change_password(&old, &new)?;
+    // Keep "open without the master password" working with the new key.
+    let path = st.remember_path();
+    if remember::exists(&path) {
+        let key = st.vault().device_key()?;
+        if remember::save(&path, &key).is_err() {
+            let _ = remember::clear(&path);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -871,12 +924,18 @@ pub async fn security_key_state(st: State<'_, AppState>) -> Res<Vec<security_key
 }
 
 #[tauri::command]
-pub async fn security_key_action(st: State<'_, AppState>, action: String, device: security_key::Selection) -> Res<security_key::Outcome> {
+pub async fn security_key_action(
+    st: State<'_, AppState>,
+    action: String,
+    device: security_key::Selection,
+) -> Res<security_key::Outcome> {
     st.ensure_unlocked()?;
     let attach = match action.as_str() {
         "attach" => true,
         "detach" => false,
         _ => return Err(CoreError::usbipd("Unknown action.")),
     };
-    tauri::async_runtime::spawn_blocking(move || security_key::act(attach, &device)).await.map_err(|e| CoreError::usbipd(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || security_key::act(attach, &device))
+        .await
+        .map_err(|e| CoreError::usbipd(e.to_string()))?
 }
