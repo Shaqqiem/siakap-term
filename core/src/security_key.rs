@@ -12,7 +12,7 @@
 //! * Sharing (`usbipd bind`) needs administrator rights: we explain it and
 //!   never elevate.
 //! * Every usbipd call has a time limit. After acting, the new state is
-//!   verified for up to 12 s by the key's stable sharing identity
+//!   verified for up to 6 s by the key's stable sharing identity
 //!   (PersistedGuid), waiting out Windows USB re-enumeration. A missing device
 //!   is never taken as proof of success.
 //! * `usbipd state` output is validated strictly; anything unexpected stops
@@ -36,7 +36,8 @@ const USUAL_PID: &str = "PID_0407";
 const USUAL_NAME: &str = "USB Input Device, Microsoft Usbccid Smartcard Reader (WUDF)";
 const STATE_TIMEOUT: Duration = Duration::from_secs(10);
 const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
-const VERIFY_BUDGET: Duration = Duration::from_secs(12);
+const VERIFY_BUDGET: Duration = Duration::from_secs(6);
+const VERIFY_POLL: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -294,7 +295,7 @@ pub fn act(attach: bool, sel: &Selection) -> Result<Outcome> {
     let mut last = String::from("No device list was read yet.");
     while start.elapsed() < VERIFY_BUDGET {
         let left = VERIFY_BUDGET.saturating_sub(start.elapsed());
-        match read_state(&exe, left.min(Duration::from_secs(3))) {
+        match read_state(&exe, left.min(Duration::from_secs(2))) {
             Ok(snapshot) => match check_post_state(&snapshot, &device, attach) {
                 Ok(d) => {
                     let b = d.bus_id.unwrap_or_default();
@@ -309,10 +310,10 @@ pub fn act(attach: bool, sel: &Selection) -> Result<Outcome> {
             },
             Err(e) => last = e.to_string(),
         }
-        std::thread::sleep(Duration::from_millis(400).min(VERIFY_BUDGET.saturating_sub(start.elapsed())));
+        std::thread::sleep(VERIFY_POLL.min(VERIFY_BUDGET.saturating_sub(start.elapsed())));
     }
     Err(CoreError::usbipd(format!(
-        "The usbipd command finished, but the result couldn't be confirmed within 12 seconds.\n\nLast check: {last}\n\nCheck the key's current state before trying again. A missing device is not treated as a successful detach."
+        "The usbipd command finished, but the result couldn't be confirmed within 6 seconds.\n\nLast check: {last}\n\nCheck the key's current state before trying again. A missing device is not treated as a successful detach."
     )))
 }
 

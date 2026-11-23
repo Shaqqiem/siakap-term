@@ -448,6 +448,7 @@ $("btn-security-key").addEventListener("click", async () => {
     }
     const pick = await chooseKey(live.sort((a, b) => Number(b.recommended) - Number(a.recommended)));
     if (!pick) return;
+    toast(pick.action === "attach" ? `Attaching ${pick.device.busId} to WSL…` : `Detaching ${pick.device.busId}…`, "info", 2500);
     const r = await api.securityKeyAction(pick.action, pick.device);
     if (r.kind === "already") await alertDialog(r.title, r.message);
     else toast(`${r.title}. ${r.message}`, "ok", 6000);

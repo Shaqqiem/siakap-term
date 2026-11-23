@@ -175,7 +175,7 @@ and shown first, and their BUSID and state. Pick one, then choose **Attach to WS
 - Right before acting, Siakap reads the device list again. If the key was unplugged, moved to another port or swapped,
   it stops instead of acting on a different device.
 - If the key is already where you asked, nothing is sent.
-- Afterwards Siakap waits up to 12 seconds for Windows to re-detect the key, and confirms the new state by the key's
+- Afterwards Siakap waits for Windows (at most 6 seconds) to re-detect the key, and confirms the new state by the key's
   sharing identity. A key that disappeared is never reported as a success.
 - Anything unexpected in usbipd's output stops with an error rather than a guess.
 
