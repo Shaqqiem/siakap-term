@@ -76,7 +76,9 @@ it can ask for:
 **Running other programs.** `usbipd`, `wsl` and the shells are started with fixed argument lists, never through a
 shell command line. On Windows they run without a console window. Program locations are resolved to absolute paths:
 `usbipd` from its standard install folder first, then `PATH`, ignoring any relative `PATH` entries. The current folder
-is never searched.
+is never searched. Every usbipd call has a time limit, and its output is validated strictly (bus id format, sharing
+identity, client address, consistent states, no repeated bus ids). The security key action re-checks that the chosen
+device is still the same one before it runs, and never asks for administrator rights.
 
 **Pasting.** Pasting text that contains line breaks shows you the text and asks before sending it.
 

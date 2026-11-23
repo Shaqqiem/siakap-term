@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 #[cfg(windows)]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[derive(Debug)]
 pub struct Output {
     pub success: bool,
     pub stdout: String,
@@ -28,6 +29,45 @@ pub fn command(program: &str, args: &[&str]) -> Command {
 pub fn run_capture(program: &str, args: &[&str]) -> std::io::Result<Output> {
     let out = command(program, args).output()?;
     Ok(Output { success: out.status.success(), stdout: decode(&out.stdout), stderr: decode(&out.stderr) })
+}
+
+/// Run with a time limit. Output is drained on background threads so a chatty
+/// program can't block; on timeout our own child is stopped and `TimedOut`
+/// is returned (the caller must then re-check the real state).
+pub fn run_capture_timeout(program: &str, args: &[&str], timeout: std::time::Duration) -> std::io::Result<Output> {
+    use std::io::Read;
+    let mut child = command(program, args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut out = child.stdout.take();
+    let mut err = child.stderr.take();
+    let t_out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(o) = out.as_mut() {
+            let _ = o.read_to_end(&mut b);
+        }
+        b
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(e) = err.as_mut() {
+            let _ = e.read_to_end(&mut b);
+        }
+        b
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait()? {
+            break st;
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{program} did not finish within {} s", timeout.as_secs())));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let stdout = t_out.join().unwrap_or_default();
+    let stderr = t_err.join().unwrap_or_default();
+    Ok(Output { success: status.success(), stdout: decode(&stdout), stderr: decode(&stderr) })
 }
 
 /// Decode bytes that may be UTF-16LE (with or without BOM) or UTF-8.
@@ -69,6 +109,18 @@ pub fn which(name: &str) -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::decode;
+
+    #[cfg(unix)]
+    #[test]
+    fn timeouts_stop_the_program() {
+        use std::time::Duration;
+        let ok = super::run_capture_timeout("/bin/sh", &["-c", "echo hi"], Duration::from_secs(5)).unwrap();
+        assert!(ok.success && ok.stdout.contains("hi"));
+        let t = std::time::Instant::now();
+        let e = super::run_capture_timeout("/bin/sh", &["-c", "sleep 30"], Duration::from_millis(300)).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
+        assert!(t.elapsed() < Duration::from_secs(5));
+    }
 
     #[test]
     fn decodes_utf16_and_utf8() {

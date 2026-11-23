@@ -1,14 +1,14 @@
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, messageOf, type Settings } from "./api";
+import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane } from "./tabs";
-import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, toast } from "./ui";
+import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
 
@@ -110,6 +110,12 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.4.1",
+    title: "Choose which security key to move",
+    text: "Key now lists your connected security keys. Pick one, then Attach to WSL or Detach. Siakap checks afterwards that the key really moved.",
+    target: "#btn-security-key",
   },
   {
     since: "0.4.0",
@@ -372,30 +378,84 @@ document.querySelectorAll<HTMLButtonElement>(".rail button[data-panel]").forEach
 $("btn-lock").addEventListener("click", () => void lockNow("Locked."));
 
 let keyBusy = false;
+
+/** Pick a security key and an action. Nothing is pre-selected when there is a choice. */
+function chooseKey(devices: KeyDevice[]): Promise<{ action: "attach" | "detach"; device: KeyDevice } | null> {
+  return modal<{ action: "attach" | "detach"; device: KeyDevice } | null>(
+    "Security key",
+    (close) => {
+      let chosen: KeyDevice | null = devices.length === 1 ? devices[0] : null;
+      const attachBtn = h("button", { class: "primary", onclick: () => chosen && close({ action: "attach", device: chosen }) }, "Attach to WSL");
+      const detachBtn = h("button", { onclick: () => chosen && close({ action: "detach", device: chosen }) }, "Detach");
+      const sync = () => {
+        (attachBtn as HTMLButtonElement).disabled = !chosen || chosen.attached;
+        (detachBtn as HTMLButtonElement).disabled = !chosen || !chosen.attached;
+      };
+      const rows = devices.map((d) => {
+        const radio = h("input", { type: "radio", name: "seckey", "aria-label": `BUSID ${d.busId}` }) as HTMLInputElement;
+        radio.checked = chosen === d;
+        const row = h(
+          "label",
+          { class: "key-row" },
+          radio,
+          h("span", { class: "key-bus" }, d.busId ?? ""),
+          h("span", { class: `key-state ${d.attached ? "on" : d.shared ? "" : "warn"}` }, d.state),
+          h(
+            "span",
+            { class: "key-name" },
+            h("span", {}, d.description || "(no name)", d.recommended ? h("span", { class: "badge" }, "usual key") : null),
+            h("span", { class: "muted small key-id" }, d.instanceId),
+          ),
+        );
+        radio.addEventListener("change", () => {
+          chosen = d;
+          sync();
+        });
+        return row;
+      });
+      sync();
+      return {
+        body: h(
+          "div",
+          {},
+          h(
+            "p",
+            { class: "muted" },
+            devices.length > 1
+              ? "More than one security key is connected. Choose the one to move; none is picked for you."
+              : "Attach gives the key to WSL (Windows apps lose it until you detach). Detach gives it back to Windows.",
+          ),
+          h("div", { class: "key-list" }, ...rows),
+        ),
+        actions: [h("button", { onclick: () => close(null) }, "Cancel"), detachBtn, attachBtn],
+        focus: chosen ? (chosen.attached ? detachBtn : attachBtn) : undefined,
+      };
+    },
+    { wide: true, dismissValue: null },
+  );
+}
+
 $("btn-security-key").addEventListener("click", async () => {
   if (keyBusy) return;
   keyBusy = true;
-  $("btn-security-key").classList.add("busy");
+  const btn = $("btn-security-key");
+  btn.classList.add("busy");
   try {
-    const devices = await api.securityKeyState();
-    const live = devices.filter((d) => d.busId);
-    const attached = live.length > 0 && live.every((d) => d.attached);
-    if (live.length && live.every((d) => d.shared)) {
-      const ok = await confirmDialog(
-        "Security key",
-        `${live.map((d) => `${d.busId}  ${d.description}  (${d.attached ? "attached to WSL" : "on Windows"})`).join("\n")}\n\n${attached ? "Detach from WSL and give it back to Windows?" : "Attach to WSL? Windows apps will lose access until you detach it."}`,
-        attached ? "Detach" : "Attach to WSL",
-      );
-      if (!ok) return;
+    const live = (await api.securityKeyState()).filter((d) => d.busId);
+    if (!live.length) {
+      await alertDialog("Security key", "No security key is connected.\n\nPlug it in, wait a moment and try again.");
+      return;
     }
-    const plan = await api.securityKeyToggle();
-    const ids = (plan.busIds ?? []).join(", ");
-    toast(plan.action === "attach" ? `Security key attached to WSL (${ids}).` : `Security key detached from WSL (${ids}).`, "ok");
+    const pick = await chooseKey(live.sort((a, b) => Number(b.recommended) - Number(a.recommended)));
+    if (!pick) return;
+    const r = await api.securityKeyAction(pick.action, pick.device);
+    if (r.kind === "already") await alertDialog(r.title, r.message);
+    else toast(`${r.title}. ${r.message}`, "ok", 6000);
   } catch (e) {
     await alertDialog("Security key", messageOf(e));
   } finally {
     keyBusy = false;
-    $("btn-security-key").classList.remove("busy");
+    btn.classList.remove("busy");
   }
 });
 

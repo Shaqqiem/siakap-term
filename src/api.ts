@@ -108,10 +108,18 @@ export interface KeyDevice {
   busId: string | null;
   description: string;
   instanceId: string;
+  persistedGuid: string | null;
   shared: boolean;
   attached: boolean;
+  state: string;
+  recommended: boolean;
 }
-export type KeyPlan = { action: "attach" | "detach"; busIds: string[] };
+export interface KeyOutcome {
+  kind: "done" | "already";
+  title: string;
+  message: string;
+  busId: string;
+}
 export type Step = { op: "line"; text: string } | { op: "type"; text: string } | { op: "wait"; ms: number };
 export type TermOut = { kind: "data"; b64: string } | { kind: "exit"; code: number | null };
 
@@ -200,7 +208,11 @@ export const api = {
   pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
   pickSave: (purpose: "download" | "export", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
-  securityKeyToggle: () => invoke<KeyPlan>("security_key_toggle"),
+  securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>
+    invoke<KeyOutcome>("security_key_action", {
+      action,
+      device: { busId: d.busId, instanceId: d.instanceId, persistedGuid: d.persistedGuid },
+    }),
 };
 
 export interface ImportReport {

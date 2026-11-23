@@ -871,7 +871,12 @@ pub async fn security_key_state(st: State<'_, AppState>) -> Res<Vec<security_key
 }
 
 #[tauri::command]
-pub async fn security_key_toggle(st: State<'_, AppState>) -> Res<security_key::Plan> {
+pub async fn security_key_action(st: State<'_, AppState>, action: String, device: security_key::Selection) -> Res<security_key::Outcome> {
     st.ensure_unlocked()?;
-    tauri::async_runtime::spawn_blocking(security_key::toggle).await.map_err(|e| CoreError::usbipd(e.to_string()))?
+    let attach = match action.as_str() {
+        "attach" => true,
+        "detach" => false,
+        _ => return Err(CoreError::usbipd("Unknown action.")),
+    };
+    tauri::async_runtime::spawn_blocking(move || security_key::act(attach, &device)).await.map_err(|e| CoreError::usbipd(e.to_string()))?
 }

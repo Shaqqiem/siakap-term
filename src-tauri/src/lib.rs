@@ -107,7 +107,7 @@ pub fn run() {
             commands::sftp_upload,
             commands::sftp_cancel,
             commands::security_key_state,
-            commands::security_key_toggle,
+            commands::security_key_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Siakap Terminal");

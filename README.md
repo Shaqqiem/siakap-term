@@ -55,8 +55,8 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Transfers stream in
   chunks, show progress and can be cancelled. An interrupted upload never damages the file already on the server, and
   Siakap asks before replacing an existing file.
-- **Security keys in WSL.** One button hands a USB security key over to WSL with `usbipd`, and gives it back to
-  Windows when you click it again.
+- **Security keys in WSL.** The Key button lists your connected security keys, and lets you attach one to WSL or
+  detach it back to Windows with `usbipd`. Siakap checks afterwards that the key really moved.
 - **No phoning home.** There is no telemetry, no update check and no analytics, and the app loads no remote fonts or
   scripts. The only network connections it makes are the SSH sessions you open.
 
@@ -168,8 +168,16 @@ usbipd list
 usbipd bind --busid <BUSID>
 ```
 
-After that, the key button in the left rail attaches every plugged-in security key to WSL, or detaches them all. If some
-are attached and some aren't, it refuses and asks you to fix that by hand.
+After that, click **Key** in the left rail. It lists the security keys that are plugged in, with your usual key marked
+and shown first, and their BUSID and state. Pick one, then choose **Attach to WSL** or **Detach**:
+
+- If more than one key is connected, nothing is selected for you.
+- Right before acting, Siakap reads the device list again. If the key was unplugged, moved to another port or swapped,
+  it stops instead of acting on a different device.
+- If the key is already where you asked, nothing is sent.
+- Afterwards Siakap waits up to 12 seconds for Windows to re-detect the key, and confirms the new state by the key's
+  sharing identity. A key that disappeared is never reported as a success.
+- Anything unexpected in usbipd's output stops with an error rather than a guess.
 
 ## Building from source
 
