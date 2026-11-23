@@ -2,9 +2,9 @@
 import { icon } from "./icons";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { api, Channel, messageOf, type Progress, type SftpEntry } from "./api";
+import { api, Channel, errorOf, messageOf, type Progress, type SftpEntry } from "./api";
 import type { Pane, TabManager } from "./tabs";
-import { $, fill, confirmDialog, fmtSize, h, promptDialog, toast } from "./ui";
+import { $, fill, confirmDialog, fmtSize, h, modal, promptDialog, toast } from "./ui";
 
 let transferSeq = 1;
 
@@ -212,6 +212,32 @@ export class SftpPanel {
     }
   }
 
+  /** Ask before replacing a file that already exists on the server. */
+  private askReplace(name: string, dir: string, many: boolean): Promise<"replace" | "skip" | "all-replace" | "all-skip" | "cancel"> {
+    return modal<"replace" | "skip" | "all-replace" | "all-skip" | "cancel">(
+      "Replace file on the server?",
+      (close) => {
+        const all = h("input", { type: "checkbox" });
+        const pick = (c: "replace" | "skip") => close(all.checked ? (`all-${c}` as const) : c);
+        return {
+          body: h(
+            "div",
+            { class: "form" },
+            h("p", {}, `${name} already exists in ${dir}.`),
+            h("p", { class: "muted small" }, "If you replace it, the old file stays untouched until the new one has fully arrived."),
+            many ? h("label", { class: "check" }, all, " Do the same for the other files") : null,
+          ),
+          actions: [
+            h("button", { onclick: () => close("cancel") }, "Cancel upload"),
+            h("button", { onclick: () => pick("skip") }, "Skip"),
+            h("button", { class: "danger", onclick: () => pick("replace") }, "Replace"),
+          ],
+        };
+      },
+      { dismissValue: "cancel" },
+    );
+  }
+
   private async pickUpload() {
     const p = await openDialog({ multiple: true, directory: false, title: "Upload files" });
     if (!p) return;
@@ -223,17 +249,37 @@ export class SftpPanel {
     if (id === null || !this.pane) return toast("Focus a connected SSH pane first.", "error");
     const dir = this.cwd.get(this.pane.uid);
     if (!dir) return;
+    // "replace" / "skip" chosen with "for all remaining files".
+    let remembered: "replace" | "skip" | null = null;
     for (const local of paths) {
-      const tid = transferSeq++;
-      const t = this.transferRow(`Upload ${baseName(local)}`, tid);
-      try {
-        await api.sftpUpload(id, tid, local, dir, t.ch);
-        t.txt.textContent = "done";
-      } catch (x) {
-        t.txt.textContent = messageOf(x);
-        toast(`${baseName(local)}: ${messageOf(x)}`, "error");
-      } finally {
-        t.done();
+      const name = baseName(local);
+      let overwrite = remembered === "replace";
+      for (;;) {
+        const tid = transferSeq++;
+        const t = this.transferRow(`Upload ${name}`, tid);
+        try {
+          await api.sftpUpload(id, tid, local, dir, overwrite, t.ch);
+          t.txt.textContent = "done";
+          t.done();
+          break;
+        } catch (x) {
+          t.done();
+          if (errorOf(x).kind === "remoteExists" && !overwrite) {
+            t.txt.textContent = "already exists";
+            type Choice = "replace" | "skip" | "all-replace" | "all-skip" | "cancel";
+            const choice: Choice = remembered ?? (await this.askReplace(name, dir, paths.length > 1));
+            if (choice.startsWith("all-")) remembered = choice === "all-replace" ? "replace" : "skip";
+            if (choice === "cancel") return this.refresh(dir);
+            if (choice.endsWith("replace")) {
+              overwrite = true;
+              continue;
+            }
+            break; // skip this file
+          }
+          t.txt.textContent = messageOf(x);
+          toast(`${name}: ${messageOf(x)}`, "error");
+          break;
+        }
       }
     }
     await this.refresh(dir);

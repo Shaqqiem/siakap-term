@@ -9,6 +9,8 @@ use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{CoreError, Result};
+use crate::model::new_id;
+use russh_sftp::protocol::OpenFlags;
 
 pub const CHUNK: usize = 256 * 1024;
 
@@ -136,6 +138,11 @@ impl Sftp {
     }
 
     /// Stream a remote file to a local path. `progress(done, total)`.
+    ///
+    /// Data goes to a new, unpredictably named temporary file in the target
+    /// folder (created exclusively, so two transfers can never share it) and
+    /// is renamed over `local` only after the whole file arrived. A failed or
+    /// cancelled download leaves `local` untouched.
     pub async fn download(
         &self,
         remote: &str,
@@ -146,11 +153,10 @@ impl Sftp {
         validate_path(remote)?;
         let total = self.s.metadata(remote).await?.size.unwrap_or(0);
         let mut rf = self.s.open(remote).await?;
-        let part = local.with_extension(format!(
-            "{}siakap-part",
-            local.extension().map(|e| format!("{}.", e.to_string_lossy())).unwrap_or_default()
-        ));
-        let mut lf = tokio::fs::File::create(&part).await?;
+        let dir = local.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let name = local.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "download".into());
+        let part = dir.join(format!(".{name}.{}.siakap-part", new_id()));
+        let mut lf = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&part).await?;
         let res: Result<u64> = async {
             let mut buf = vec![0u8; CHUNK];
             let mut done = 0u64;
@@ -174,7 +180,10 @@ impl Sftp {
         drop(lf);
         match res {
             Ok(n) => {
-                tokio::fs::rename(&part, local).await?;
+                if let Err(e) = tokio::fs::rename(&part, local).await {
+                    let _ = tokio::fs::remove_file(&part).await;
+                    return Err(e.into());
+                }
                 Ok(n)
             }
             Err(e) => {
@@ -185,10 +194,17 @@ impl Sftp {
     }
 
     /// Stream a local file into `remote_dir`. Returns the remote path.
+    ///
+    /// The existing remote file is never opened or truncated. Data goes to a
+    /// new temporary file next to it (created exclusively); only when the
+    /// upload has completed is it moved into place. If the destination exists
+    /// and `overwrite` is false, `RemoteExists` is returned before anything is
+    /// written. A failed or cancelled upload removes only its own temp file.
     pub async fn upload(
         &self,
         local: &Path,
         remote_dir: &str,
+        overwrite: bool,
         cancel: Arc<AtomicBool>,
         progress: impl Fn(u64, u64),
     ) -> Result<String> {
@@ -202,8 +218,24 @@ impl Sftp {
         }
         let total = meta.len();
         let remote = join(remote_dir, name)?;
+
+        let existing = self.s.metadata(remote.clone()).await.ok();
+        if let Some(m) = &existing {
+            if m.is_dir() {
+                return Err(CoreError::invalid(format!("{remote} is a folder on the server.")));
+            }
+            if !overwrite {
+                return Err(CoreError::RemoteExists {
+                    message: format!("{name} already exists in {remote_dir}."),
+                    path: remote,
+                });
+            }
+        }
+
+        let tmp = join(remote_dir, &format!(".{name}.{}.siakap-upload", new_id()))?;
+        let mut rf =
+            self.s.open_with_flags(tmp.clone(), OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::EXCLUDE).await?;
         let mut lf = tokio::fs::File::open(local).await?;
-        let mut rf = self.s.create(remote.clone()).await?;
         let mut buf = vec![0u8; CHUNK];
         let mut done = 0u64;
         let res: Result<()> = async {
@@ -224,12 +256,73 @@ impl Sftp {
             Ok(())
         }
         .await;
+        drop(rf);
         if let Err(e) = res {
-            drop(rf);
-            let _ = self.s.remove_file(remote.clone()).await;
+            let _ = self.s.remove_file(tmp.clone()).await;
             return Err(e);
         }
-        Ok(remote)
+        // Keep the permissions of the file being replaced (e.g. an executable script).
+        if let Some(perm) = existing.as_ref().and_then(|m| m.permissions) {
+            let mut attrs = russh_sftp::protocol::FileAttributes::empty();
+            attrs.permissions = Some(perm & 0o7777);
+            let _ = self.s.set_metadata(tmp.clone(), attrs).await;
+        }
+        match self.move_into_place(&tmp, &remote, existing.is_some(), true).await {
+            Ok(()) => Ok(remote),
+            Err(e) => {
+                let _ = self.s.remove_file(tmp).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Move a finished temp file onto `dest`.
+    ///
+    /// * New file: plain SFTP rename, which fails rather than replacing if
+    ///   something appeared at `dest` meanwhile.
+    /// * Replacing: atomic `posix-rename@openssh.com` when the server has it;
+    ///   otherwise the old file is renamed aside, the new one moved in, and the
+    ///   old one put back if that fails.
+    async fn move_into_place(&self, tmp: &str, dest: &str, replacing: bool, allow_posix: bool) -> Result<()> {
+        if !replacing {
+            self.s.rename(tmp, dest).await.map_err(|e| CoreError::sftp(format!("Could not finish the upload: {e}")))?;
+            return Ok(());
+        }
+        if allow_posix
+            && self
+                .s
+                .posix_rename(tmp, dest)
+                .await
+                .map_err(|e| CoreError::sftp(format!("Could not replace {dest}: {e}")))?
+        {
+            return Ok(());
+        }
+        let dir = parent(dest);
+        let base = dest.rsplit('/').next().unwrap_or("file");
+        let backup = join(&dir, &format!(".{base}.{}.siakap-old", new_id()))?;
+        self.s
+            .rename(dest, backup.clone())
+            .await
+            .map_err(|e| CoreError::sftp(format!("Could not replace {dest}: {e}")))?;
+        if let Err(e) = self.s.rename(tmp, dest).await {
+            // Put the original back.
+            let _ = self.s.rename(backup.clone(), dest).await;
+            return Err(CoreError::sftp(format!("Could not replace {dest}; the original was kept: {e}")));
+        }
+        let _ = self.s.remove_file(backup).await;
+        Ok(())
+    }
+
+    /// Change attributes such as permissions.
+    pub async fn set_metadata(&self, path: &str, attrs: russh_sftp::protocol::FileAttributes) -> Result<()> {
+        validate_path(path)?;
+        self.s.set_metadata(path, attrs).await?;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub async fn test_move_into_place(&self, tmp: &str, dest: &str, replacing: bool, allow_posix: bool) -> Result<()> {
+        self.move_into_place(tmp, dest, replacing, allow_posix).await
     }
 
     pub async fn close(&self) {

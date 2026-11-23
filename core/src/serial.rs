@@ -339,12 +339,16 @@ mod tests {
         });
         let term = SerialTerm::open(&SerialConfig { port: name, baud: 115200, ..Default::default() }, sink).unwrap();
         let mut w = pair.master.take_writer().unwrap();
-        w.write_all(b"Router>").unwrap();
+        // Opening the port may flush input that arrived first, so repeat the
+        // prompt until it comes through (like pressing Enter on a console).
         let mut got = Vec::new();
-        while let Ok(TermEvent::Data(d)) = rx.recv_timeout(Duration::from_secs(3)) {
-            got.extend(d);
-            if String::from_utf8_lossy(&got).contains("Router>") {
-                break;
+        for _ in 0..30 {
+            w.write_all(b"Router>").unwrap();
+            if let Ok(TermEvent::Data(d)) = rx.recv_timeout(Duration::from_millis(200)) {
+                got.extend(d);
+                if String::from_utf8_lossy(&got).contains("Router>") {
+                    break;
+                }
             }
         }
         assert!(String::from_utf8_lossy(&got).contains("Router>"));

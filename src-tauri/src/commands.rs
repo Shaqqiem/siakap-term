@@ -711,12 +711,13 @@ pub async fn sftp_upload(
     transfer_id: u32,
     local: String,
     remote_dir: String,
+    overwrite: bool,
     progress: Channel<Progress>,
 ) -> Res<String> {
     let local = user_file_path(&local)?;
     let s = sftp_for(&st, id).await?;
     let flag = register_transfer(&st, transfer_id);
-    let r = s.upload(&local, &remote_dir, flag, progress_cb(progress)).await;
+    let r = s.upload(&local, &remote_dir, overwrite, flag, progress_cb(progress)).await;
     finish_transfer(&st, transfer_id);
     r
 }

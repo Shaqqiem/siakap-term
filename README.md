@@ -53,7 +53,8 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   control can be changed. `Ctrl+Shift+B` sends a break for password recovery.
 - **SFTP.** The side panel follows whichever SSH tab is focused and reuses its connection. Browse, create folders,
   rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Transfers stream in
-  chunks, show progress and can be cancelled.
+  chunks, show progress and can be cancelled. An interrupted upload never damages the file already on the server, and
+  Siakap asks before replacing an existing file.
 - **Security keys in WSL.** One button hands a USB security key over to WSL with `usbipd`, and gives it back to
   Windows when you click it again.
 - **No phoning home.** There is no telemetry, no update check and no analytics, and the app loads no remote fonts or
@@ -74,7 +75,7 @@ adds it if it's missing. If you want agent authentication, turn on the OpenSSH a
 security key button needs [usbipd-win](https://github.com/dorssel/usbipd-win) 4.x.
 
 The first time it starts, Siakap asks you to choose a master password and creates the vault at
-`%APPDATA%\dev.siakap.terminal\vault.json`. There's no recovery if you forget the password.
+`%APPDATA%\dev.siakap.terminal\vault.json`. Use at least 12 characters (a short sentence works well). There's no recovery if you forget the password.
 
 ## Using it
 

@@ -191,8 +191,8 @@ export const api = {
   sftpRemove: (id: number, path: string, isDir: boolean) => invoke<void>("sftp_remove", { id, path, isDir }),
   sftpDownload: (id: number, transferId: number, remote: string, local: string, progress: Channel<Progress>) =>
     invoke<number>("sftp_download", { id, transferId, remote, local, progress }),
-  sftpUpload: (id: number, transferId: number, local: string, remoteDir: string, progress: Channel<Progress>) =>
-    invoke<string>("sftp_upload", { id, transferId, local, remoteDir, progress }),
+  sftpUpload: (id: number, transferId: number, local: string, remoteDir: string, overwrite: boolean, progress: Channel<Progress>) =>
+    invoke<string>("sftp_upload", { id, transferId, local, remoteDir, overwrite, progress }),
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),

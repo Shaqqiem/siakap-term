@@ -25,7 +25,10 @@ use crate::model::VaultData;
 pub const VAULT_VERSION: u32 = 1;
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 24;
-const MIN_PASSWORD_CHARS: usize = 8;
+/// Minimum length for a *new* master password (vault creation or change).
+/// Existing vaults keep unlocking with whatever password they were made with.
+pub const MIN_PASSWORD_CHARS: usize = 12;
+const MIN_DISTINCT_CHARS: usize = 5;
 
 /// Argon2id cost parameters. `m` is in KiB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,11 +253,28 @@ impl KdfParams {
     }
 }
 
-fn check_new_password(p: &str) -> Result<()> {
+/// Rules for a new master password: at least 12 characters, not made of a
+/// handful of repeated characters, and not a well-known weak password.
+pub fn check_new_password(p: &str) -> Result<()> {
     if p.chars().count() < MIN_PASSWORD_CHARS {
         return Err(CoreError::invalid(format!(
-            "The master password must be at least {MIN_PASSWORD_CHARS} characters."
+            "The master password must be at least {MIN_PASSWORD_CHARS} characters. A short sentence works well."
         )));
+    }
+    let distinct: std::collections::HashSet<char> = p.chars().flat_map(char::to_lowercase).collect();
+    if distinct.len() < MIN_DISTINCT_CHARS {
+        return Err(CoreError::invalid("That password repeats too few characters. Try a short sentence instead."));
+    }
+    let lower = p.to_lowercase();
+    const WEAK: &[&str] =
+        &["password", "123456", "qwerty", "letmein", "welcome", "siakap", "admin", "abc123", "iloveyou"];
+    let stripped: String = lower.chars().filter(|c| c.is_alphanumeric()).collect();
+    if WEAK.iter().any(|w| {
+        stripped == *w
+            || stripped.trim_end_matches(|c: char| c.is_ascii_digit()) == *w
+            || (stripped.starts_with(w) && stripped.len() <= w.len() + 4)
+    }) {
+        return Err(CoreError::invalid("That password is too easy to guess. Try a short sentence instead."));
     }
     Ok(())
 }
@@ -392,12 +412,14 @@ mod tests {
     fn change_password_and_create_twice() {
         let dir = tempfile::tempdir().unwrap();
         let mut v = new_vault(&dir);
-        assert!(v.create_with_params("another password", TEST_KDF).is_err());
-        assert!(v.change_password("wrong one!!", "new password 1").is_err());
-        v.change_password("correct horse battery", "new password 1").unwrap();
+        assert!(v.create_with_params("another password here", TEST_KDF).is_err());
+        assert!(v.change_password("wrong one!!", "new password one").is_err());
+        // The new password must meet the current rules.
+        assert!(v.change_password("correct horse battery", "short pw").is_err());
+        v.change_password("correct horse battery", "new password one").unwrap();
         v.lock();
         assert!(v.unlock("correct horse battery").is_err());
-        v.unlock("new password 1").unwrap();
+        v.unlock("new password one").unwrap();
     }
 
     #[test]
@@ -406,6 +428,38 @@ mod tests {
         let mut v = Vault::new(dir.path().join("v.json"));
         assert!(v.create_with_params("short", TEST_KDF).is_err());
         assert!(!v.exists());
+    }
+
+    #[test]
+    fn new_password_rules() {
+        for bad in [
+            "elevenchars",
+            "aaaaaaaaaaaaaaa",
+            "abababababab",
+            "Password1234",
+            "password!!!!",
+            "qwerty123456",
+            "Siakap2026!!",
+        ] {
+            assert!(check_new_password(bad).is_err(), "{bad} should be rejected");
+        }
+        for good in ["correct horse battery", "my dog eats 3 socks", "Tr0ub4dor&3xyz"] {
+            assert!(check_new_password(good).is_ok(), "{good} should be accepted");
+        }
+    }
+
+    #[test]
+    fn existing_short_password_still_unlocks() {
+        // A vault made before the 12-character rule keeps working.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.json");
+        let mut v = Vault::new(&path);
+        let salt = [7u8; SALT_LEN];
+        let key = derive_key("old8char", &salt, TEST_KDF).unwrap();
+        v.unlocked = Some(Unlocked { key, salt, params: TEST_KDF, data: VaultData::default() });
+        v.save().unwrap();
+        v.lock();
+        Vault::new(&path).unlock("old8char").unwrap();
     }
 
     #[test]

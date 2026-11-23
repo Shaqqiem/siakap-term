@@ -233,7 +233,7 @@ $("lock-form").addEventListener("submit", async (e) => {
   const btn = $("lock-submit") as HTMLButtonElement;
   err.textContent = "";
   if (form.dataset.mode === "create") {
-    if (pass.value.length < 8) return void (err.textContent = "Use at least 8 characters.");
+    if (pass.value.length < 12) return void (err.textContent = "Use at least 12 characters. A short sentence works well.");
     if (pass.value !== pass2.value) return void (err.textContent = "The passwords don't match.");
   }
   btn.disabled = true;

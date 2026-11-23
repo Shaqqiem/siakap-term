@@ -15,11 +15,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -56,11 +56,29 @@ jobs:
           Get-Content SHA256SUMS.txt
           Pop-Location
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: siakap-terminal-windows-x64
           path: dist-installers/*
           if-no-files-found: error
+
+  # Known-vulnerability scan of Rust and npm dependencies (RustSec / npm advisories).
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+      - name: npm audit
+        run: npm audit --audit-level=high
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
   # Publishes a GitHub Release for the version in src-tauri/tauri.conf.json the
   # first time that version reaches main (or when a v* tag is pushed). To ship a
@@ -72,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Work out the version
@@ -88,7 +106,7 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         if: steps.ver.outputs.exists == 'false'
         with:
           name: siakap-terminal-windows-x64

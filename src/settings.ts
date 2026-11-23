@@ -237,7 +237,7 @@ export class SettingsPanel {
     await modal<void>("Change master password", (close) => {
       const go = async () => {
         if (n1.value !== n2.value) return void (err.textContent = "The new passwords don't match.");
-        if (n1.value.length < 8) return void (err.textContent = "Use at least 8 characters.");
+        if (n1.value.length < 12) return void (err.textContent = "Use at least 12 characters. A short sentence works well.");
         try {
           await api.vaultChangePassword(old.value, n1.value);
           old.value = n1.value = n2.value = "";

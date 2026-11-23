@@ -57,6 +57,8 @@ pub enum CoreError {
     Usbipd { message: String },
     #[error("cancelled")]
     Cancelled { message: String },
+    #[error("{message}")]
+    RemoteExists { message: String, path: String },
 }
 
 impl CoreError {

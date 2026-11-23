@@ -124,7 +124,7 @@ async fn live_ssh_tofu_shell_and_sftp() {
     assert!(*calls.lock().unwrap() > 1, "streamed in chunks");
     std::fs::rename(&local, dir.path().join("siakap-upload-test.bin")).unwrap();
     let remote = sftp
-        .upload(&dir.path().join("siakap-upload-test.bin"), &home, Arc::new(AtomicBool::new(false)), |_, _| {})
+        .upload(&dir.path().join("siakap-upload-test.bin"), &home, false, Arc::new(AtomicBool::new(false)), |_, _| {})
         .await
         .unwrap();
     let back = dir.path().join("roundtrip.bin");
@@ -135,6 +135,8 @@ async fn live_ssh_tofu_shell_and_sftp() {
     let r = sftp.download(&big.path, &cancelled, Arc::new(AtomicBool::new(true)), |_, _| {}).await;
     assert!(matches!(r, Err(CoreError::Cancelled { .. })));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+
+    data_safety(&sftp, &home).await;
 
     sftp.mkdir(&home, "siakap-dir").await.unwrap();
     sftp.rename(&format!("{home}/siakap-dir"), "siakap-dir2").await.unwrap();
@@ -151,4 +153,103 @@ async fn live_ssh_tofu_shell_and_sftp() {
     }
     assert!(exited.lock().unwrap().is_some(), "exit event");
     conn.disconnect().await;
+}
+
+/// Uploads never destroy an existing remote file; downloads never clobber a
+/// local file unless they complete.
+async fn data_safety(sftp: &Sftp, home: &str) {
+    let flag = |v: bool| Arc::new(AtomicBool::new(v));
+    let work = format!("siakap-safety-{}", std::process::id());
+    sftp.mkdir(home, &work).await.unwrap();
+    let rdir = format!("{home}/{work}");
+    let local = tempfile::tempdir().unwrap();
+    let put = |name: &str, body: &[u8]| {
+        let p = local.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        p
+    };
+    let read_remote = |path: String| {
+        let out = local.path().join(format!("check-{}", siakap_core::model::new_id()));
+        async move {
+            sftp.download(&path, &out, flag(false), |_, _| {}).await.unwrap();
+            std::fs::read(&out).unwrap()
+        }
+    };
+    let leftovers = || async {
+        sftp.list(&rdir)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.name.contains("siakap-"))
+            .map(|e| e.name)
+            .collect::<Vec<_>>()
+    };
+
+    // An original remote file.
+    let orig = put("keep.txt", b"ORIGINAL");
+    let remote = sftp.upload(&orig, &rdir, false, flag(false), |_, _| {}).await.unwrap();
+    assert_eq!(read_remote(remote.clone()).await, b"ORIGINAL");
+
+    // 1. Without overwrite: refused before anything is written.
+    let newer_dir = tempfile::tempdir().unwrap();
+    let newer = newer_dir.path().join("keep.txt");
+    std::fs::write(&newer, vec![b'N'; 3_000_000]).unwrap();
+    let e = sftp.upload(&newer, &rdir, false, flag(false), |_, _| {}).await.unwrap_err();
+    assert!(matches!(e, CoreError::RemoteExists { .. }), "{e:?}");
+    assert_eq!(read_remote(remote.clone()).await, b"ORIGINAL");
+
+    // 2. Cancelled while replacing: the original survives, no temp file is left.
+    let cancel = flag(false);
+    let c2 = cancel.clone();
+    let e = sftp
+        .upload(&newer, &rdir, true, cancel, move |done, _| {
+            if done > 500_000 {
+                c2.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(e, CoreError::Cancelled { .. }), "{e:?}");
+    assert_eq!(read_remote(remote.clone()).await, b"ORIGINAL", "cancelled upload must not touch the original");
+    assert!(leftovers().await.is_empty(), "temp files left: {:?}", leftovers().await);
+
+    // 3. Replacing for real keeps the old file's permissions.
+    let mut attrs = russh_sftp::protocol::FileAttributes::empty();
+    attrs.permissions = Some(0o750);
+    let _ = sftp_set_mode(sftp, &remote, attrs).await;
+    sftp.upload(&newer, &rdir, true, flag(false), |_, _| {}).await.unwrap();
+    assert_eq!(read_remote(remote.clone()).await.len(), 3_000_000);
+    let mode = sftp.list(&rdir).await.unwrap().into_iter().find(|e| e.name == "keep.txt").unwrap().permissions.unwrap();
+    assert_eq!(mode & 0o777, 0o750, "permissions kept");
+    assert!(leftovers().await.is_empty());
+
+    // 4. Servers without posix-rename: swap through a backup.
+    let third = put("third.txt", b"THIRD");
+    let staged = sftp.upload(&third, &rdir, false, flag(false), |_, _| {}).await.unwrap();
+    sftp.test_move_into_place(&staged, &remote, true, false).await.unwrap();
+    assert_eq!(read_remote(remote.clone()).await, b"THIRD");
+    assert!(leftovers().await.is_empty(), "backup left behind: {:?}", leftovers().await);
+
+    // 5. A cancelled download leaves the existing local file alone.
+    let target = local.path().join("existing.txt");
+    std::fs::write(&target, b"LOCAL").unwrap();
+    let e = sftp.download(&remote, &target, flag(true), |_, _| {}).await.unwrap_err();
+    assert!(matches!(e, CoreError::Cancelled { .. }));
+    assert_eq!(std::fs::read(&target).unwrap(), b"LOCAL");
+    assert!(!std::fs::read_dir(local.path()).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains("siakap-part")));
+
+    sftp.remove(&remote, false).await.unwrap();
+    sftp.remove(&rdir, true).await.unwrap();
+}
+
+async fn sftp_set_mode(
+    sftp: &Sftp,
+    path: &str,
+    attrs: russh_sftp::protocol::FileAttributes,
+) -> siakap_core::Result<()> {
+    sftp.set_metadata(path, attrs).await
 }

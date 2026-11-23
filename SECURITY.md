@@ -19,6 +19,13 @@ laptop, a backup or a synced folder, has to guess your password, and every guess
 any of it makes unlocking fail. The app also refuses KDF settings outside sane limits, so a modified file can't quietly
 weaken the key derivation.
 
+**File transfers can't destroy files.** SFTP uploads never open the existing remote file. Data goes to a new,
+randomly named temporary file next to it, created exclusively, and is only moved into place once the transfer has
+finished. That uses OpenSSH's atomic `posix-rename` where the server supports it. Otherwise the old file is moved aside,
+the new one moved in, and the old one restored if that fails. If a file already exists, Siakap asks before replacing it
+and keeps its permissions. A failed or cancelled upload removes only its own temporary file. Downloads work the same
+way on your PC: an unpredictable temporary name, created exclusively, renamed over the target only when complete.
+
 **Partial writes.** Saves go to a temporary file first, which is flushed to disk and then renamed over the old one. A
 crash or power cut leaves you with either the old vault or the new one, never half of each.
 
@@ -76,8 +83,10 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
 
 - **Malware running as you while the vault is unlocked.** It can read memory, log keystrokes, watch the clipboard or
   drive the app. No desktop app can defend against that.
-- **A weak master password.** Argon2id makes guessing slow, not impossible. Eight characters is the minimum, but a
-  long passphrase is much better.
+- **A weak master password.** Argon2id makes guessing slow, not impossible. New master passwords must be at least 12
+  characters, use more than a handful of different characters and not be a well-known weak password, but these checks
+  can't measure real strength. A short sentence of unrelated words is a good choice. Vaults created before this rule
+  keep unlocking with their existing password; the rule applies when you set a new one.
 - **Terminals left open after locking.** Locking wipes the vault from memory and hides the window contents, but open
   SSH and local sessions keep running, and their scrollback stays in memory. I chose this so a short idle timeout
   doesn't kill long-running jobs. Close the sessions you don't want left open.
@@ -92,6 +101,15 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
   into it, and Tauri disables SmartScreen lookups, but the runtime itself is outside this app's control.
 - **The servers you connect to**, and whatever they do with what you type.
 - **Exported macros.** These are plain JSON files, so don't put secrets in macros.
+
+## Supply chain
+
+- Dependencies are locked (`Cargo.lock`, `package-lock.json`), and CI builds with `--locked` / `npm ci`.
+- Every GitHub Action in the workflow is pinned to a full commit hash, not a movable tag.
+- CI runs `cargo audit` (RustSec) and `npm audit` on every push. When this was written, neither reported a known
+  vulnerability. `cargo audit` lists three advisories that are not vulnerabilities: `chrono` and `proc-macro-error`
+  are unmaintained, and `glib` has an unsoundness advisory, but `glib` is only used by the Linux build (GTK), not on
+  Windows.
 
 ## Implementation details
 
