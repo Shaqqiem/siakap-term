@@ -74,8 +74,9 @@ Text from the vault is always inserted with `textContent`, never as HTML. The we
 app's own pages (enforced by the backend), and it can't open new windows. Links that a program or server prints into
 the terminal (OSC 8 hyperlinks) are never opened. Clicking one shows the address as text, with a button to copy it.
 
-**Access to your system.** The web view gets Tauri's core defaults and nothing else: no dialog, shell or filesystem
-permission. The backend treats the web view as untrusted, as if it could be running injected script, and limits what
+**Access to your system.** The web view gets Tauri's core defaults plus the five window controls the title bar needs
+(minimise, maximise, close, drag, and checking whether the window is maximised), and nothing else: no dialog, shell,
+filesystem or clipboard permission. The backend treats the web view as untrusted, as if it could be running injected script, and limits what
 it can ask for:
 
 - **Files:** file dialogs are opened by the backend. Each path you pick, or drop onto the window, becomes a one-time
@@ -84,7 +85,10 @@ it can ask for:
 - **Host keys:** `trust_host_key` only accepts the exact key a server presented in a connection that was just refused.
   A key can't be planted for a host you never connected to.
 - **Locked means locked:** while the vault is locked, every command that opens, types into or lists terminals, files,
-  serial ports or the security key is refused.
+  serial ports, the clipboard, installed fonts or the security key is refused.
+- **Clipboard:** copy and paste go through two backend commands, because the web view may refuse to read the
+  clipboard itself. They work only while the vault is unlocked and handle at most 8 MB of text. This does mean that
+  script running in the web view while it is unlocked could read the clipboard, the same as any program running as you.
 - **Programs:** shells are picked from a detected list by id. Host names, user names and serial port names are
   validated, SFTP names can't contain `/` or be `..`, and usbipd bus ids may only contain digits and dashes.
 
@@ -98,7 +102,10 @@ is never searched. Every usbipd call has a time limit, and its output is validat
 identity, client address, consistent states, no repeated bus ids). The security key action re-checks that the chosen
 device is still the same one before it runs, and never asks for administrator rights.
 
-**Pasting.** Pasting text that contains line breaks shows you the text and asks before sending it.
+**Pasting.** Pasting text that contains line breaks shows you the text and asks before sending it, whichever way you
+paste: right-click, the menu, or `Ctrl+Shift+V`. Pasted text that is a single line is typed but not run, because
+nothing presses Enter for you. Right-click pastes by default (it copies instead when text is selected); turn it off
+under Settings > Look if you'd rather get a menu.
 
 **Macro input.** In the default safe mode, placeholder values must match `^[A-Za-z0-9 _./:@,+-]+$`. Unrestricted mode
 still rejects control characters, so a value can't add an Enter. The check runs in the Rust backend using the setting
@@ -143,7 +150,9 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
 
 - Dependencies are locked (`Cargo.lock`, `package-lock.json`), and CI builds with `--locked` / `npm ci`.
 - Every GitHub Action in the workflow is pinned to a full commit hash, not a movable tag.
-- CI runs `cargo audit` (RustSec) and `npm audit` on every push. When this was written, neither reported a known
+- The clipboard uses `arboard`; on Windows the vault key protection uses `windows-sys` (DPAPI). Both are widely
+  used crates and are covered by the audit below.
+- CI runs `cargo audit` (RustSec) and `npm audit` on every push. At version 0.5.2, neither reported a known
   vulnerability. `cargo audit` lists three advisories that are not vulnerabilities: `chrono` and `proc-macro-error`
   are unmaintained, and `glib` has an unsoundness advisory, but `glib` is only used by the Linux build (GTK), not on
   Windows.
@@ -155,5 +164,6 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
 - The vault file format is `{version: 1, kdf: {alg: "argon2id", m, t, p, salt}, nonce, ciphertext}`, with binary
   fields in base64. The authenticated header string is `siakap-vault|v<version>|<alg>|m=<m>|t=<t>|p=<p>|<salt>`.
 - Changing the master password re-encrypts the vault with a new salt. It never lowers the KDF settings.
+- The app is built on Tauri 2.12 with WebView2 on Windows.
 - Tauri's `freezePrototype` option is off, because xterm.js modifies built-in prototypes when it loads and breaks with
   it enabled.
