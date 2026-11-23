@@ -34,6 +34,8 @@ export interface Pane {
   pending: string[];
   /** Reconnect in place after the connection ended (R key). */
   reconnect?: () => void;
+  /** Size last given to the shell or server ("cols x rows"). */
+  sentSize?: string;
 }
 
 /** Turn low-level errors into something a non-technical colleague can act on. */
@@ -333,17 +335,31 @@ export class TabManager {
     pane.term.focus();
   }
 
+  /**
+   * Fit the terminal to its pane and tell the shell or server whenever the
+   * size differs from what it was last told. Comparing with the size last
+   * *sent* (not the size before this fit) matters: a fit that happens while
+   * the connection is still opening must still be sent once it is open.
+   */
   private refit(p: Pane) {
     if (p.disposed || !p.el.isConnected || p.el.clientWidth === 0) return;
-    const before = [p.term.cols, p.term.rows];
     try {
       p.fit.fit();
     } catch {
       return;
     }
-    if (p.termId !== null && (before[0] !== p.term.cols || before[1] !== p.term.rows)) {
+    const size = `${p.term.cols}x${p.term.rows}`;
+    if (p.termId !== null && p.sentSize !== size) {
+      p.sentSize = size;
       api.termResize(p.termId, p.term.cols, p.term.rows).catch(() => {});
     }
+  }
+
+  /** Measure the pane now, so a new shell or server starts at the right size. */
+  private sizeForOpen(p: Pane): [number, number] {
+    this.refit(p);
+    p.sentSize = `${p.term.cols}x${p.term.rows}`;
+    return [p.term.cols, p.term.rows];
   }
 
   private wireChannel(pane: Pane): Channel<TermOut> {
@@ -407,7 +423,8 @@ export class TabManager {
 
   private async connectLocal(pane: Pane) {
     try {
-      pane.termId = await api.termOpenLocal(pane.shellId ?? "", pane.term.cols, pane.term.rows, this.wireChannel(pane));
+      const [cols, rows] = this.sizeForOpen(pane);
+      pane.termId = await api.termOpenLocal(pane.shellId ?? "", cols, rows, this.wireChannel(pane));
       this.markConnected(pane);
     } catch (e) {
       this.failPane(pane, errorOf(e).message);
@@ -429,7 +446,8 @@ export class TabManager {
     let passphrase: string | undefined;
     for (let attempt = 0; attempt < 6; attempt++) {
       try {
-        pane.termId = await api.termOpenSsh(session.id, pane.term.cols, pane.term.rows, this.wireChannel(pane), password, passphrase);
+        const [cols, rows] = this.sizeForOpen(pane);
+        pane.termId = await api.termOpenSsh(session.id, cols, rows, this.wireChannel(pane), password, passphrase);
         password = passphrase = undefined;
         this.markConnected(pane);
         return;
