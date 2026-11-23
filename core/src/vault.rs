@@ -207,7 +207,7 @@ impl Vault {
     pub fn change_password(&mut self, old: &str, new: &str) -> Result<()> {
         let u = self.unlocked.as_ref().ok_or_else(CoreError::locked)?;
         let check = derive_key(old, &u.salt, u.params)?;
-        if check.as_ref() != u.key.as_ref() {
+        if !ct_eq(check.as_ref(), u.key.as_ref()) {
             return Err(CoreError::wrong_password());
         }
         check_new_password(new)?;
@@ -279,6 +279,11 @@ pub fn check_new_password(p: &str) -> Result<()> {
     Ok(())
 }
 
+/// Constant-time comparison of two key buffers.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Write `bytes` to `path` atomically: temp file → fsync → rename.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
@@ -292,7 +297,12 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     );
     let tmp = dir.join(tmp_name);
     let res = (|| -> Result<()> {
-        let mut f: File = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        // Owner-only on Unix. (On Windows the per-user AppData folder's ACL applies.)
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let mut f: File = opts.open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
@@ -472,6 +482,22 @@ mod tests {
         });
         assert!(r.is_err());
         assert!(v.data().unwrap().folders.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn vault_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let v = new_vault(&dir);
+        assert_eq!(fs::metadata(v.path()).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn constant_time_compare() {
+        assert!(ct_eq(b"abc", b"abc"));
+        assert!(!ct_eq(b"abc", b"abd"));
+        assert!(!ct_eq(b"abc", b"ab"));
     }
 
     #[test]

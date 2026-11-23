@@ -209,6 +209,8 @@ pub struct Settings {
     pub tab_status: bool,
     /// Guess status from prompts and error text when the shell sends no markers.
     pub tab_status_fallback: bool,
+    /// Disconnect every terminal when the vault locks (manual or auto-lock).
+    pub lock_disconnects: bool,
 }
 
 impl Default for Settings {
@@ -240,6 +242,7 @@ impl Default for Settings {
             search_in_commands: true,
             tab_status: true,
             tab_status_fallback: true,
+            lock_disconnects: false,
         }
     }
 }

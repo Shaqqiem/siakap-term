@@ -46,6 +46,12 @@ export function isModalOpen() {
   return modalDepth > 0;
 }
 
+/** Close every open dialog at once (used when the vault locks). */
+export function closeAllModals() {
+  modalDepth = 0;
+  $("modal-root").replaceChildren();
+}
+
 /** Show a modal; resolves with whatever `close` is called with. */
 export function modal<T>(
   title: string,

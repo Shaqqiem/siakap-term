@@ -3,7 +3,6 @@
 // rename / delete), duplicate, search across all folders (optionally inside
 // commands), saved-order or name sorting, single/double click to run, and
 // backups in the Siakap format.
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, messageOf, type Macro } from "./api";
 import { icon } from "./icons";
 import { check, explain, inputNames, MacroError, validateInputName } from "./macros";
@@ -438,8 +437,8 @@ export class MacroPanel {
   }
 
   async importBackup() {
-    const p = await openDialog({ multiple: false, title: "Import Siakap backup", filters: [{ name: "Siakap backup", extensions: ["json"] }] });
-    if (typeof p !== "string") return;
+    const [p] = await api.pickFiles("import", false).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
+    if (!p) return;
     try {
       const r = await api.backupImportFile(p);
       const parts = [`${r.macros} macro${r.macros === 1 ? "" : "s"}`, `${r.sessions} session${r.sessions === 1 ? "" : "s"}`];
@@ -457,11 +456,7 @@ export class MacroPanel {
   }
 
   async exportBackup(scope: "macros" | "all") {
-    const p = await saveDialog({
-      title: scope === "all" ? "Export sessions and macros" : "Export macros",
-      defaultPath: scope === "all" ? "siakap-backup.json" : "siakap-macros.json",
-      filters: [{ name: "Siakap backup", extensions: ["json"] }],
-    });
+    const p = await api.pickSave("export", scope === "all" ? "siakap-backup.json" : "siakap-macros.json").catch((e) => (toast(messageOf(e), "error"), null));
     if (!p) return;
     try {
       await api.backupExportFile(p, scope);

@@ -56,7 +56,14 @@ pub async fn vault_create(st: State<'_, AppState>, password: String) -> Res<()> 
 #[tauri::command]
 pub async fn vault_unlock(st: State<'_, AppState>, password: String) -> Res<()> {
     let password = Zeroizing::new(password);
-    st.vault().unlock(&password)?;
+    // Slow down repeated guesses: 1 s, 2 s, 4 s, ... (max 30 s) after three failures.
+    let delay = st.unlock_delay();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    let r = st.vault().unlock(&password);
+    st.unlock_result(r.is_ok());
+    r?;
     st.touch();
     Ok(())
 }
@@ -371,18 +378,89 @@ pub fn macro_render(st: State<'_, AppState>, script: String, values: HashMap<Str
     macros::render(&script, &values, mode)
 }
 
-fn user_file_path(p: &str) -> Res<PathBuf> {
+/// A local path the user picked in a dialog (or dropped onto the window).
+/// The grant is consumed, so the web view can't reuse or invent paths.
+fn granted_path(st: &AppState, p: &str) -> Res<PathBuf> {
     let path = PathBuf::from(p);
     if !path.is_absolute() || p.chars().any(char::is_control) {
         return Err(CoreError::invalid("Expected an absolute file path from the file dialog."));
     }
+    st.take_grant(&path)?;
     Ok(path)
+}
+
+// ---------------------------------------------------------------- file dialogs
+//
+// Dialogs are opened by the backend, not the web view: the web view has no
+// dialog permission at all. Every path the user picks becomes a one-time grant.
+
+fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog::FileDialogBuilder<tauri::Wry>> {
+    use tauri_plugin_dialog::DialogExt;
+    let d = app.dialog().file();
+    Ok(match purpose {
+        "upload" => d.set_title("Upload files"),
+        "download" => d.set_title("Save file"),
+        "key" => d.set_title("Choose private key"),
+        "import" => d.set_title("Import Siakap backup").add_filter("Siakap backup", &["json"]),
+        "export" => d.set_title("Export Siakap backup").add_filter("Siakap backup", &["json"]),
+        _ => return Err(CoreError::invalid("unknown dialog")),
+    })
+}
+
+/// Open-file dialog. Returns the chosen paths (granted for one use each).
+#[tauri::command]
+pub async fn pick_files(
+    app: tauri::AppHandle,
+    st: State<'_, AppState>,
+    purpose: String,
+    multiple: bool,
+) -> Res<Vec<String>> {
+    st.ensure_unlocked()?;
+    let dlg = dialog_for(&app, &purpose)?;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        if multiple {
+            dlg.blocking_pick_files().unwrap_or_default()
+        } else {
+            dlg.blocking_pick_file().into_iter().collect()
+        }
+    })
+    .await
+    .map_err(|e| CoreError::Io { message: e.to_string() })?;
+    let paths: Vec<PathBuf> = picked.into_iter().filter_map(|f| f.into_path().ok()).collect();
+    st.grant(paths.clone());
+    Ok(paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect())
+}
+
+/// Save-file dialog. Returns the chosen path (granted for one use), or null.
+#[tauri::command]
+pub async fn pick_save(
+    app: tauri::AppHandle,
+    st: State<'_, AppState>,
+    purpose: String,
+    default_name: String,
+) -> Res<Option<String>> {
+    st.ensure_unlocked()?;
+    let name: String = default_name.chars().filter(|c| !c.is_control() && !matches!(c, '/' | '\\')).take(200).collect();
+    let dlg = dialog_for(&app, &purpose)?.set_file_name(name);
+    let picked = tauri::async_runtime::spawn_blocking(move || dlg.blocking_save_file())
+        .await
+        .map_err(|e| CoreError::Io { message: e.to_string() })?;
+    let Some(path) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+    st.grant([path.clone()]);
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
+/// Test builds only: let the end-to-end tests stand in for a file dialog.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_grant_path(st: State<'_, AppState>, path: String) {
+    st.grant([PathBuf::from(path)]);
 }
 
 /// Export a Siakap backup: `scope` is "macros" or "all" (sessions without passwords too).
 #[tauri::command]
 pub fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) -> Res<usize> {
-    let path = user_file_path(&path)?;
+    let path = granted_path(&st, &path)?;
     let (value, n) = {
         let v = st.vault();
         let d = v.data()?;
@@ -396,7 +474,7 @@ pub fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) 
 /// Import a Siakap backup (from Siakap Terminal or the Siakap Tabby plugin).
 #[tauri::command]
 pub fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportReport> {
-    let path = user_file_path(&path)?;
+    let path = granted_path(&st, &path)?;
     let meta = std::fs::metadata(&path)?;
     if meta.len() as usize > backup::MAX_BACKUP_BYTES {
         return Err(CoreError::invalid("Choose a backup smaller than 20 MB."));
@@ -452,6 +530,12 @@ pub fn trust_host_key(
         return Err(CoreError::invalid("The fingerprint does not match the key."));
     }
     let host = validate_host(&host)?.to_ascii_lowercase();
+    // Only a key that a server actually presented in a refused connection can
+    // be trusted, so the web view can't plant an arbitrary key.
+    match st.take_pending_host_key(&host, port) {
+        Some(k) if k.trim() == public_key.trim() => {}
+        _ => return Err(CoreError::invalid("Connect to the server again, then confirm its fingerprint.")),
+    }
     st.vault().update(|d| match ssh::check_host_key(&d.known_hosts, &host, port, &presented) {
         ssh::HostKeyVerdict::Trusted => Ok(()),
         ssh::HostKeyVerdict::Changed(_) => Err(CoreError::invalid(
@@ -484,8 +568,9 @@ fn sink_for(channel: Channel<TermOut>) -> EventSink {
 }
 
 #[tauri::command]
-pub fn shells_list() -> Vec<ShellInfo> {
-    pty::detect_shells()
+pub fn shells_list(st: State<'_, AppState>) -> Res<Vec<ShellInfo>> {
+    st.ensure_unlocked()?;
+    Ok(pty::detect_shells())
 }
 
 #[tauri::command]
@@ -496,6 +581,7 @@ pub async fn term_open_local(
     rows: u16,
     channel: Channel<TermOut>,
 ) -> Res<u32> {
+    st.ensure_unlocked()?;
     let info = pty::find_shell(&shell)?;
     let p = LocalPty::spawn(&info, cols, rows, sink_for(channel))?;
     Ok(st.add_term(Term::Local(p)))
@@ -513,6 +599,7 @@ pub async fn term_open_ssh(
     password: Option<String>,
     passphrase: Option<String>,
 ) -> Res<u32> {
+    st.ensure_unlocked()?;
     let params = {
         let v = st.vault();
         let d = v.data()?;
@@ -532,13 +619,22 @@ pub async fn term_open_ssh(
             known_hosts: d.known_hosts.clone(),
         }
     };
-    let conn = SshConnection::connect(params).await?;
+    let conn = match SshConnection::connect(params).await {
+        Ok(c) => c,
+        Err(e) => {
+            if let CoreError::HostKeyUnknown { host, port, public_key, .. } = &e {
+                st.set_pending_host_key(host, *port, public_key.clone());
+            }
+            return Err(e);
+        }
+    };
     let shell = conn.open_shell(cols, rows, sink_for(channel)).await?;
     Ok(st.add_term(Term::Ssh { shell, conn, sftp: tokio::sync::Mutex::new(None) }))
 }
 
 #[tauri::command]
 pub fn term_write(st: State<'_, AppState>, id: u32, data: String) -> Res<()> {
+    st.ensure_unlocked()?;
     match &*st.term(id)? {
         Term::Local(p) => p.write(data.as_bytes()),
         Term::Serial(p) => p.write(data.as_bytes()),
@@ -548,6 +644,7 @@ pub fn term_write(st: State<'_, AppState>, id: u32, data: String) -> Res<()> {
 
 #[tauri::command]
 pub fn term_resize(st: State<'_, AppState>, id: u32, cols: u16, rows: u16) -> Res<()> {
+    st.ensure_unlocked()?;
     match &*st.term(id)? {
         Term::Local(p) => p.resize(cols, rows),
         Term::Serial(_) => Ok(()), // a serial line has no window size
@@ -583,7 +680,8 @@ pub struct SerialPortsView {
 }
 
 #[tauri::command]
-pub async fn serial_ports_list() -> Res<SerialPortsView> {
+pub async fn serial_ports_list(st: State<'_, AppState>) -> Res<SerialPortsView> {
+    st.ensure_unlocked()?;
     let ports = tauri::async_runtime::spawn_blocking(serial::list_ports)
         .await
         .map_err(|e| CoreError::Io { message: e.to_string() })??;
@@ -592,6 +690,7 @@ pub async fn serial_ports_list() -> Res<SerialPortsView> {
 
 #[tauri::command]
 pub async fn term_open_serial(st: State<'_, AppState>, config: SerialConfig, channel: Channel<TermOut>) -> Res<u32> {
+    st.ensure_unlocked()?;
     let sink = sink_for(channel);
     let t = tauri::async_runtime::spawn_blocking(move || SerialTerm::open(&config, sink))
         .await
@@ -601,6 +700,7 @@ pub async fn term_open_serial(st: State<'_, AppState>, config: SerialConfig, cha
 
 #[tauri::command]
 pub async fn term_serial_break(st: State<'_, AppState>, id: u32) -> Res<()> {
+    st.ensure_unlocked()?;
     let t = st.term(id)?;
     tauri::async_runtime::spawn_blocking(move || match &*t {
         Term::Serial(p) => p.send_break(),
@@ -613,6 +713,7 @@ pub async fn term_serial_break(st: State<'_, AppState>, id: u32) -> Res<()> {
 // ---------------------------------------------------------------- sftp
 
 async fn sftp_for(st: &AppState, id: u32) -> Res<Arc<Sftp>> {
+    st.ensure_unlocked()?;
     let t = st.term(id)?;
     let Term::Ssh { conn, sftp, .. } = &*t else {
         return Err(CoreError::invalid("SFTP needs an SSH tab."));
@@ -696,7 +797,7 @@ pub async fn sftp_download(
     local: String,
     progress: Channel<Progress>,
 ) -> Res<u64> {
-    let local = user_file_path(&local)?;
+    let local = granted_path(&st, &local)?;
     let s = sftp_for(&st, id).await?;
     let flag = register_transfer(&st, transfer_id);
     let r = s.download(&remote, &local, flag, progress_cb(progress)).await;
@@ -714,7 +815,7 @@ pub async fn sftp_upload(
     overwrite: bool,
     progress: Channel<Progress>,
 ) -> Res<String> {
-    let local = user_file_path(&local)?;
+    let local = granted_path(&st, &local)?;
     let s = sftp_for(&st, id).await?;
     let flag = register_transfer(&st, transfer_id);
     let r = s.upload(&local, &remote_dir, overwrite, flag, progress_cb(progress)).await;
@@ -732,11 +833,13 @@ pub fn sftp_cancel(st: State<'_, AppState>, transfer_id: u32) {
 // ---------------------------------------------------------------- security key
 
 #[tauri::command]
-pub async fn security_key_state() -> Res<Vec<security_key::Device>> {
+pub async fn security_key_state(st: State<'_, AppState>) -> Res<Vec<security_key::Device>> {
+    st.ensure_unlocked()?;
     tauri::async_runtime::spawn_blocking(security_key::state).await.map_err(|e| CoreError::usbipd(e.to_string()))?
 }
 
 #[tauri::command]
-pub async fn security_key_toggle() -> Res<security_key::Plan> {
+pub async fn security_key_toggle(st: State<'_, AppState>) -> Res<security_key::Plan> {
+    st.ensure_unlocked()?;
     tauri::async_runtime::spawn_blocking(security_key::toggle).await.map_err(|e| CoreError::usbipd(e.to_string()))?
 }

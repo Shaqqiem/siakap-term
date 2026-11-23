@@ -1,7 +1,7 @@
 {
   "name": "siakap-terminal",
   "private": true,
-  "version": "0.3.2",
+  "version": "0.3.3",
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.5",
-    "@tauri-apps/plugin-dialog": "2.8.4",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0"
   },

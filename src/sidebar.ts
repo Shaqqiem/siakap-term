@@ -1,6 +1,5 @@
 // Sessions and Macros panels.
 import { icon } from "./icons";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type SerialPortInfo, type Session, type ShellInfo } from "./api";
 import { MacroPanel } from "./macropanel";
 import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
@@ -50,6 +49,16 @@ export class Sidebar {
     if (!r) return;
     if (r.save) return this.editSession(null, "serial", r.config);
     void this.tabs.openSerial(r.config);
+  }
+
+  /** Forget everything decrypted from the vault (called when it locks). */
+  clear() {
+    this.sessions = [];
+    this.folders = [];
+    this.macroFolders = [];
+    this.macros = [];
+    $("panel-sessions").replaceChildren();
+    $("panel-macros").replaceChildren();
   }
 
   async reload() {
@@ -325,8 +334,8 @@ export class Sidebar {
     const keyPath = h("input", { "data-f": "keyPath", value: s.keyPath, spellcheck: "false", placeholder: "C:\\Users\\you\\.ssh\\id_ed25519" });
     const browse = h("button", { type: "button" }, "Browse");
     browse.addEventListener("click", async () => {
-      const p = await openDialog({ multiple: false, directory: false, title: "Choose private key" });
-      if (typeof p === "string") keyPath.value = p;
+      const [p] = await api.pickFiles("key", false).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
+      if (p) keyPath.value = p;
     });
     const pw = h("input", {
       "data-f": "password",

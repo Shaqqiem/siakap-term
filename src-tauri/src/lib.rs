@@ -10,9 +10,37 @@ use std::time::Duration;
 
 use tauri::{Emitter, Manager};
 
+/// URLs the web view may load: the bundled app (and the Vite dev server in debug builds).
+fn allowed_url(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => match url.host_str() {
+            Some("tauri.localhost") | Some("ipc.localhost") => true,
+            Some("localhost") => cfg!(debug_assertions) && url.port() == Some(1420),
+            _ => false,
+        },
+        "about" => url.as_str() == "about:blank",
+        _ => false,
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // The web view may only show the app's own bundled pages: no
+        // navigating to remote sites, ever (links in terminal output included).
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("siakap-nav-guard")
+                .on_navigation(|_, url| allowed_url(url))
+                .build(),
+        )
+        .on_window_event(|window, event| {
+            // Files dropped onto the window are chosen by the user in the OS, so
+            // they may be uploaded: grant them here, outside the web view's reach.
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                window.state::<state::AppState>().grant(paths.iter().cloned());
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -63,6 +91,10 @@ pub fn run() {
             commands::term_resize,
             commands::term_close,
             commands::serial_ports_list,
+            commands::pick_files,
+            commands::pick_save,
+            #[cfg(debug_assertions)]
+            commands::debug_grant_path,
             commands::term_open_serial,
             commands::term_serial_break,
             commands::sftp_home,
@@ -78,4 +110,21 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Siakap Terminal");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allowed_url;
+
+    #[test]
+    fn navigation_is_limited_to_the_app() {
+        let ok = |u: &str| allowed_url(&tauri::Url::parse(u).unwrap());
+        assert!(ok("tauri://localhost/index.html"));
+        assert!(ok("http://tauri.localhost/"));
+        assert!(!ok("https://example.com/"));
+        assert!(!ok("http://evil.localhost.example/"));
+        assert!(!ok("file:///C:/Windows/win.ini"));
+        assert!(!ok("javascript:alert(1)"));
+        assert_eq!(ok("http://localhost:1420/"), cfg!(debug_assertions));
+    }
 }

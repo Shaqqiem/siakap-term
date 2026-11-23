@@ -188,6 +188,9 @@ export class TabManager {
       allowProposedApi: false,
       macOptionIsMeta: true,
       rightClickSelectsWord: false,
+      // Links printed by a program or server (OSC 8) are never opened: Siakap
+      // makes no web requests. Show the address so it can be copied instead.
+      linkHandler: { activate: (_e: MouseEvent, uri: string) => void showLink(uri), allowNonHttpProtocols: false },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -708,6 +711,22 @@ export class TabManager {
       }),
     );
   }
+}
+
+/** A link in terminal output was clicked: show it as text, offer to copy. */
+function showLink(uri: string) {
+  return modal<void>("Link in terminal output", (close) => ({
+    body: h(
+      "div",
+      { class: "form" },
+      h("p", {}, "The program or server printed this link. Siakap doesn't open web pages; copy it if you want to visit it in your browser."),
+      h("p", { class: "mono link-text" }, uri.length > 2000 ? uri.slice(0, 2000) + "..." : uri),
+    ),
+    actions: [
+      h("button", { onclick: () => close() }, "Close"),
+      h("button", { class: "primary", onclick: () => (navigator.clipboard.writeText(uri).catch(() => {}), toast("Link copied.", "ok", 1500), close()) }, "Copy link"),
+    ],
+  }));
 }
 
 export async function chooseShell(): Promise<{ id: string; label: string } | null> {

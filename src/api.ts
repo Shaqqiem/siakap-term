@@ -81,6 +81,7 @@ export interface Settings {
   searchInCommands: boolean;
   tabStatus: boolean;
   tabStatusFallback: boolean;
+  lockDisconnects: boolean;
 }
 export interface KnownHost {
   host: string;
@@ -195,6 +196,8 @@ export const api = {
     invoke<string>("sftp_upload", { id, transferId, local, remoteDir, overwrite, progress }),
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
+  pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
+  pickSave: (purpose: "download" | "export", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyToggle: () => invoke<KeyPlan>("security_key_toggle"),
 };

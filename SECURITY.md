@@ -34,7 +34,13 @@ saved password; the Rust side looks it up when connecting. The master password a
 pass through the web view once, on their way in.
 
 **Secrets in memory.** On the Rust side, the vault key and saved passwords are zeroed when they're dropped. Locking the
-vault, by hand or after the idle timeout, drops the key and all decrypted data.
+vault, by hand or after the idle timeout, drops the key and all decrypted data. When the vault locks, the interface also forgets what it showed from the vault: session and macro lists,
+settings, SFTP listings, open dialogs and messages. You can choose to have every terminal disconnected on lock as
+well (Settings > Security).
+
+**Guessing the master password.** After three wrong attempts, each further attempt waits 1, 2, 4 and so on, up to 30
+seconds, before it is checked. On Linux and macOS the vault file is readable by your user only (0600); on Windows it
+sits in your per-user AppData folder.
 
 **SSH host keys.** The first time you connect to a host, you see its SHA-256 fingerprint and decide whether to trust
 it. Trusted keys are stored inside the vault, not in a plain `known_hosts` file. If a host later presents a different
@@ -49,20 +55,28 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 connect-src ipc: http://ipc.localhost
 ```
 
-Text from the vault is always inserted with `textContent`, never as HTML.
+Text from the vault is always inserted with `textContent`, never as HTML. The web view can't navigate away from the
+app's own pages (enforced by the backend), and it can't open new windows. Links that a program or server prints into
+the terminal (OSC 8 hyperlinks) are never opened. Clicking one shows the address as text, with a button to copy it.
 
-**Access to your system.** The web view gets Tauri's core defaults plus the open and save file dialogs, and nothing
-else. There is no shell plugin and no filesystem plugin. Every file or process operation goes through one of the app's
-own commands, and each command checks its input:
+**Access to your system.** The web view gets Tauri's core defaults and nothing else: no dialog, shell or filesystem
+permission. The backend treats the web view as untrusted, as if it could be running injected script, and limits what
+it can ask for:
 
-- shells are picked from a detected list by id
-- host names and user names are validated
-- local file paths must be absolute paths returned by a dialog
-- SFTP names can't contain `/` or be `..`
-- usbipd bus ids may only contain digits and dashes
+- **Files:** file dialogs are opened by the backend. Each path you pick, or drop onto the window, becomes a one-time
+  grant, and file commands (import, export, upload, download) refuse any other path. Injected script can't read or
+  write files you didn't choose.
+- **Host keys:** `trust_host_key` only accepts the exact key a server presented in a connection that was just refused.
+  A key can't be planted for a host you never connected to.
+- **Locked means locked:** while the vault is locked, every command that opens, types into or lists terminals, files,
+  serial ports or the security key is refused.
+- **Programs:** shells are picked from a detected list by id. Host names, user names and serial port names are
+  validated, SFTP names can't contain `/` or be `..`, and usbipd bus ids may only contain digits and dashes.
 
 **Running other programs.** `usbipd`, `wsl` and the shells are started with fixed argument lists, never through a
-shell command line. On Windows they run without a console window.
+shell command line. On Windows they run without a console window. Program locations are resolved to absolute paths:
+`usbipd` from its standard install folder first, then `PATH`, ignoring any relative `PATH` entries. The current folder
+is never searched.
 
 **Pasting.** Pasting text that contains line breaks shows you the text and asks before sending it.
 

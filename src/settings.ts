@@ -105,6 +105,7 @@ export class SettingsPanel {
     const startupTimeout = h("input", { type: "number", min: 1000, max: 60000, step: 1000, value: s.startupTimeoutMs });
     const tabStatus = chk(s.tabStatus);
     const tabStatusFallback = chk(s.tabStatusFallback);
+    const lockDisconnects = chk(s.lockDisconnects);
 
     const save = async () => {
       const next: Settings = {
@@ -118,6 +119,7 @@ export class SettingsPanel {
         startupTimeoutMs: Number(startupTimeout.value) || 10000,
         tabStatus: tabStatus.checked,
         tabStatusFallback: tabStatusFallback.checked,
+        lockDisconnects: lockDisconnects.checked,
         fontFamily: fontFamily.value,
         fontSize: Number(fontSize.value),
         background: bg.value,
@@ -183,6 +185,8 @@ export class SettingsPanel {
         field("Text size", textSize),
         h("h4", {}, "Security"),
         field("Lock the app", autoLock, "When nobody has used Siakap for this long, it locks and asks for the master password."),
+        h("label", { class: "check" }, lockDisconnects, " Disconnect all sessions when Siakap locks"),
+        h("small", { class: "muted" }, "Off: open terminals keep running but stay hidden until you unlock. On: every terminal is closed when Siakap locks."),
         h(
           "details",
           { class: "advanced" },

@@ -109,9 +109,26 @@ pub fn plan_toggle(devices: &[Device]) -> Result<Plan> {
     }
 }
 
+/// usbipd as an absolute path: the standard install location first, then PATH.
+/// Never resolved relative to the current directory.
+fn usbipd_path() -> Option<String> {
+    #[cfg(windows)]
+    {
+        for base in [std::env::var_os("ProgramW6432"), std::env::var_os("ProgramFiles")].into_iter().flatten() {
+            let p = std::path::Path::new(&base).join("usbipd-win").join("usbipd.exe");
+            if p.is_file() {
+                return Some(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    crate::process::which("usbipd").filter(|p| p.is_absolute()).map(|p| p.to_string_lossy().to_string())
+}
+
 /// Query the connected security keys.
 pub fn state() -> Result<Vec<Device>> {
-    let out = run_capture("usbipd", &["state"])
+    let exe = usbipd_path()
+        .ok_or_else(|| CoreError::usbipd("usbipd-win is not installed. Install it to move security keys to WSL."))?;
+    let out = run_capture(&exe, &["state"])
         .map_err(|e| CoreError::usbipd(format!("Could not run usbipd ({e}). Is usbipd-win installed and on PATH?")))?;
     if !out.success {
         return Err(CoreError::usbipd(format!("usbipd state failed: {}", out.stderr.trim())));
@@ -132,7 +149,8 @@ pub fn toggle() -> Result<Plan> {
             Plan::Attach { .. } => vec!["attach", "--wsl", "--busid", b],
             Plan::Detach { .. } => vec!["detach", "--busid", b],
         };
-        let out = run_capture("usbipd", &args).map_err(|e| CoreError::usbipd(format!("usbipd failed: {e}")))?;
+        let exe = usbipd_path().ok_or_else(|| CoreError::usbipd("usbipd-win is not installed."))?;
+        let out = run_capture(&exe, &args).map_err(|e| CoreError::usbipd(format!("usbipd failed: {e}")))?;
         if !out.success {
             return Err(CoreError::usbipd(format!("usbipd {} failed: {}", args[0], out.stderr.trim())));
         }

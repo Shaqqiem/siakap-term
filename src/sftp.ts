@@ -1,7 +1,6 @@
 // MobaXterm-style SFTP browser that follows the active SSH pane.
 import { icon } from "./icons";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, Channel, errorOf, messageOf, type Progress, type SftpEntry } from "./api";
 import type { Pane, TabManager } from "./tabs";
 import { $, fill, confirmDialog, fmtSize, h, modal, promptDialog, toast } from "./ui";
@@ -45,6 +44,14 @@ export class SftpPanel {
 
   private get termId(): number | null {
     return this.pane && this.pane.kind === "ssh" && this.pane.status === "connected" ? this.pane.termId : null;
+  }
+
+  /** Drop the listing and path history (called when the vault locks). */
+  clear() {
+    this.entries = [];
+    this.selected = null;
+    this.cwd.clear();
+    $("panel-sftp").replaceChildren();
   }
 
   follow(p: Pane | null) {
@@ -196,7 +203,7 @@ export class SftpPanel {
   private async download(e: SftpEntry) {
     const id = this.termId;
     if (id === null || e.isDir) return;
-    const local = await saveDialog({ title: "Save file", defaultPath: e.name });
+    const local = await api.pickSave("download", e.name).catch((x) => (toast(messageOf(x), "error"), null));
     if (!local) return;
     const tid = transferSeq++;
     const t = this.transferRow(`Download ${e.name}`, tid);
@@ -239,9 +246,8 @@ export class SftpPanel {
   }
 
   private async pickUpload() {
-    const p = await openDialog({ multiple: true, directory: false, title: "Upload files" });
-    if (!p) return;
-    await this.uploadMany(Array.isArray(p) ? p : [p]);
+    const p = await api.pickFiles("upload", true).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
+    if (p.length) await this.uploadMany(p);
   }
 
   async uploadMany(paths: string[]) {

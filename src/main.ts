@@ -7,13 +7,16 @@ import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane } from "./tabs";
-import { $, alertDialog, confirmDialog, h, isModalOpen, toast } from "./ui";
+import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
 hydrateIcons();
+
+// Siakap never opens other pages or windows (the backend also blocks navigation).
+window.open = () => null;
 
 const tabs = new TabManager();
 const runner = new MacroRunner(tabs);
@@ -193,6 +196,15 @@ function renderWelcome() {
 
 function showLock(mode: "create" | "unlock", hint = "") {
   runner.stop("the vault was locked");
+  // Wipe what the UI holds from the vault: lists, open dialogs, menus, messages.
+  if (tabs.settings?.lockDisconnects) void tabs.closeAll();
+  sidebar.clear();
+  sftp.clear();
+  $("panel-settings").replaceChildren();
+  closeAllModals();
+  $("toasts").replaceChildren();
+  closeMenu();
+  $("empty").replaceChildren();
   $("app").classList.add("hidden");
   $("lock").classList.remove("hidden");
   const pass = $("lock-pass") as HTMLInputElement;

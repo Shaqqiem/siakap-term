@@ -279,3 +279,4 @@ small.flash, .hint.flash { color: var(--ok) !important; }
 .plan-row.note .plan-kind { color: var(--muted); }
 .plan-row.error { background: color-mix(in srgb, var(--err) 15%, transparent); }
 .plan-row.error .plan-kind, .plan-row.error .plan-text { color: var(--err); font-family: inherit; }
+.link-text { word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; user-select: text; }

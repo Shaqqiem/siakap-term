@@ -49,6 +49,10 @@ pub fn decode(b: &[u8]) -> String {
 pub fn which(name: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
+        // A relative PATH entry (like ".") would resolve against the current directory.
+        if !dir.is_absolute() {
+            continue;
+        }
         let mut cands = vec![dir.join(name)];
         if cfg!(windows) && !name.to_ascii_lowercase().ends_with(".exe") {
             cands.push(dir.join(format!("{name}.exe")));
