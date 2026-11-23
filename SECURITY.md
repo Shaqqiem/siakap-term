@@ -61,7 +61,7 @@ and from then on the vault behaves like any other.
 it. Trusted keys are stored inside the vault, not in a plain `known_hosts` file. If a host later presents a different
 key, the connection is refused with a warning, and nothing in the UI lets you click past it. This includes a key of a
 different type, so an attacker can't turn the hard stop into a "trust this new key?" prompt by offering another
-algorithm. To accept a legitimately changed key, remove the old entry under Settings > Known hosts and connect again.
+algorithm. To accept a legitimately changed key, remove the old entry under Settings > Trusted servers and connect again.
 
 **The web view.** The content security policy only allows the app's own bundled files:
 
