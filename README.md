@@ -6,6 +6,8 @@ Siakap. It also had to keep everything encrypted on disk and stay quiet on the n
 
 It runs on Linux too. macOS will probably work, but I haven't tried it.
 
+**[⬇ Download the latest version](https://github.com/Shaqqiem/siakap-term/releases/latest)** · [How to install](#installing)
+
 ![Siakap Terminal with saved sessions and an SSH tab](docs/screenshots/sessions.png)
 
 <table>
@@ -62,17 +64,36 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 
 ## Installing
 
-Grab the installer from the [Releases](https://github.com/Shaqqiem/siakap-term/releases) page (you need access to
-this repository): either the `setup.exe` (installs per user, no admin needed) or the `.msi`. Each release comes with
-a `SHA256SUMS.txt`. Check the file you downloaded before running it:
+**[Download the latest version from the Releases page](https://github.com/Shaqqiem/siakap-term/releases/latest)**
+(you need access to this repository).
 
-```powershell
-Get-FileHash -Algorithm SHA256 '.\Siakap Terminal_0.1.0_x64-setup.exe'
-```
+1. On the Releases page, scroll down to **Assets** under the newest version.
+2. Download **`Siakap.Terminal_<version>_x64-setup.exe`**, for example `Siakap.Terminal_0.5.2_x64-setup.exe`.
+   It installs for your Windows user only, so you don't need admin rights. The `.msi` file is the same app for
+   IT-managed installs; you only need one of the two.
+3. Run the file you downloaded. If Windows shows *"Windows protected your PC"*, click **More info**, then
+   **Run anyway**. The installer isn't code-signed yet, which is why Windows asks.
+4. Open **Siakap Terminal** from the Start menu.
+
+**Updating:** download the newer `setup.exe` from the same page and run it. Your sessions, macros and settings are
+kept. After an update, Siakap shows a short tour of what's new.
 
 You need Windows 10 or 11 (x64). The app uses WebView2, which Windows 11 already has; on Windows 10 the installer
 adds it if it's missing. If you want agent authentication, turn on the OpenSSH agent service or run Pageant. The
 security key button needs [usbipd-win](https://github.com/dorssel/usbipd-win) 4.x.
+
+<details>
+<summary>Checking the download (optional)</summary>
+
+Each release also has a `SHA256SUMS.txt` with a fingerprint for each installer. To check that your download is
+exactly what GitHub built, run this in PowerShell in your Downloads folder and compare the result with the matching
+line in `SHA256SUMS.txt` (capital letters don't matter):
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\Siakap.Terminal_0.5.2_x64-setup.exe
+```
+
+</details>
 
 The first time it starts, Siakap asks you to choose a master password and creates the vault at
 `%APPDATA%\dev.siakap.terminal\vault.json`. Use at least 12 characters (a short sentence works well). There's no recovery if you forget the password.
@@ -236,8 +257,13 @@ CI also publishes a release for it with the installers and `SHA256SUMS.txt`. To 
 ```text
 core/              Rust library with no Tauri dependency
   vault.rs           encrypted storage
+  remember.rs        optional Windows-protected key (open without the master password)
   model.rs           sessions, macros, settings, folder rules
   macros.rs          macro parser and input validation
+  backup.rs          import and export (Siakap backups)
+  mobaxterm.rs       MobaXterm session and macro import
+  fonts.rs           installed font list for the font picker
+  process.rs         running programs with fixed arguments and time limits
   pty.rs             local shells (ConPTY on Windows)
   ssh.rs             SSH client and host-key checks
   sftp.rs            SFTP over an existing SSH connection
@@ -252,7 +278,8 @@ docs/screenshots/  images used in this README
 
 - SFTP can only delete empty folders.
 - If an agent offers OpenSSH certificates, those are skipped; plain keys work.
-- Locking the vault hides your terminals but doesn't disconnect them. SECURITY.md explains why.
+- Locking the vault hides your terminals but doesn't disconnect them, unless you turn on *Disconnect all sessions
+  when Siakap locks* in Settings. SECURITY.md explains why.
 - Keyboard-interactive login (servers that prompt for a one-time code) isn't supported yet.
 
 ## Security
