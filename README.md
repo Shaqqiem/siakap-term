@@ -1,139 +1,161 @@
 # Siakap Terminal
 
-A secure, privacy-focused terminal and SSH client for Windows 10/11. It aims for Tabby's polish, adds MobaXterm-style
-tools (an SFTP browser next to the terminal), and Siakap-style macros. Linux works too; macOS should, but is untested.
+Siakap Terminal is a terminal and SSH client for Windows 10 and 11. I wanted something that looks as clean as Tabby,
+has MobaXterm's habit of putting an SFTP browser next to the terminal, and keeps the macros I've been using in
+Siakap. It also had to keep everything encrypted on disk and stay quiet on the network.
 
-- **Tabs with split panes**: local shells (PowerShell 7, Windows PowerShell, cmd, every WSL distro) and SSH, in a
-  binary split tree. Panes split side by side or top/bottom, and dividers can be dragged.
-- **Encrypted vault**: sessions, folders, macros, known hosts, settings and optional saved passwords live in a single
-  file encrypted with Argon2id + XChaCha20-Poly1305. The vault auto-locks after a set idle time, and there is a lock button.
-- **SSH**: tries the Windows OpenSSH agent first, then Pageant, then a key file (asks for the passphrase) or a password.
-  FIDO/YubiKey keys work through the agent. Host keys are trusted on first use, and a changed key is refused outright.
-- **Macros**: lines are sent with Enter and a configurable delay between them. The script syntax supports
-  `# @wait <ms>`, `# @type <text>` and `{{placeholders}}`, with input validation, folders up to 16 levels, search,
-  JSON import/export with duplicate detection, an optional preview, and per-session post-connect macros.
-- **SFTP panel**: follows the focused SSH pane over the same connection. You can browse, mkdir, rename, delete,
-  download and upload through native dialogs or by drag-and-drop. Transfers are streamed with progress and can be cancelled.
-- **YubiKey toggle**: one button attaches every plugged-in YubiKey to WSL with `usbipd`, or detaches them.
-- **Privacy**: no telemetry, no update checks, no analytics, and no remote fonts or CDNs. The only network
-  traffic is the SSH connections you start. See [SECURITY.md](SECURITY.md).
+It runs on Linux too. macOS will probably work, but I haven't tried it.
 
-## Install
+## Features
 
-Download `Siakap Terminal_x.y.z_x64-setup.exe` (NSIS, per-user) or the `.msi` from the GitHub Releases page or from the
-`build` workflow artifacts. Check the download against `SHA256SUMS.txt`:
+- **Tabs and split panes.** Local shells (PowerShell 7, Windows PowerShell, cmd, and any WSL distro) and SSH
+  sessions, in tabs that split side by side or top and bottom. You can drag the dividers.
+- **Encrypted vault.** Sessions, folders, macros, known hosts, settings and saved passwords all live in one file,
+  encrypted with Argon2id and XChaCha20-Poly1305. It locks itself after a configurable idle time, or when you click
+  Lock.
+- **SSH.** Authentication tries the Windows OpenSSH agent first, then Pageant, then a key file (with a passphrase
+  prompt) or a password. FIDO keys such as a YubiKey work through the agent. Host keys are trusted on first use, and a
+  changed key is refused, full stop.
+- **Macros.** Scripts send one line at a time with a short delay between lines. They support `# @wait`, `# @type`
+  and `{{placeholders}}`. You can sort them into folders, search them, import and export them as JSON, preview them
+  before they run, and attach one to a session so it runs right after connecting.
+- **SFTP.** The side panel follows whichever SSH tab is focused and reuses its connection. Browse, create folders,
+  rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Transfers stream in
+  chunks, show progress and can be cancelled.
+- **YubiKey toggle.** One button moves your YubiKey between Windows and WSL using `usbipd`.
+- **No phoning home.** There is no telemetry, no update check and no analytics, and the app loads no remote fonts or
+  scripts. The only network connections it makes are the SSH sessions you open.
+
+## Installing
+
+Grab the installer from the [Releases](https://github.com/Shaqqiem/siakap-term/releases) page: either the NSIS
+`setup.exe` (installs per user, no admin needed) or the `.msi`. Each release comes with a `SHA256SUMS.txt`. Check the
+file you downloaded before running it:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 '.\Siakap Terminal_0.1.0_x64-setup.exe'
 ```
 
-Requirements:
+You need Windows 10 or 11 (x64). The app uses WebView2, which Windows 11 already has; on Windows 10 the installer
+adds it if it's missing. If you want agent authentication, turn on the OpenSSH agent service or run Pageant. The
+YubiKey button needs [usbipd-win](https://github.com/dorssel/usbipd-win) 4.x.
 
-- Windows 10 or 11, x64. WebView2 ships with Windows 11; the installer adds it on Windows 10 if it is missing.
-- Optional: [OpenSSH agent](https://learn.microsoft.com/windows-server/administration/openssh/openssh_keymanagement)
-  or Pageant for key and FIDO authentication.
-- Optional: [usbipd-win](https://github.com/dorssel/usbipd-win) 4.x for the YubiKey toggle.
-
-The first time you start the app it asks for a **master password**, which creates the vault in
-`%APPDATA%\dev.siakap.terminal\vault.json`. The password cannot be recovered.
+The first time it starts, Siakap asks you to choose a master password and creates the vault at
+`%APPDATA%\dev.siakap.terminal\vault.json`. There's no recovery if you forget the password.
 
 ## Using it
 
-| Action | How |
+| What | How |
 | --- | --- |
-| New local shell | `Ctrl+Shift+T`, the **＋** button, or *Sessions → Local shells* |
-| Split focused pane | `Ctrl+Shift+D` (side by side), `Ctrl+Shift+E` (top/bottom) |
-| Close pane | `Ctrl+Shift+W`, or Enter after the session has ended |
-| Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
-| Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V` (or right-click paste); copy-on-select is optional |
-| Stop a running macro | `Esc` or **Stop** in the macro bar |
-| Collapse the side panel | Click the active rail button, or double-click the panel edge |
+| New local shell | `Ctrl+Shift+T`, the + button, or pick one under *Local shells* |
+| Split the focused pane | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom |
+| Close a pane | `Ctrl+Shift+W`, or press Enter once the session has ended |
+| Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
+| Copy and paste | `Ctrl+Shift+C` and `Ctrl+Shift+V`; copy on select is in Settings |
+| Stop a running macro | `Esc`, or the Stop button in the macro bar |
+| Hide the side panel | Click the active icon in the left rail, or double-click the panel edge |
 
-Pasting text that contains line breaks always asks for confirmation first (Settings → *Confirm before pasting multiple lines*).
+When the clipboard contains more than one line, the app shows what's about to be pasted and asks first. You can turn
+this off in Settings, but I'd leave it on.
 
-### Macro syntax
+### Writing macros
 
 ```text
-# Lines starting with # are comments
-uname -a                  ← sent followed by Enter
-# @wait 1500              ← pause 1.5 s (max 3600000 ms); Stop cancels it
-# @type y                 ← sends "y" without Enter
-ping -c 3 {{host}}        ← {{host}} is asked once per run
+# Lines starting with # are comments.
+uname -a
+# @wait 1500
+# @type y
+ping -c 3 {{host}}
 ```
 
-- A blank line inside a script sends a bare Enter. Blank lines at the end are ignored.
-- **Safe** validation mode (the default) accepts only `A–Z a–z 0–9`, space and `_ . / : @ , + -` in placeholder values.
-- **Unrestricted** mode accepts anything except control characters.
-- A macro only ever types into the pane that had focus when you started it. It stops if that pane closes or you
-  focus another one.
+Each ordinary line is typed and followed by Enter. `# @wait 1500` pauses for 1.5 seconds (the limit is one hour, and
+Stop cancels the wait). `# @type y` types `y` without pressing Enter. `{{host}}` asks you for a value once per run,
+however many times it appears. A blank line in the middle of a script sends a bare Enter; blank lines at the end are
+ignored.
+
+By default, placeholder values may only contain letters, digits, spaces and `_ . / : @ , + -`, which keeps a stray
+`;` or `$(...)` out of your commands. You can switch to unrestricted mode in Settings; control characters are still
+rejected there, so a value can never sneak in an extra Enter.
+
+A macro only types into the pane that had focus when you started it. If that pane closes or you click into another
+one, the macro stops.
 
 ### YubiKey and WSL
 
-Share the key with usbipd once. This needs an elevated terminal, and Siakap never elevates on its own:
+usbipd has to share the key once, and that needs an elevated terminal. Siakap won't try to elevate for you:
 
 ```powershell
 usbipd list
 usbipd bind --busid <BUSID>
 ```
 
-After that, the 🔑 button attaches every connected YubiKey (USB VID 1050) to WSL, or detaches them. If some keys
-are attached and others aren't, it refuses and asks you to sort them out manually.
+After that, the key button in the left rail attaches every plugged-in YubiKey to WSL, or detaches them all. If some
+are attached and some aren't, it refuses and asks you to fix that by hand.
 
-## Build from source
+## Building from source
 
-Prerequisites on Windows:
-
-- [Rust](https://rustup.rs) stable (MSVC toolchain)
-- The "Desktop development with C++" workload from Visual Studio Build Tools
-- [Node.js](https://nodejs.org) 22+
+On Windows you need [Rust](https://rustup.rs) (stable, MSVC toolchain), the "Desktop development with C++" workload
+from the Visual Studio Build Tools, and [Node.js](https://nodejs.org) 22 or newer.
 
 ```powershell
 npm ci
-npm run tauri dev      # run in development
-npm run tauri build    # installers in target\release\bundle\{nsis,msi}
+npm run tauri dev
 ```
 
-On Linux, install WebKitGTK first: `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
+`npm run tauri build` produces the installers in `target\release\bundle\nsis` and `target\release\bundle\msi`.
 
-Tests:
+On Linux you'll also need the WebKitGTK development packages:
+`libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
+
+### Tests
 
 ```powershell
-cargo test -p siakap-core   # vault, macros, folders, usbipd JSON, host-key TOFU, pty
-npm test                    # TypeScript macro parser (Node's built-in test runner)
-npm run build               # type-check + production frontend bundle
+cargo test -p siakap-core
+npm test
+npm run build
 ```
 
-The SSH/SFTP live test runs only when you point it at a server whose home directory contains a file named `big.bin`:
+The Rust tests cover the vault, the macro parser, folder handling, usbipd output parsing and host-key checks. `npm test`
+runs the TypeScript macro parser tests with Node's built-in runner. `npm run build` type-checks the frontend and
+builds it.
+
+There's also a live SSH and SFTP test. It only runs when you point it at a real server whose home directory contains a
+file called `big.bin`:
 
 ```powershell
-$env:SIAKAP_TEST_SSH = "user:password@127.0.0.1:22"; cargo test -p siakap-core --test ssh_live
+$env:SIAKAP_TEST_SSH = "user:password@127.0.0.1:22"
+cargo test -p siakap-core --test ssh_live
 ```
 
-On every push, the [`build` workflow](.github/workflows/build.yml) runs the tests on `windows-latest` and builds the
-NSIS and MSI installers. It uploads them together with `SHA256SUMS.txt`. A `v*` tag also publishes a GitHub Release.
+CI runs the tests on `windows-latest` and builds both installers on every push (see
+[`.github/workflows/build.yml`](.github/workflows/build.yml)). Pushing a `v*` tag also publishes a release with the
+installers and `SHA256SUMS.txt`.
 
-## Layout
+## Project layout
 
 ```text
-core/            siakap-core — no Tauri dependency, unit-tested
-  src/vault.rs     encrypted store (atomic writes, zeroized keys)
-  src/model.rs     sessions, macros, settings, folder normalisation
-  src/macros.rs    macro parser, placeholder validation, import/export
-  src/pty.rs       local shells (portable-pty → ConPTY)
-  src/ssh.rs       russh client, TOFU, agent/Pageant/key/password auth
-  src/sftp.rs      SFTP over the same SSH connection, chunked transfers
-  src/yubikey.rs   usbipd state/attach/detach
-src-tauri/       thin #[tauri::command] layer, app state, capabilities
-src/             vanilla TypeScript frontend (xterm.js)
-  main.ts  api.ts  tabs.ts  sidebar.ts  runner.ts  macros.ts  sftp.ts  settings.ts  ui.ts  styles.css
+core/          Rust library with no Tauri dependency
+  vault.rs       encrypted storage
+  model.rs       sessions, macros, settings, folder rules
+  macros.rs      macro parser and input validation
+  pty.rs         local shells (ConPTY on Windows)
+  ssh.rs         SSH client and host-key checks
+  sftp.rs        SFTP over an existing SSH connection
+  yubikey.rs     usbipd integration
+src-tauri/     Tauri commands, app state and capabilities
+src/           TypeScript frontend built on xterm.js
 ```
 
-## Known limitations (v0.1)
+## Known limitations
 
-- Deleting a folder over SFTP works only when the folder is empty.
-- Agent identities that are OpenSSH *certificates* are skipped; plain keys work.
-- Locking the vault hides open terminals but does not disconnect them (see SECURITY.md).
-- Keyboard-interactive (2FA prompt) authentication is not implemented yet.
+- SFTP can only delete empty folders.
+- If an agent offers OpenSSH certificates, those are skipped; plain keys work.
+- Locking the vault hides your terminals but doesn't disconnect them. SECURITY.md explains why.
+- Keyboard-interactive login (servers that prompt for a one-time code) isn't supported yet.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for what the app protects against, what it doesn't, and how to report a problem.
 
 ## License
 
