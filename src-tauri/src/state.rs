@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use siakap_core::pty::LocalPty;
+use siakap_core::serial::SerialTerm;
 use siakap_core::sftp::Sftp;
 use siakap_core::ssh::{SshConnection, SshShell};
 use siakap_core::vault::Vault;
@@ -12,6 +13,7 @@ use siakap_core::{CoreError, Result};
 
 pub enum Term {
     Local(LocalPty),
+    Serial(SerialTerm),
     Ssh { shell: SshShell, conn: Arc<SshConnection>, sftp: tokio::sync::Mutex<Option<Arc<Sftp>>> },
 }
 

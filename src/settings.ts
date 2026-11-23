@@ -3,6 +3,14 @@ import { icon } from "./icons";
 import { api, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo } from "./api";
 import { $, confirmDialog, field, h, modal, select, toast } from "./ui";
 
+const THEMES: Record<string, { label: string; background: string; foreground: string; cursor: string; selection: string }> = {
+  dark: { label: "Dark (default)", background: "#11151c", foreground: "#d8dee9", cursor: "#88c0d0", selection: "#3b4252" },
+  black: { label: "Black", background: "#000000", foreground: "#e6e6e6", cursor: "#ffffff", selection: "#444444" },
+  ocean: { label: "Ocean", background: "#0b1d2a", foreground: "#cfe3f0", cursor: "#5ec4ff", selection: "#1f4560" },
+  green: { label: "Classic green", background: "#0a0f0a", foreground: "#33ff66", cursor: "#33ff66", selection: "#1e4d2b" },
+  light: { label: "Light", background: "#fafafa", foreground: "#1f2328", cursor: "#0969da", selection: "#c8ddf5" },
+};
+
 export class SettingsPanel {
   constructor(private onSaved: (s: Settings) => void) {}
 
@@ -34,15 +42,37 @@ export class SettingsPanel {
     const confirmPaste = h("input", { type: "checkbox", checked: s.confirmMultilinePaste });
     const lineDelay = h("input", { type: "number", min: 0, max: 60000, step: 10, value: s.lineDelayMs });
     const mode = select([["safe", "Safe (A-Z 0-9 space _ . / : @ , + -)"], ["unrestricted", "Unrestricted (control characters still blocked)"]], s.validationMode);
-    const autoLock = h("input", { type: "number", min: 0, max: 1440, value: s.autoLockMinutes });
+    const lockChoices: [string, string][] = [["0", "Never"], ["5", "After 5 minutes"], ["15", "After 15 minutes"], ["30", "After 30 minutes"], ["60", "After 1 hour"], ["240", "After 4 hours"]];
+    if (!lockChoices.some(([v]) => Number(v) === s.autoLockMinutes)) lockChoices.push([String(s.autoLockMinutes), `After ${s.autoLockMinutes} minutes`]);
+    const autoLock = select(lockChoices, String(s.autoLockMinutes));
+
+    // Theme presets fill in the four colours; "Custom" keeps whatever is set.
+    const presetKey = Object.entries(THEMES).find(([, t]) => t.background === s.background && t.foreground === s.foreground)?.[0] ?? "custom";
+    const theme = select([...Object.entries(THEMES).map(([k, t]): [string, string] => [k, t.label]), ["custom", "Custom (see Advanced settings)"]], presetKey);
+    theme.addEventListener("change", () => {
+      const t = THEMES[theme.value];
+      if (!t) return;
+      bg.value = t.background;
+      fg.value = t.foreground;
+      cursor.value = t.cursor;
+      selection.value = t.selection;
+    });
+    const sizeChoices: [string, string][] = [["12", "Small (12)"], ["14", "Normal (14)"], ["16", "Large (16)"], ["18", "Extra large (18)"]];
+    if (!sizeChoices.some(([v]) => Number(v) === s.fontSize)) sizeChoices.push([String(s.fontSize), `Custom (${s.fontSize})`]);
+    const textSize = select(sizeChoices, String(s.fontSize));
+    textSize.addEventListener("change", () => (fontSize.value = textSize.value));
+    fontSize.addEventListener("change", () => {
+      if (![...textSize.options].some((o) => o.value === fontSize.value)) textSize.append(h("option", { value: fontSize.value }, `Custom (${fontSize.value})`));
+      textSize.value = fontSize.value;
+    });
 
     const shellOpts = (firstLabel: string): [string, string][] => [["", firstLabel], ...shells.map((x): [string, string] => [x.id, x.label])];
     const firstShell = shells[0]?.label ?? "none found";
     const startupAction = select(
-      [["nothing", "Open nothing"], ["shell", "Open a local shell"], ["session", "Connect to a saved session"]],
+      [["shell", "Open a terminal (PowerShell, WSL, ...)"], ["session", "Connect to a saved session"], ["nothing", "Show the welcome screen"]],
       s.startupAction,
     );
-    const startupShell = select(shellOpts("Default shell"), shells.some((x) => x.id === s.startupShell) ? s.startupShell : "");
+    const startupShell = select(shellOpts("My default terminal"), shells.some((x) => x.id === s.startupShell) ? s.startupShell : "");
     const startupSession = select(
       sessions.length
         ? sessions.map((x): [string, string] => [x.id, (x.folder ? x.folder + "/" : "") + x.name])
@@ -52,7 +82,7 @@ export class SettingsPanel {
     const defaultShell = select(shellOpts(`First available (${firstShell})`), shells.some((x) => x.id === s.defaultShell) ? s.defaultShell : "");
     const startupPanes = select([["1", "One pane"], ["2", "Two panes side by side"], ["4", "Four panes (2×2 grid)"]], String(s.startupPanes));
     const startupPanesField = field("Layout", startupPanes);
-    const startupShellField = field("Shell to open", startupShell);
+    const startupShellField = field("Which terminal", startupShell);
     const startupSessionField = field("Session", startupSession);
     const syncStartup = () => {
       startupShellField.classList.toggle("hidden", startupAction.value !== "shell");
@@ -118,31 +148,43 @@ export class SettingsPanel {
       h(
         "form",
         { class: "form", onsubmit: (e: Event) => (e.preventDefault(), void save()) },
-        h("h4", {}, "Startup"),
-        field("When Siakap starts", startupAction),
+        h("h4", {}, "When Siakap starts"),
+        field("Open", startupAction),
         startupShellField,
         startupSessionField,
         startupPanesField,
-        field("Default shell for new tabs", defaultShell, "Used by Ctrl+Shift+T and the + button."),
-        h("h4", {}, "Terminal"),
-        field("Font family", fontFamily, "Local fonts only, e.g. Cascadia Mono, Consolas."),
-        field("Font size", fontSize),
-        h("div", { class: "grid2" }, field("Background", bg), field("Foreground", fg), field("Cursor", cursor), field("Selection", selection)),
-        field("Scrollback lines", scrollback),
-        h("label", { class: "check" }, copyOnSelect, " Copy on select"),
-        h("label", { class: "check" }, confirmPaste, " Confirm before pasting multiple lines"),
-        h("h4", {}, "Macros"),
-        field("Delay between lines (ms)", lineDelay),
-        field("Placeholder input validation", mode),
+        field("Default terminal for new tabs", defaultShell, "What the + button and Ctrl+Shift+T open. Pick your WSL distro here if you use WSL most."),
+        h("h4", {}, "Look"),
+        field("Theme", theme),
+        field("Text size", textSize),
         h("h4", {}, "Security"),
-        field("Auto-lock after idle minutes", autoLock, "0 disables auto-lock."),
+        field("Lock the app", autoLock, "When nobody has used Siakap for this long, it locks and asks for the master password."),
+        h(
+          "details",
+          { class: "advanced" },
+          h("summary", {}, "Advanced settings"),
+          h("div", { class: "form" },
+            field("Font", fontFamily, "Must be installed on this PC, e.g. Cascadia Mono or Consolas."),
+            field("Exact text size", fontSize),
+            h("div", { class: "grid2" }, field("Background", bg), field("Text", fg), field("Cursor", cursor), field("Selection", selection)),
+            field("Lines of history to keep", scrollback),
+            h("label", { class: "check" }, copyOnSelect, " Copy text as soon as it is selected"),
+            h("label", { class: "check" }, confirmPaste, " Ask before pasting more than one line"),
+            field("Macro: pause between lines (ms)", lineDelay),
+            field("Macro: allowed characters in {{values}}", mode),
+          ),
+        ),
         h("button", { type: "submit", class: "primary" }, "Save settings"),
       ),
       h("button", { onclick: () => this.changePassword() }, "Change master password"),
-      h("h4", {}, `Known hosts (${hosts.length})`),
-      hosts.length ? h("div", { class: "kh-list" }, ...hostRows) : h("p", { class: "muted small" }, "No trusted host keys yet."),
-      h("h4", {}, "Privacy"),
-      h("p", { class: "muted small" }, "Siakap makes no network connections except the SSH sessions you start: no telemetry, no update checks, no remote fonts."),
+      h(
+        "details",
+        { class: "advanced" },
+        h("summary", {}, `Trusted servers (${hosts.length})`),
+        h("p", { class: "muted small" }, "Servers whose identity you have confirmed. Remove one only if its administrator told you its key changed."),
+        hosts.length ? h("div", { class: "kh-list" }, ...hostRows) : h("p", { class: "muted small" }, "None yet."),
+      ),
+      h("p", { class: "muted small" }, "Siakap only connects to the servers and devices you open. It sends no usage data and checks for nothing online."),
     );
   }
 

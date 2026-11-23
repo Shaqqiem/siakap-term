@@ -62,7 +62,7 @@ export class MacroRunner {
     const mode = this.tabs.settings.validationMode;
     const values: Record<string, string> = {};
     for (const name of placeholders(m.script)) {
-      const v = await promptDialog(`Macro: ${m.name}`, `Value for {{${name}}}`, {
+      const v = await promptDialog(`Macro: ${m.name}`, `Enter a value for "${name}"`, {
         validate: (x) => validateInput(x, mode),
         hint: mode === "safe" ? "Safe mode: letters, digits, space and _ . / : @ , + -" : "Unrestricted mode: control characters are still blocked.",
         okLabel: "Next",

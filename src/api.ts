@@ -2,7 +2,7 @@
 // every call is Tauri IPC to the local Rust process.
 import { invoke, Channel } from "@tauri-apps/api/core";
 
-export type SessionKind = "ssh" | "local";
+export type SessionKind = "ssh" | "local" | "serial";
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 export type ValidationMode = "safe" | "unrestricted";
 
@@ -18,6 +18,22 @@ export interface Session {
   keyPath: string;
   shell: string;
   postConnectMacro: string | null;
+  serial: SerialConfig;
+}
+export interface SerialConfig {
+  port: string;
+  baud: number;
+  dataBits: number;
+  parity: "none" | "odd" | "even";
+  stopBits: number;
+  flow: "none" | "software" | "hardware";
+}
+export interface SerialPortInfo {
+  name: string;
+  description: string;
+  usb: boolean;
+  vid: number | null;
+  pid: number | null;
 }
 export interface RedactedSession extends Session {
   hasPassword: boolean;
@@ -145,6 +161,9 @@ export const api = {
     password?: string,
     passphrase?: string,
   ) => invoke<number>("term_open_ssh", { sessionId, cols, rows, channel, password, passphrase }),
+  serialPortsList: () => invoke<{ ports: SerialPortInfo[]; baudRates: number[] }>("serial_ports_list"),
+  termOpenSerial: (config: SerialConfig, channel: Channel<TermOut>) => invoke<number>("term_open_serial", { config, channel }),
+  termSerialBreak: (id: number) => invoke<void>("term_serial_break", { id }),
   termWrite: (id: number, data: string) => invoke<void>("term_write", { id, data }),
   termResize: (id: number, cols: number, rows: number) => invoke<void>("term_resize", { id, cols, rows }),
   termClose: (id: number) => invoke<void>("term_close", { id }),

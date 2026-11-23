@@ -4,7 +4,8 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
-import { api, b64ToBytes, Channel, errorOf, type RedactedSession, type Settings, type TermOut } from "./api";
+import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
+import { serialSummary } from "./serial";
 import { $, alertDialog, confirmDialog, h, modal, promptDialog, toast } from "./ui";
 
 export type PaneStatus = "connecting" | "connected" | "closed";
@@ -15,15 +16,35 @@ export interface Pane {
   term: Terminal;
   fit: FitAddon;
   el: HTMLElement;
-  kind: "local" | "ssh";
+  kind: "local" | "ssh" | "serial";
   title: string;
   shellId?: string;
   session?: RedactedSession;
+  serial?: SerialConfig;
   status: PaneStatus;
   tab: Tab;
   disposed: boolean;
   /** Input typed before the backend returned the terminal id. */
   pending: string[];
+  /** Reconnect in place after the connection ended (R key). */
+  reconnect?: () => void;
+}
+
+/** Turn low-level errors into something a non-technical colleague can act on. */
+export function friendlyError(kind: Pane["kind"], raw: string, target = ""): string {
+  const m = raw.toLowerCase();
+  const has = (...xs: string[]) => xs.some((x) => m.includes(x));
+  let nice = "";
+  if (kind === "serial") {
+    if (has("in use", "access is denied", "busy")) nice = `${target} is already open in another program (PuTTY, MobaXterm or another tab). Close it there and try again.`;
+    else if (has("not find", "no such file", "not found", "os error 2")) nice = `${target} isn't there. Check the console cable is plugged in, or pick a different port.`;
+  } else if (has("refused", "os error 111", "10061")) nice = `${target} refused the connection. Check the address and port, and that the server is running SSH.`;
+  else if (has("timed out", "timeout", "10060")) nice = `${target} didn't answer. Check the address, your network or VPN, and that the device is switched on.`;
+  else if (has("lookup", "no such host", "name or service not known", "11001", "nodename nor servname")) nice = `Couldn't find a server called ${target}. Check the spelling of the address.`;
+  else if (has("unreachable", "10051", "10065")) nice = `This PC can't reach ${target}. Are you connected to the right network or VPN?`;
+  else if (has("authentication failed", "password was rejected")) nice = "Sign-in failed: wrong username or password, or the server doesn't accept this sign-in method.";
+  else if (has("reset by peer", "10054", "broken pipe")) nice = `The connection to ${target} was dropped.`;
+  return nice ? `${nice}\n(Details: ${raw})` : raw;
 }
 
 type SplitNode = { type: "leaf"; pane: Pane } | { type: "split"; dir: "h" | "v"; ratio: number; a: SplitNode; b: SplitNode };
@@ -90,7 +111,7 @@ export class TabManager {
 
   // ------------------------------------------------------------ pane creation
 
-  private makePane(kind: "local" | "ssh", title: string, tab: Tab | null): Pane {
+  private makePane(kind: Pane["kind"], title: string, tab: Tab | null): Pane {
     const s = this.settings;
     const term = new Terminal({
       fontFamily: s.fontFamily,
@@ -117,6 +138,12 @@ export class TabManager {
         if (pane.pending.length < 256) pane.pending.push(d);
       } else if (pane.status === "closed" && d === "\r") {
         this.closePane(pane);
+      } else if (pane.status === "closed" && (d === "r" || d === "R") && pane.reconnect) {
+        pane.status = "connecting";
+        pane.termId = null;
+        pane.term.write("\r\n");
+        this.renderTabs();
+        pane.reconnect();
       }
     });
     term.onSelectionChange(() => {
@@ -153,6 +180,11 @@ export class TabManager {
       return false;
     }
     // Let app shortcuts bubble to the window handler.
+    if (ctrlShift && e.code === "KeyB" && pane.kind === "serial") {
+      e.preventDefault();
+      void this.sendBreak(pane);
+      return false;
+    }
     if (ctrlShift && ["KeyT", "KeyD", "KeyE", "KeyG", "KeyW"].includes(e.code)) return false;
     if (e.ctrlKey && e.code === "Tab") return false;
     return true;
@@ -195,7 +227,7 @@ export class TabManager {
       if (m.kind === "data") pane.term.write(b64ToBytes(m.b64));
       else {
         pane.status = "closed";
-        pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press Enter to close.]\x1b[0m\r\n`);
+        pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : pane.kind === "serial" ? "port closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press R to reconnect or Enter to close.]\x1b[0m\r\n`);
         this.renderTabs();
         this.closeListeners.forEach((l) => l(pane));
       }
@@ -205,11 +237,46 @@ export class TabManager {
 
   // ------------------------------------------------------------ open
 
+  /** Open a serial console. Each port can only be open once. */
+  async openSerial(config: SerialConfig, title?: string, where: "tab" | "h" | "v" = "tab", session?: RedactedSession) {
+    const pane = this.place(this.makePane("serial", title || config.port, null), where);
+    pane.serial = config;
+    pane.session = session; // enables its post-connect macro
+    pane.reconnect = () => void this.connectSerial(pane);
+    await this.connectSerial(pane);
+  }
+
+  private async connectSerial(pane: Pane) {
+    const config = pane.serial!;
+    pane.term.write(`\x1b[2mOpening ${serialSummary(config)}... \x1b[0m\r\n\x1b[2mPress Enter if nothing appears. Ctrl+Shift+B sends a break.\x1b[0m\r\n`);
+    try {
+      pane.termId = await api.termOpenSerial(config, this.wireChannel(pane));
+      this.markConnected(pane);
+    } catch (e) {
+      this.failPane(pane, friendlyError("serial", errorOf(e).message, config.port));
+    }
+  }
+
+  async sendBreak(pane = this.focusedPane) {
+    if (!pane || pane.kind !== "serial" || pane.termId === null || pane.status !== "connected") return;
+    try {
+      await api.termSerialBreak(pane.termId);
+      toast("Break sent.", "ok", 1500);
+    } catch (e) {
+      toast(messageOf(e), "error");
+    }
+  }
+
   async openLocal(shellId: string, label: string, where: "tab" | "h" | "v" = "tab") {
     const pane = this.place(this.makePane("local", label, null), where);
     pane.shellId = shellId;
+    pane.reconnect = () => void this.connectLocal(pane);
+    await this.connectLocal(pane);
+  }
+
+  private async connectLocal(pane: Pane) {
     try {
-      pane.termId = await api.termOpenLocal(shellId, pane.term.cols, pane.term.rows, this.wireChannel(pane));
+      pane.termId = await api.termOpenLocal(pane.shellId ?? "", pane.term.cols, pane.term.rows, this.wireChannel(pane));
       this.markConnected(pane);
     } catch (e) {
       this.failPane(pane, errorOf(e).message);
@@ -219,7 +286,14 @@ export class TabManager {
   async openSsh(session: RedactedSession, where: "tab" | "h" | "v" = "tab") {
     const pane = this.place(this.makePane("ssh", session.name, null), where);
     pane.session = session;
-    pane.term.write(`\x1b[2mConnecting to ${session.user}@${session.host}:${session.port}...\x1b[0m\r\n`);
+    pane.reconnect = () => void this.connectSsh(pane);
+    await this.connectSsh(pane);
+  }
+
+  private async connectSsh(pane: Pane) {
+    const session = pane.session!;
+    const target = session.port && session.port !== 22 ? `${session.host}:${session.port}` : session.host;
+    pane.term.write(`\x1b[2mConnecting to ${session.user}@${target}...\x1b[0m\r\n`);
     let password: string | undefined;
     let passphrase: string | undefined;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -252,7 +326,8 @@ export class TabManager {
               body: h(
                 "div",
                 {},
-                h("p", { class: "pre" }, e.message),
+                h("p", {}, h("strong", {}, "Don't continue. This server's identity has changed since you last connected. Contact your IT team before trying again.")),
+                h("p", { class: "pre muted small" }, e.message),
                 h("dl", { class: "kv" }, h("dt", {}, "Stored"), h("dd", { class: "mono" }, e.knownFingerprint ?? ""), h("dt", {}, "Presented"), h("dd", { class: "mono" }, `${e.fingerprint} (${e.keyType})`)),
               ),
               actions: [h("button", { class: "danger", onclick: () => close() }, "Close")],
@@ -273,14 +348,17 @@ export class TabManager {
           passphrase = pp;
           continue;
         }
-        if (e.kind === "auth" && password !== undefined) {
-          toast(e.message, "error");
-          const pw = await promptDialog("Password", `Password for ${session.user}@${session.host} (try again)`, { password: true });
+        if (e.kind === "auth" && session.auth !== "key" && session.auth !== "agent") {
+          const pw = await promptDialog(
+            "Sign-in failed",
+            `The username or password wasn't accepted. Enter the password for ${session.user}@${session.host} to try again.`,
+            { password: true, okLabel: "Try again" },
+          );
           if (pw === null) return this.failPane(pane, "Cancelled.");
           password = pw;
           continue;
         }
-        this.failPane(pane, e.message);
+        this.failPane(pane, friendlyError("ssh", e.message, target));
         return;
       }
     }
@@ -289,14 +367,14 @@ export class TabManager {
 
   private askTrust(host: string, port: number, keyType: string, fp: string): Promise<boolean> {
     return modal<boolean>(
-      "Unknown host key",
+      "First connection to this server",
       (close) => ({
         body: h(
           "div",
           {},
-          h("p", {}, `The authenticity of ${host}:${port} can't be established. This is the first time you connect to it.`),
+          h("p", {}, `You haven't connected to ${host}${port !== 22 ? `:${port}` : ""} before, so Siakap can't be sure it's the right server yet.`),
           h("dl", { class: "kv" }, h("dt", {}, "Key type"), h("dd", {}, keyType), h("dt", {}, "Fingerprint"), h("dd", { class: "mono" }, fp)),
-          h("p", { class: "muted" }, "Compare the fingerprint with the one the server's administrator gave you (e.g. `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`). Trust it only if they match."),
+          h("p", { class: "muted" }, "If you have the server's fingerprint from your IT team, check it matches. On a trusted network, connecting to a server for the first time is normally fine. Siakap will remember it and warn you loudly if it ever changes."),
         ),
         actions: [h("button", { onclick: () => close(false) }, "Cancel"), h("button", { class: "primary", onclick: () => close(true) }, "Trust and connect")],
       }),
@@ -317,7 +395,13 @@ export class TabManager {
   private failPane(pane: Pane, msg: string, danger = false) {
     pane.status = "closed";
     pane.pending = [];
-    pane.term.write(`\r\n\x1b[${danger ? "1;31" : "31"}m${msg.replace(/\n/g, "\r\n")}\x1b[0m\r\n\x1b[2m[press Enter to close]\x1b[0m\r\n`);
+    const [main, details] = msg.split("\n(Details: ");
+    const hint = pane.reconnect && !danger ? "Press R to try again or Enter to close." : "Press Enter to close.";
+    pane.term.write(
+      `\r\n\x1b[${danger ? "1;31" : "31"}m${main.replace(/\n/g, "\r\n")}\x1b[0m\r\n` +
+        (details ? `\x1b[2mDetails: ${details.replace(/\)$/, "").replace(/\n/g, "\r\n")}\x1b[0m\r\n` : "") +
+        `\x1b[2m[${hint}]\x1b[0m\r\n`,
+    );
     this.renderTabs();
   }
 
@@ -359,6 +443,10 @@ export class TabManager {
   splitFocused(dir: "h" | "v") {
     const p = this.focusedPane;
     if (!p) return;
+    if (p.kind === "serial") {
+      toast("A serial port can only be open in one pane at a time.", "error");
+      return;
+    }
     if (p.kind === "ssh" && p.session) void this.openSsh(p.session, dir);
     else void this.openLocal(p.shellId ?? "", p.title, dir);
   }
@@ -367,6 +455,10 @@ export class TabManager {
   splitGrid() {
     const topLeft = this.focusedPane;
     if (!topLeft) return;
+    if (topLeft.kind === "serial") {
+      toast("A serial port can only be open in one pane at a time.", "error");
+      return;
+    }
     this.splitFocused("h"); // panes are placed synchronously, so focus is already on the new one
     const topRight = this.focusedPane;
     this.focus(topLeft);

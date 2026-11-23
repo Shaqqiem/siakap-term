@@ -7,7 +7,8 @@ import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell } from "./tabs";
-import { $, alertDialog, confirmDialog, isModalOpen, toast } from "./ui";
+import { $, alertDialog, confirmDialog, h, isModalOpen, toast } from "./ui";
+import { icon } from "./icons";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
@@ -24,6 +25,58 @@ const settingsPanel = new SettingsPanel((s) => applySettings(s));
 function applySettings(s: Settings) {
   tabs.applySettings(s);
   document.documentElement.style.setProperty("--term-bg", s.background);
+}
+
+// ------------------------------------------------------------------ welcome screen
+
+/** Shown whenever no tab is open: big, obvious ways to get started. */
+function renderWelcome() {
+  const sh = sidebar.shells.length ? pickShell() : undefined;
+  const card = (ic: string, title: string, text: string, onclick: () => void) =>
+    h("button", { class: "welcome-card", onclick }, h("span", { class: "welcome-icon" }, icon(ic, 22)), h("strong", {}, title), h("span", { class: "muted small" }, text));
+  const recent = sidebar.sessions.slice(0, 8);
+  $("empty").replaceChildren(
+    h(
+      "div",
+      { class: "welcome" },
+      h("h1", {}, "What would you like to open?"),
+      h(
+        "div",
+        { class: "welcome-grid" },
+        card("terminal", "Terminal on this PC", sh ? `Opens ${sh.label}` : "PowerShell, Command Prompt or WSL", () => void newLocal()),
+        card("remote", "Connect to a server", "SSH to a Linux server, switch or router", () => void sidebar.newSession("ssh")),
+        card("serial", "Serial console", "Use a console cable (COM port)", () => void sidebar.newSession("serial")),
+        card("grid", "Four terminals", "A 2×2 grid of your default terminal", () => void splitGrid()),
+      ),
+      recent.length
+        ? h(
+            "div",
+            { class: "welcome-recent" },
+            h("h4", {}, "Saved sessions"),
+            h(
+              "div",
+              { class: "chips" },
+              ...recent.map((x) =>
+                h(
+                  "button",
+                  { class: "chip", title: "Connect", onclick: () => sidebar.connectSession(x) },
+                  icon(x.kind === "ssh" ? "remote" : x.kind === "serial" ? "serial" : "terminal", 14),
+                  x.name,
+                ),
+              ),
+            ),
+          )
+        : null,
+      h(
+        "p",
+        { class: "muted small welcome-keys" },
+        "Shortcuts: ",
+        h("kbd", {}, "Ctrl+Shift+T"), " new terminal · ",
+        h("kbd", {}, "Ctrl+Shift+D"), " split · ",
+        h("kbd", {}, "Ctrl+Shift+G"), " four panes",
+      ),
+    ),
+  );
 }
 
 // ------------------------------------------------------------------ lock screen
@@ -50,6 +103,7 @@ async function onUnlocked() {
   try {
     applySettings(await api.settingsGet());
     await sidebar.reload();
+    renderWelcome();
     if (currentPanel === "settings") await settingsPanel.render();
     if (currentPanel === "sftp") sftp.shown();
     void runStartup();
@@ -209,7 +263,10 @@ async function runStartup() {
     const ses = sidebar.sessions.find((x) => x.id === s.startupSession);
     if (!ses) return toast("The startup session no longer exists. Pick another one in Settings.", "error");
     if (ses.kind === "ssh") void tabs.openSsh(ses);
-    else {
+    else if (ses.kind === "serial") {
+      void tabs.openSerial(ses.serial, ses.name, "tab", ses);
+      return; // a serial port can only be open once, so no extra panes
+    } else {
       const sh = pickShell(ses.shell);
       if (!sh) return;
       void tabs.openLocal(sh.id, ses.name);
@@ -262,6 +319,8 @@ window.addEventListener("keydown", (e) => {
 }, true);
 
 // Post-connect macros.
+sidebar.onReload = () => renderWelcome();
+
 tabs.onConnected = (pane) => {
   const id = pane.session?.postConnectMacro;
   if (!id) return;

@@ -34,6 +34,10 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **Macros.** Scripts send one line at a time with a short delay between lines. They support `# @wait`, `# @type`
   and `{{placeholders}}`. You can sort them into folders, search them, import and export them as JSON, preview them
   before they run, and attach one to a session so it runs right after connecting.
+- **Serial consoles.** Connect to switches, routers and other devices over a COM port, like you would in PuTTY or
+  MobaXterm. Ports are detected automatically (plug in a USB console cable and it shows up), the speed is picked
+  from a dropdown (9600 by default, up to 921600, or a custom rate), and data bits, parity, stop bits and flow
+  control can be changed. `Ctrl+Shift+B` sends a break for password recovery.
 - **SFTP.** The side panel follows whichever SSH tab is focused and reuses its connection. Browse, create folders,
   rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Transfers stream in
   chunks, show progress and can be cancelled.
@@ -66,6 +70,8 @@ The first time it starts, Siakap asks you to choose a master password and create
 | New local shell | `Ctrl+Shift+T`, the + button, or pick one under *Local shells* |
 | Split the focused pane | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom |
 | Split into four panes | `Ctrl+Shift+G`, or the grid button in the tab bar |
+| Open a serial console | **+ Serial**, or click a port under *Serial ports* |
+| Send a break (serial) | `Ctrl+Shift+B` |
 | Close a pane | `Ctrl+Shift+W`, or press Enter once the session has ended |
 | Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
 | Copy and paste | `Ctrl+Shift+C` and `Ctrl+Shift+V`; copy on select is in Settings |
@@ -131,8 +137,8 @@ npm run tauri dev
 
 `npm run tauri build` produces the installers in `target\release\bundle\nsis` and `target\release\bundle\msi`.
 
-On Linux you'll also need the WebKitGTK development packages:
-`libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
+On Linux you'll also need the WebKitGTK and udev development packages:
+`libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libudev-dev`.
 
 ### Tests
 
@@ -169,6 +175,7 @@ core/              Rust library with no Tauri dependency
   pty.rs             local shells (ConPTY on Windows)
   ssh.rs             SSH client and host-key checks
   sftp.rs            SFTP over an existing SSH connection
+  serial.rs          serial ports and consoles
   security_key.rs    usbipd integration
 src-tauri/         Tauri commands, app state and capabilities
 src/               TypeScript frontend built on xterm.js

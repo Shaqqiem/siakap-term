@@ -9,6 +9,7 @@
 //! * [`pty`] — local shells (ConPTY on Windows)
 //! * [`ssh`] — russh client with trust-on-first-use host keys
 //! * [`sftp`] — SFTP over the same SSH connection
+//! * [`serial`] — serial consoles (COM ports)
 //! * [`security_key`] — usbipd attach/detach toggle for hardware security keys
 
 pub mod error;
@@ -17,6 +18,7 @@ pub mod model;
 pub mod process;
 pub mod pty;
 pub mod security_key;
+pub mod serial;
 pub mod sftp;
 pub mod ssh;
 pub mod vault;

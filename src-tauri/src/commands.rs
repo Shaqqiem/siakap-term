@@ -19,6 +19,7 @@ use siakap_core::model::{
 };
 use siakap_core::pty::{self, EventSink, LocalPty, ShellInfo, TermEvent};
 use siakap_core::security_key;
+use siakap_core::serial::{self, SerialConfig, SerialTerm};
 use siakap_core::sftp::{Entry, Sftp};
 use siakap_core::ssh::{self, ConnectParams, SshConnection};
 use siakap_core::vault::atomic_write;
@@ -130,6 +131,13 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
             session.user.clear();
             session.key_path.clear();
         }
+        SessionKind::Serial => {
+            session.serial = session.serial.validated()?;
+            session.host.clear();
+            session.user.clear();
+            session.key_path.clear();
+            session.shell.clear();
+        }
     }
     st.vault().update(|d| {
         if let Some(m) = &session.post_connect_macro {
@@ -150,7 +158,7 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
         if !session.folder.is_empty() && !d.folders.contains(&session.folder) {
             d.folders.push(session.folder.clone());
         }
-        if clear_password || session.kind == SessionKind::Local {
+        if clear_password || session.kind != SessionKind::Ssh {
             d.secrets.remove(&session.id);
         } else if let Some(pw) = &password {
             if !pw.is_empty() {
@@ -421,6 +429,7 @@ pub async fn term_open_ssh(
 pub fn term_write(st: State<'_, AppState>, id: u32, data: String) -> Res<()> {
     match &*st.term(id)? {
         Term::Local(p) => p.write(data.as_bytes()),
+        Term::Serial(p) => p.write(data.as_bytes()),
         Term::Ssh { shell, .. } => shell.write(data.into_bytes()),
     }
 }
@@ -429,6 +438,7 @@ pub fn term_write(st: State<'_, AppState>, id: u32, data: String) -> Res<()> {
 pub fn term_resize(st: State<'_, AppState>, id: u32, cols: u16, rows: u16) -> Res<()> {
     match &*st.term(id)? {
         Term::Local(p) => p.resize(cols, rows),
+        Term::Serial(_) => Ok(()), // a serial line has no window size
         Term::Ssh { shell, .. } => shell.resize(cols, rows),
     }
 }
@@ -438,6 +448,7 @@ pub async fn term_close(st: State<'_, AppState>, id: u32) -> Res<()> {
     if let Some(t) = st.remove_term(id) {
         match &*t {
             Term::Local(p) => p.close(),
+            Term::Serial(p) => p.close(),
             Term::Ssh { shell, conn, sftp } => {
                 shell.close();
                 if let Some(s) = sftp.lock().await.take() {
@@ -448,6 +459,43 @@ pub async fn term_close(st: State<'_, AppState>, id: u32) -> Res<()> {
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- serial
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialPortsView {
+    ports: Vec<serial::PortInfo>,
+    baud_rates: Vec<u32>,
+}
+
+#[tauri::command]
+pub async fn serial_ports_list() -> Res<SerialPortsView> {
+    let ports = tauri::async_runtime::spawn_blocking(serial::list_ports)
+        .await
+        .map_err(|e| CoreError::Io { message: e.to_string() })??;
+    Ok(SerialPortsView { ports, baud_rates: serial::COMMON_BAUD_RATES.to_vec() })
+}
+
+#[tauri::command]
+pub async fn term_open_serial(st: State<'_, AppState>, config: SerialConfig, channel: Channel<TermOut>) -> Res<u32> {
+    let sink = sink_for(channel);
+    let t = tauri::async_runtime::spawn_blocking(move || SerialTerm::open(&config, sink))
+        .await
+        .map_err(|e| CoreError::Io { message: e.to_string() })??;
+    Ok(st.add_term(Term::Serial(t)))
+}
+
+#[tauri::command]
+pub async fn term_serial_break(st: State<'_, AppState>, id: u32) -> Res<()> {
+    let t = st.term(id)?;
+    tauri::async_runtime::spawn_blocking(move || match &*t {
+        Term::Serial(p) => p.send_break(),
+        _ => Err(CoreError::invalid("Break only applies to serial consoles.")),
+    })
+    .await
+    .map_err(|e| CoreError::Io { message: e.to_string() })?
 }
 
 // ---------------------------------------------------------------- sftp

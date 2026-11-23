@@ -28,6 +28,7 @@ const P: Record<string, string> = {
   "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  serial: '<path d="M9 2v4M15 2v4"/><rect x="6" y="6" width="12" height="7" rx="1.5"/><path d="M12 13v3a3 3 0 0 0 3 3h1a3 3 0 0 1 3 3"/>',
   terminal: '<path d="m5 7 5 5-5 5M12 18h7"/>',
   remote: '<path d="M17 3l4 4-4 4M21 7H8M7 21l-4-4 4-4M3 17h13"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',

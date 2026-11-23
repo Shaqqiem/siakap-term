@@ -16,6 +16,8 @@ pub enum SessionKind {
     #[default]
     Ssh,
     Local,
+    /// Serial console (COM port).
+    Serial,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -46,6 +48,8 @@ pub struct Session {
     pub shell: String,
     /// Id of a macro to run after connecting, if any.
     pub post_connect_macro: Option<String>,
+    /// Serial sessions: port, speed and line settings.
+    pub serial: crate::serial::SerialConfig,
 }
 
 /// What the frontend sees: a session plus `hasPassword`, never the password.

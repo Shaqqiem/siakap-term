@@ -1,7 +1,8 @@
 // Sessions and Macros panels.
 import { icon } from "./icons";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { api, messageOf, type Macro, type RedactedSession, type Session, type ShellInfo } from "./api";
+import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type SerialPortInfo, type Session, type ShellInfo } from "./api";
+import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
 import { parse, placeholders, MacroError } from "./macros";
 import type { MacroRunner } from "./runner";
 import type { TabManager } from "./tabs";
@@ -17,7 +18,37 @@ export class Sidebar {
   private sessionQuery = "";
   private macroQuery = "";
 
-  constructor(private tabs: TabManager, private runner: MacroRunner) {}
+  serialPorts: SerialPortInfo[] = [];
+  private serialKey = "";
+
+  constructor(private tabs: TabManager, private runner: MacroRunner) {
+    // Keep the "Serial ports" list current so a newly plugged-in cable shows up.
+    window.setInterval(() => {
+      const panel = document.getElementById("panel-sessions");
+      if (panel && !panel.classList.contains("hidden") && panel.offsetParent !== null) void this.pollSerial();
+    }, 3000);
+  }
+
+  private async pollSerial(render = true) {
+    try {
+      const { ports } = await api.serialPortsList();
+      const key = ports.map((p) => p.name + p.description).join("|");
+      if (key === this.serialKey) return;
+      this.serialKey = key;
+      this.serialPorts = ports;
+      if (render) this.renderSessions();
+    } catch {
+      /* listing ports is best-effort */
+    }
+  }
+
+  /** Quick-connect a serial console, optionally saving it as a session. */
+  async quickSerial(port?: string) {
+    const r = await serialDialog(port ? { port } : undefined);
+    if (!r) return;
+    if (r.save) return this.editSession(null, "serial", r.config);
+    void this.tabs.openSerial(r.config);
+  }
 
   async reload() {
     const [v, m] = await Promise.all([api.sessionsList(), api.macrosList()]);
@@ -26,9 +57,14 @@ export class Sidebar {
     this.macroFolders = v.macroFolders;
     this.macros = m;
     if (!this.shells.length) this.shells = await api.shellsList().catch(() => []);
+    await this.pollSerial(false);
     this.renderSessions();
     this.renderMacros();
+    this.onReload();
   }
+
+  /** Called after sessions or macros change (main.ts refreshes the welcome screen). */
+  onReload: () => void = () => {};
 
   // ------------------------------------------------------------------ tree
 
@@ -105,13 +141,14 @@ export class Sidebar {
       h(
         "div",
         { class: "toolbar" },
-        h("button", { onclick: () => this.editSession(null, "ssh") }, "+ SSH"),
-        h("button", { onclick: () => this.editSession(null, "local") }, "+ Local"),
-        h("button", { onclick: () => this.newFolder("sessions") }, "+ Folder"),
+        h("button", { title: "Add a remote server (SSH)", onclick: () => this.editSession(null, "ssh") }, "+ SSH"),
+        h("button", { title: "Save a terminal on this PC (PowerShell, WSL, cmd)", onclick: () => this.editSession(null, "local") }, "+ Local"),
+        h("button", { title: "Connect a console cable (COM port)", onclick: () => this.quickSerial() }, "+ Serial"),
+        h("button", { class: "tool", title: "New folder", onclick: () => this.newFolder("sessions") }, icon("folder-plus", 15)),
       ),
       search,
       tree,
-      list.length === 0 && !q ? h("p", { class: "muted small" }, "No saved sessions yet.") : null,
+      list.length === 0 && !q ? h("p", { class: "muted small" }, "No saved sessions yet. Click + SSH to add a server, or + Serial for a console cable.") : null,
       h("h4", {}, "Local shells"),
       h(
         "ul",
@@ -129,18 +166,41 @@ export class Sidebar {
           ),
         ),
       ),
+      h("h4", {}, "Serial ports"),
+      this.serialPorts.length
+        ? h(
+            "ul",
+            { class: "tree" },
+            ...this.serialPorts.map((p) =>
+              h(
+                "li",
+                {},
+                h(
+                  "div",
+                  { class: "row item", title: `Connect to ${p.name}`, onclick: () => this.quickSerial(p.name) },
+                  h("span", { class: "ico" }, icon("serial", 15)),
+                  h("span", { class: "name" }, p.name),
+                  h("span", { class: "sub" }, p.description),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted small" }, "No serial ports detected. Plug in a console cable and it appears here."),
     );
   }
 
+  connectSession(s: RedactedSession, where: "tab" | "h" | "v" = "tab") {
+    if (s.kind === "ssh") void this.tabs.openSsh(s, where);
+    else if (s.kind === "serial") void this.tabs.openSerial(s.serial, s.name, where, s);
+    else {
+      const sh = this.shells.find((x) => x.id === s.shell) ?? this.shells[0];
+      if (!sh) return toast("No terminal program was found on this PC.", "error");
+      void this.tabs.openLocal(sh.id, s.name, where);
+    }
+  }
+
   private sessionItem(s: RedactedSession): HTMLElement {
-    const connect = (where: "tab" | "h" | "v" = "tab") => {
-      if (s.kind === "ssh") void this.tabs.openSsh(s, where);
-      else {
-        const sh = this.shells.find((x) => x.id === s.shell) ?? this.shells[0];
-        if (!sh) return toast("No local shell available.", "error");
-        void this.tabs.openLocal(sh.id, s.name, where);
-      }
-    };
+    const connect = (where: "tab" | "h" | "v" = "tab") => this.connectSession(s, where);
     return h(
       "li",
       {},
@@ -149,13 +209,18 @@ export class Sidebar {
         {
           class: "row item",
           tabindex: 0,
-          title: s.kind === "ssh" ? `${s.user}@${s.host}:${s.port} (double-click to connect)` : "Local shell",
+          title:
+            s.kind === "ssh"
+              ? `${s.user}@${s.host}:${s.port} (double-click to connect)`
+              : s.kind === "serial"
+                ? `${serialSummary(s.serial)} (double-click to connect)`
+                : "Local shell",
           ondblclick: () => connect(),
           onkeydown: (e: Event) => (e as KeyboardEvent).key === "Enter" && connect(),
         },
-        h("span", { class: "ico" }, icon(s.kind === "ssh" ? "remote" : "terminal", 15)),
+        h("span", { class: "ico" }, icon(s.kind === "ssh" ? "remote" : s.kind === "serial" ? "serial" : "terminal", 15)),
         h("span", { class: "name" }, s.name),
-        h("span", { class: "sub" }, s.kind === "ssh" ? `${s.user}@${s.host}` : ""),
+        h("span", { class: "sub" }, s.kind === "ssh" ? `${s.user}@${s.host}` : s.kind === "serial" ? `${s.serial.port} ${s.serial.baud}` : ""),
         h(
           "span",
           { class: "row-actions" },
@@ -198,61 +263,135 @@ export class Sidebar {
     await this.reload();
   }
 
-  private async editSession(existing: RedactedSession | null, kind: "ssh" | "local") {
+  /** Open the session editor for a new session of the given kind. */
+  newSession(kind: Session["kind"]) {
+    if (kind === "serial") return this.quickSerial();
+    return this.editSession(null, kind);
+  }
+
+  private async editSession(existing: RedactedSession | null, kind: Session["kind"], serial?: SerialConfig) {
     const s: Session = existing
-      ? { ...existing }
-      : { id: "", name: "", folder: "", kind, host: "", port: 22, user: "", auth: "auto", keyPath: "", shell: this.shells[0]?.id ?? "", postConnectMacro: null };
-    const name = h("input", { value: s.name, spellcheck: "false" });
-    const folder = h("input", { value: s.folder, list: "dl-folders", spellcheck: "false", placeholder: "e.g. Prod/Web" });
+      ? { ...existing, serial: existing.serial ?? DEFAULT_SERIAL }
+      : {
+          id: "",
+          name: serial ? `${serial.port} (${serial.baud})` : "",
+          folder: "",
+          kind,
+          host: "",
+          port: 22,
+          user: "",
+          auth: "auto",
+          keyPath: "",
+          shell: this.shells[0]?.id ?? "",
+          postConnectMacro: null,
+          serial: serial ?? DEFAULT_SERIAL,
+        };
+    // data-f attributes give every field a stable name (used by tests too).
+    const name = h("input", { "data-f": "name", value: s.name, spellcheck: "false", placeholder: "Optional, e.g. Web server" });
+    const folder = h("input", { "data-f": "folder", value: s.folder, list: "dl-folders", spellcheck: "false", placeholder: "Optional, e.g. Production/Web" });
     const dl = h("datalist", { id: "dl-folders" }, ...this.folders.map((f) => h("option", { value: f })));
-    const type = select([["ssh", "SSH"], ["local", "Local shell"]], s.kind);
-    const host = h("input", { value: s.host, spellcheck: "false" });
-    const port = h("input", { type: "number", min: 1, max: 65535, value: s.port || 22 });
-    const user = h("input", { value: s.user, spellcheck: "false" });
+    const type = select(
+      [["ssh", "Remote server (SSH)"], ["local", "Terminal on this PC (PowerShell, WSL, cmd)"], ["serial", "Serial console (COM port)"]],
+      s.kind,
+    );
+    type.dataset.f = "type";
+    const host = h("input", { "data-f": "host", value: s.host, spellcheck: "false", placeholder: "e.g. 10.0.0.5 or server.company.local" });
+    const port = h("input", { "data-f": "port", type: "number", min: 1, max: 65535, value: s.port || 22 });
+    const user = h("input", { "data-f": "user", value: s.user, spellcheck: "false", placeholder: "e.g. admin" });
     const auth = select(
-      [["auto", "Automatic (agent, Pageant, key file, password)"], ["agent", "SSH agent / Pageant (incl. FIDO security keys)"], ["key", "Key file"], ["password", "Password"]],
+      [
+        ["auto", "Automatic (recommended)"],
+        ["password", "Password only"],
+        ["key", "Key file only"],
+        ["agent", "SSH agent / Pageant only (incl. hardware keys)"],
+      ],
       s.auth,
     );
-    const keyPath = h("input", { value: s.keyPath, spellcheck: "false", placeholder: "C:\\Users\\you\\.ssh\\id_ed25519" });
+    auth.dataset.f = "auth";
+    const keyPath = h("input", { "data-f": "keyPath", value: s.keyPath, spellcheck: "false", placeholder: "C:\\Users\\you\\.ssh\\id_ed25519" });
     const browse = h("button", { type: "button" }, "Browse");
     browse.addEventListener("click", async () => {
       const p = await openDialog({ multiple: false, directory: false, title: "Choose private key" });
       if (typeof p === "string") keyPath.value = p;
     });
-    const pw = h("input", { type: "password", placeholder: existing?.hasPassword ? "Saved. Leave empty to keep it." : "optional", autocomplete: "off" });
+    const pw = h("input", {
+      "data-f": "password",
+      type: "password",
+      placeholder: existing?.hasPassword ? "Saved. Leave empty to keep it." : "Optional",
+      autocomplete: "off",
+    });
     const clearPw = h("input", { type: "checkbox" });
     const shell = select(this.shells.map((x) => [x.id, x.label]), s.shell);
+    shell.dataset.f = "shell";
     const macro = select([["", "None"], ...this.macros.map((m): [string, string] => [m.id, (m.folder ? m.folder + "/" : "") + m.name])], s.postConnectMacro ?? "");
+    macro.dataset.f = "macro";
     const err = h("div", { class: "error" });
 
+    // Basic fields first; everything else lives under "Advanced settings".
     const sshFields = h(
       "div",
       { class: "grid2" },
-      field("Host", host),
-      field("Port", port),
-      field("User", user),
-      field("Authentication", auth),
-      h("label", { class: "field span2" }, h("span", {}, "Key file"), h("div", { class: "inline" }, keyPath, browse)),
-      field("Saved password", pw, "Stored encrypted in the vault; never sent to the UI."),
-      existing?.hasPassword ? h("label", { class: "check" }, clearPw, " Forget saved password") : h("span", {}),
+      h("label", { class: "field span2" }, h("span", {}, "Server address"), host, h("small", { class: "muted" }, "The server's name or IP address.")),
+      field("Username", user),
+      field("Password", pw, existing?.hasPassword ? "A password is saved (encrypted)." : "Leave empty to be asked each time."),
     );
-    const localFields = h("div", {}, field("Shell", shell));
+    const sshAdvanced = h(
+      "div",
+      { class: "grid2" },
+      field("Port", port, "Almost always 22."),
+      field("Sign-in method", auth, "Automatic tries your SSH agent, then a key file, then the password."),
+      h("label", { class: "field span2" }, h("span", {}, "Key file"), h("div", { class: "inline" }, keyPath, browse), h("small", { class: "muted" }, "Only needed if you sign in with a private key file.")),
+      existing?.hasPassword ? h("label", { class: "check span2" }, clearPw, " Forget the saved password") : null,
+    );
+    const localFields = h("div", {}, field("Program", shell, "For example PowerShell, Command Prompt or a WSL distro."));
+    const serialFields = h("div", {});
+    const advanced = h(
+      "details",
+      { class: "advanced" },
+      h("summary", {}, "Advanced settings"),
+      sshAdvanced,
+      field("Run a macro after connecting", macro, "Optional. Useful for logging in or setting up the session automatically."),
+    );
+    const nonDefault =
+      !!s.postConnectMacro || (s.kind === "ssh" && ((s.port && s.port !== 22) || s.auth !== "auto" || !!s.keyPath));
+    if (nonDefault) advanced.open = true;
+
+    let sform: SerialForm | null = null;
     const sync = () => {
       sshFields.classList.toggle("hidden", type.value !== "ssh");
+      sshAdvanced.classList.toggle("hidden", type.value !== "ssh");
       localFields.classList.toggle("hidden", type.value !== "local");
+      serialFields.classList.toggle("hidden", type.value !== "serial");
+      if (type.value === "serial" && !sform) {
+        sform = serialForm(s.serial);
+        serialFields.append(sform.el);
+      }
     };
     type.addEventListener("change", sync);
     sync();
 
     await modal<void>(
-      existing ? `Edit session` : "New session",
+      existing ? "Edit session" : "New session",
       (close) => {
-        const save = async () => {
+        const save = async (connect: boolean) => {
+          err.textContent = "";
+          let serialCfg = s.serial;
+          const k = type.value as Session["kind"];
+          if (k === "serial" && sform) {
+            const r = sform.read();
+            if (typeof r === "string") return void (err.textContent = r);
+            serialCfg = r;
+          }
+          if (k === "ssh" && !host.value.trim()) return void (err.textContent = "Enter the server address.", host.focus());
+          if (k === "ssh" && !user.value.trim()) return void (err.textContent = "Enter your username.", user.focus());
+          // The name is optional: fall back to something sensible.
+          const fallback =
+            k === "ssh" ? host.value.trim() : k === "serial" ? `${serialCfg.port} (${serialCfg.baud})` : (this.shells.find((x) => x.id === shell.value)?.label ?? "Terminal");
           const out: Session = {
             ...s,
-            name: name.value,
+            name: name.value.trim() || fallback,
             folder: folder.value,
-            kind: type.value as Session["kind"],
+            kind: k,
             host: host.value,
             port: Number(port.value) || 22,
             user: user.value,
@@ -260,26 +399,46 @@ export class Sidebar {
             keyPath: keyPath.value,
             shell: shell.value,
             postConnectMacro: macro.value || null,
+            serial: serialCfg,
           };
           try {
-            await api.sessionSave(out, pw.value ? pw.value : null, clearPw.checked);
+            const id = await api.sessionSave(out, pw.value ? pw.value : null, clearPw.checked);
             pw.value = "";
             close();
             await this.reload();
+            if (connect) {
+              const saved = this.sessions.find((x) => x.id === id);
+              if (saved) this.connectSession(saved);
+            }
           } catch (e) {
             err.textContent = messageOf(e);
           }
         };
         return {
-          body: h("form", { class: "form", onsubmit: (e: Event) => (e.preventDefault(), void save()) },
-            h("div", { class: "grid2" }, field("Name", name), field("Folder", folder), field("Type", type), field("Post-connect macro", macro)),
-            dl, sshFields, localFields, err, h("button", { type: "submit", class: "hidden" })),
-          actions: [h("button", { onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: () => void save() }, "Save")],
-          focus: name,
+          body: h(
+            "form",
+            { class: "form", onsubmit: (e: Event) => (e.preventDefault(), void save(false)) },
+            field("Type", type),
+            sshFields,
+            localFields,
+            serialFields,
+            h("div", { class: "grid2" }, field("Name", name), field("Folder", folder)),
+            dl,
+            advanced,
+            err,
+            h("button", { type: "submit", class: "hidden" }),
+          ),
+          actions: [
+            h("button", { onclick: () => close() }, "Cancel"),
+            h("button", { onclick: () => void save(false) }, "Save"),
+            h("button", { class: "primary", onclick: () => void save(true) }, "Save and connect"),
+          ],
+          focus: existing ? name : type.value === "ssh" ? host : name,
         };
       },
       { wide: true },
     );
+    (sform as SerialForm | null)?.dispose();
   }
 
   // ------------------------------------------------------------------ macros
@@ -304,7 +463,7 @@ export class Sidebar {
         "div",
         { class: "toolbar" },
         h("button", { onclick: () => this.editMacro(null) }, "+ Macro"),
-        h("button", { onclick: () => this.newFolder("macros") }, "+ Folder"),
+        h("button", { class: "tool", title: "New folder", onclick: () => this.newFolder("macros") }, icon("folder-plus", 15)),
         h("button", { onclick: () => this.importMacros(), title: "Import macros from JSON" }, "Import"),
         h("button", { onclick: () => this.exportMacros(), title: "Export all macros to JSON" }, "Export"),
       ),
@@ -345,7 +504,7 @@ export class Sidebar {
     const name = h("input", { value: m.name, spellcheck: "false" });
     const folder = h("input", { value: m.folder, list: "dl-mfolders", spellcheck: "false" });
     const dl = h("datalist", { id: "dl-mfolders" }, ...this.macroFolders.map((f) => h("option", { value: f })));
-    const script = h("textarea", { rows: 14, spellcheck: "false", class: "mono", placeholder: "# comment\nuname -a\n# @wait 1000\nping -c 3 {{host}}\n# @type y" });
+    const script = h("textarea", { rows: 14, spellcheck: "false", class: "mono", placeholder: "show version\n# @wait 1000\nping {{ip}}" });
     script.value = m.script;
     const preview = h("input", { type: "checkbox", checked: m.preview });
     const info = h("div", { class: "muted small" });
@@ -380,9 +539,24 @@ export class Sidebar {
             { class: "form" },
             h("div", { class: "grid2" }, field("Name", name), field("Folder", folder)),
             dl,
-            field("Script", script, "Each line is sent followed by Enter. # @wait <ms> pauses, # @type <text> sends without Enter, other # lines are comments, {{name}} prompts once."),
+            field("What to type", script, "Each line is typed into the terminal, followed by Enter."),
+            h(
+              "details",
+              { class: "advanced" },
+              h("summary", {}, "How to write a macro"),
+              h(
+                "dl",
+                { class: "help-list" },
+                h("dt", {}, h("code", {}, "show version")), h("dd", {}, "A normal line is typed and Enter is pressed."),
+                h("dt", {}, h("code", {}, "# @wait 2000")), h("dd", {}, "Wait 2 seconds (2000 ms) before the next line."),
+                h("dt", {}, h("code", {}, "# @type y")), h("dd", {}, "Type y without pressing Enter (for yes/no questions)."),
+                h("dt", {}, h("code", {}, "ping {{ip}}")), h("dd", {}, "{{ip}} asks you for a value each time the macro runs."),
+                h("dt", {}, h("code", {}, "# my note")), h("dd", {}, "Lines starting with # are notes and are not typed."),
+              ),
+              h("p", { class: "muted small" }, "A macro always types into the terminal you clicked last. Press Esc or Stop to cancel it."),
+            ),
             info,
-            h("label", { class: "check" }, preview, " Preview before running"),
+            h("label", { class: "check" }, preview, " Show what will be typed and ask before running"),
             err,
           ),
           actions: [h("button", { onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: () => void save() }, "Save")],
