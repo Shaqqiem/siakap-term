@@ -2,7 +2,7 @@
 // Mirrors the Rust tests in core/src/macros.rs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { check, fill, inputNames, parse, render, signature, validateInput, validateInputName, MAX_INPUT_LEN } from "./macros.ts";
+import { check, explain, fill, inputNames, parse, render, signature, validateInput, validateInputName, MAX_INPUT_LEN } from "./macros.ts";
 import { TabCommandStatus } from "./status.ts";
 
 test("parses lines, waits, types and comments", () => {
@@ -22,6 +22,24 @@ test("blank lines are skipped like the plugin", () => {
     { op: "line", text: "b" },
   ]);
   assert.deepEqual(parse(""), []);
+});
+
+test("forgiving directive spellings", () => {
+  for (const w of ["# @wait 100", "#@wait 100", "@wait 100", "@ wait 100", "  @WAIT 100", "# @ Wait 100"]) {
+    assert.deepEqual(parse(w), [{ op: "wait", ms: 100 }], w);
+  }
+  assert.deepEqual(parse("@type y"), [{ op: "type", text: "y" }]);
+  assert.deepEqual(parse("@ type yes please"), [{ op: "type", text: "yes please" }]);
+  assert.deepEqual(parse("@echo off"), [{ op: "line", text: "@echo off" }]);
+  assert.deepEqual(parse("@{a=1}"), [{ op: "line", text: "@{a=1}" }]);
+  assert.throws(() => parse("@wait soon"));
+  assert.throws(() => parse("@ wait"));
+});
+
+test("explain says what each line does", () => {
+  const e = explain("uname -a\n@ wait 100\n# note\n@type y\n@wait soon\n# @wait {{d}}");
+  assert.deepEqual(e.map((x) => x.kind), ["send", "wait", "note", "type", "error", "wait"]);
+  assert.equal(e[1].text, "100 ms");
 });
 
 test("wait limits", () => {

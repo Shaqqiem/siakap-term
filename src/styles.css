@@ -265,3 +265,17 @@ small.flash, .hint.flash { color: var(--ok) !important; }
 .tour-spacer { flex: 1; }
 .tour-skip { background: transparent; border-color: transparent; color: var(--muted); padding-left: 0; }
 @media (prefers-reduced-motion: reduce) { .tour-spot { transition: none; } }
+
+/* macro editor: what each line will do */
+.plan { display: grid; gap: 1px; max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 4px; font-size: 12px; }
+.plan-row { display: grid; grid-template-columns: 26px 92px 1fr; gap: 6px; align-items: baseline; padding: 1px 4px; border-radius: 4px; }
+.plan-n { color: var(--muted); text-align: right; font-family: var(--mono); }
+.plan-kind { font-weight: 600; font-size: 11px; }
+.plan-text { font-family: var(--mono); white-space: pre-wrap; word-break: break-all; }
+.plan-row.send .plan-kind { color: var(--accent); }
+.plan-row.wait .plan-kind { color: var(--warn); }
+.plan-row.type .plan-kind { color: #b48ead; }
+.plan-row.note { opacity: .6; }
+.plan-row.note .plan-kind { color: var(--muted); }
+.plan-row.error { background: color-mix(in srgb, var(--err) 15%, transparent); }
+.plan-row.error .plan-kind, .plan-row.error .plan-text { color: var(--err); font-family: inherit; }

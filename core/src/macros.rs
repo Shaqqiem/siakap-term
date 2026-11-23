@@ -3,6 +3,9 @@
 //! * Each non-empty line is sent followed by `\r`. Blank lines are skipped.
 //! * `# @wait <ms>` pauses (0..=3_600_000 ms).
 //! * `# @type <text>` sends `<text>` without Enter.
+//! * The `#` is optional and spacing/case are forgiving: `@wait 100`,
+//!   `@ wait 100`, `#@WAIT 100` all pause. Other lines starting with `@`
+//!   (such as cmd's `@echo off`) are sent as normal commands.
 //! * Any other line starting with `#` is a comment.
 //! * `{{name}}` is a named input, prompted once per unique name. Names may
 //!   contain spaces (`{{Switch port}}`), up to 80 characters.
@@ -51,29 +54,38 @@ pub fn parse(script: &str) -> Result<Vec<Step>> {
             continue;
         }
         let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix('#') {
-            let rest = rest.trim_start();
-            if let Some(arg) = directive(rest, "@wait") {
-                let ms: u64 = arg
-                    .trim()
-                    .parse()
-                    .map_err(|_| CoreError::invalid(format!("Line {n}: @wait needs a number of milliseconds.")))?;
+        // "# @wait 100" (Siakap's form), plus the forgiving spellings people
+        // actually type: "#@wait 100", "@wait 100", "@ wait 100", "@WAIT 100".
+        let (commented, body) = match trimmed.strip_prefix('#') {
+            Some(rest) => (true, rest.trim_start()),
+            None => (false, trimmed),
+        };
+        if let Some(after_at) = body.strip_prefix('@') {
+            let after_at = after_at.trim_start();
+            if let Some(arg) = directive(after_at, "wait") {
+                let ms: u64 = arg.trim().parse().map_err(|_| {
+                    CoreError::invalid(format!("Line {n}: @wait needs a number of milliseconds, e.g. @wait 1000."))
+                })?;
                 if ms > MAX_WAIT_MS {
                     return Err(CoreError::invalid(format!(
                         "Line {n}: a pause must be one hour (3600000 ms) or less."
                     )));
                 }
                 steps.push(Step::Wait { ms });
-            } else if let Some(arg) = directive(rest, "@type") {
+                continue;
+            }
+            if let Some(arg) = directive(after_at, "type") {
                 // Exactly one separating space is consumed; the rest is literal.
                 let text = arg.strip_prefix(' ').unwrap_or(arg);
                 if text.is_empty() {
-                    return Err(CoreError::invalid(format!("Line {n}: @type needs some text.")));
+                    return Err(CoreError::invalid(format!("Line {n}: @type needs some text, e.g. @type y.")));
                 }
                 steps.push(Step::Type { text: text.to_string() });
+                continue;
             }
-            // Otherwise: comment.
-            continue;
+        }
+        if commented {
+            continue; // any other # line is a note
         }
         if line.chars().any(|c| c.is_control() && c != '\t') {
             return Err(CoreError::invalid(format!("Line {n} contains control characters.")));
@@ -85,7 +97,12 @@ pub fn parse(script: &str) -> Result<Vec<Step>> {
 
 /// `rest` is the text after `#`. Matches `@wait`, `@wait 5`, but not `@waiter`.
 fn directive<'a>(rest: &'a str, name: &str) -> Option<&'a str> {
-    let after = rest.strip_prefix(name)?;
+    // Case-insensitive keyword ("wait", "WAIT").
+    let head = rest.get(..name.len())?;
+    if !head.eq_ignore_ascii_case(name) {
+        return None;
+    }
+    let after = &rest[name.len()..];
     if after.is_empty() || after.starts_with(' ') || after.starts_with('\t') {
         Some(after)
     } else {
@@ -239,6 +256,20 @@ mod tests {
     fn blank_lines_are_skipped_like_the_plugin() {
         assert_eq!(parse("a\n\n  \nb").unwrap(), vec![line("a"), line("b")]);
         assert!(parse("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn forgiving_directive_spellings() {
+        for w in ["# @wait 100", "#@wait 100", "@wait 100", "@ wait 100", "  @WAIT 100", "# @ Wait 100"] {
+            assert_eq!(parse(w).unwrap(), vec![Step::Wait { ms: 100 }], "{w}");
+        }
+        assert_eq!(parse("@type y").unwrap(), vec![Step::Type { text: "y".into() }]);
+        assert_eq!(parse("@ type yes please").unwrap(), vec![Step::Type { text: "yes please".into() }]);
+        // Real commands that start with @ are still sent.
+        assert_eq!(parse("@echo off").unwrap(), vec![line("@echo off")]);
+        assert_eq!(parse("@{a=1}").unwrap(), vec![line("@{a=1}")]);
+        assert!(parse("@wait soon").is_err());
+        assert!(parse("@ wait").is_err());
     }
 
     #[test]

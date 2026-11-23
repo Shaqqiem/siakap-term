@@ -38,7 +38,7 @@ export function readSeen(): string | null {
     return null;
   }
 }
-function markSeen() {
+export function markSeen() {
   try {
     localStorage.setItem(SEEN_KEY, APP_VERSION);
   } catch {

@@ -9,7 +9,7 @@ import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane } from "./tabs";
 import { $, alertDialog, confirmDialog, h, isModalOpen, toast } from "./ui";
 import { icon } from "./icons";
-import { APP_VERSION, FIRST_SEEN, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
+import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
@@ -77,6 +77,13 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.3.1",
+    title: "Easier pauses in macros",
+    text: "Write @wait 1000 to pause for a second; the # in front is optional and spacing doesn't matter. While you edit a macro, Siakap shows what each line will do, so mistakes show up before you run it.",
+    target: '.rail button[data-panel="macros"]',
+    before: () => showPanel("macros"),
+  },
+  {
     since: "0.3.0",
     title: "Command status on tabs",
     text: "The dot on each tab turns blue while a command runs, green when it succeeds and red when it fails, so you can keep an eye on other tabs.",
@@ -111,7 +118,7 @@ async function startTour(kind: "full" | "whatsNew", sinceVersion?: string) {
   if (kind === "full") return runTour(TOUR, "Tour");
   const seen = sinceVersion ?? readSeen() ?? FIRST_SEEN;
   const fresh = stepsSince(TOUR.filter((s) => !s.frame), seen);
-  if (!fresh.length) return;
+  if (!fresh.length) return markSeen();
   const steps: TourStep[] = [
     { since: APP_VERSION, title: `What's new in ${APP_VERSION}`, text: `Siakap Terminal was updated. Here ${fresh.length === 1 ? "is the 1 new thing" : `are the ${fresh.length} new things`} since you last used it.` },
     ...fresh,

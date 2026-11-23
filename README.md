@@ -103,7 +103,9 @@ show interface {{Switch port}} status
 # @type y
 ```
 
-Each ordinary line is typed and followed by Enter; blank lines are skipped. `# @wait 1500` pauses for 1.5 seconds
+Each ordinary line is typed and followed by Enter; blank lines are skipped. The `#` before `@wait` and `@type` is
+optional, and `@ wait 100` or `@WAIT 100` work too; other lines starting with `@` (such as `@echo off`) are typed as
+normal. The editor shows what each line will do as you write it. `# @wait 1500` pauses for 1.5 seconds
 (the limit is one hour, and Stop cancels the wait). `# @type y` types `y` without pressing Enter. `{{Switch port}}` is
 an input: it's asked for once per run, however many times it appears, and its name can contain spaces. The easiest
 way to make one is to highlight the value in the editor, type a name and click **Make input**.

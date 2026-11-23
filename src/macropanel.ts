@@ -6,7 +6,7 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, messageOf, type Macro } from "./api";
 import { icon } from "./icons";
-import { check, inputNames, MacroError, validateInputName } from "./macros";
+import { check, explain, inputNames, MacroError, validateInputName } from "./macros";
 import { pasteButton, type MacroRunner } from "./runner";
 import type { Sidebar } from "./sidebar";
 import { $, confirmDialog, field, fill as fillEl, h, modal, select, showMenu, toast, type MenuEntry } from "./ui";
@@ -331,12 +331,23 @@ export class MacroPanel {
     const inputName = h("input", { "data-f": "input-name", spellcheck: "false", placeholder: "e.g. Switch port" });
     const review = h("input", { type: "checkbox", checked: m.editBeforeRun });
     const info = h("div", { class: "muted small" });
+    const plan = h("div", { class: "plan" });
     const err = h("div", { class: "error" });
     const refresh = () => {
+      const rows = explain(script.value);
+      const label = { send: "Type + Enter", wait: "Pause", type: "Type only", note: "Note", error: "Problem" } as const;
+      fillEl(
+        plan,
+        ...rows.slice(0, 40).map((r) =>
+          h("div", { class: `plan-row ${r.kind}` }, h("span", { class: "plan-n" }, String(r.line)), h("span", { class: "plan-kind" }, label[r.kind]), h("span", { class: "plan-text" }, r.text)),
+        ),
+        rows.length > 40 ? h("div", { class: "muted small" }, `... and ${rows.length - 40} more lines`) : null,
+      );
+      plan.classList.toggle("hidden", !rows.length);
       try {
         check(script.value);
         const names = inputNames(script.value);
-        const lines = script.value.split("\n").filter((l) => l.trim() && !l.trimStart().startsWith("#")).length;
+        const lines = rows.filter((r) => r.kind === "send" || r.kind === "type").length;
         info.textContent = `${lines} command${lines === 1 ? "" : "s"}${names.length ? `. Asks for: ${names.join(", ")}` : ""}`;
         err.textContent = "";
       } catch (e) {
@@ -390,6 +401,7 @@ export class MacroPanel {
               script,
               h("small", { class: "muted" }, "One command per line. Each is typed into the terminal followed by Enter."),
             ),
+            h("div", { class: "field" }, h("span", { class: "muted small" }, "What will happen"), plan),
             info,
             h(
               "div",
@@ -408,8 +420,8 @@ export class MacroPanel {
                 "dl",
                 { class: "help-list" },
                 h("dt", {}, h("code", {}, "show version")), h("dd", {}, "A normal line is typed and Enter is pressed."),
-                h("dt", {}, h("code", {}, "# @wait 1000")), h("dd", {}, "Wait 1 second (1000 ms) before the next line."),
-                h("dt", {}, h("code", {}, "# @type y")), h("dd", {}, "Type y without pressing Enter (for yes/no questions)."),
+                h("dt", {}, h("code", {}, "@wait 1000")), h("dd", {}, "Wait 1 second (1000 ms) before the next line. Also written # @wait 1000."),
+                h("dt", {}, h("code", {}, "@type y")), h("dd", {}, "Type y without pressing Enter (for yes/no questions)."),
                 h("dt", {}, h("code", {}, "{{Switch port}}")), h("dd", {}, "Asks you for a value each time the macro runs."),
                 h("dt", {}, h("code", {}, "# my note")), h("dd", {}, "Lines starting with # are notes and are not typed."),
               ),

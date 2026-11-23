@@ -5,6 +5,7 @@
 //   plain line        sent followed by "\r" (blank lines are skipped)
 //   # @wait <ms>      pause (0..3600000 ms), cancellable
 //   # @type <text>    sent without Enter
+//   (the # is optional and "@ wait", "@WAIT" also work; "@echo off" is a command)
 //   # anything else   comment
 //   {{Switch port}}   named input, asked once per run (names may contain spaces)
 //
@@ -27,7 +28,7 @@ const SAFE = /^[A-Za-z0-9 _./:@,+-]+$/;
 const INPUT = /\{\{([^{}\r\n]+)\}\}/g;
 
 function directive(rest: string, name: string): string | null {
-  if (!rest.startsWith(name)) return null;
+  if (rest.slice(0, name.length).toLowerCase() !== name) return null;
   const after = rest.slice(name.length);
   if (after === "" || after.startsWith(" ") || after.startsWith("\t")) return after;
   return null;
@@ -41,25 +42,29 @@ export function parse(script: string): Step[] {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     if (line.trim() === "") return;
     const trimmed = line.trimStart();
-    if (trimmed.startsWith("#")) {
-      const rest = trimmed.slice(1).trimStart();
-      const wait = directive(rest, "@wait");
+    // "# @wait 100" plus forgiving spellings: "#@wait", "@wait", "@ wait", "@WAIT".
+    const commented = trimmed.startsWith("#");
+    const body = commented ? trimmed.slice(1).trimStart() : trimmed;
+    if (body.startsWith("@")) {
+      const afterAt = body.slice(1).trimStart();
+      const wait = directive(afterAt, "wait");
       if (wait !== null) {
         const t = wait.trim();
-        if (!/^\d+$/.test(t)) throw new MacroError(`Line ${n}: @wait needs a number of milliseconds.`);
+        if (!/^\d+$/.test(t)) throw new MacroError(`Line ${n}: @wait needs a number of milliseconds, e.g. @wait 1000.`);
         const ms = Number(t);
         if (ms > MAX_WAIT_MS) throw new MacroError(`Line ${n}: a pause must be one hour (3600000 ms) or less.`);
         steps.push({ op: "wait", ms });
         return;
       }
-      const type = directive(rest, "@type");
+      const type = directive(afterAt, "type");
       if (type !== null) {
         const text = type.startsWith(" ") ? type.slice(1) : type;
-        if (text === "") throw new MacroError(`Line ${n}: @type needs some text.`);
+        if (text === "") throw new MacroError(`Line ${n}: @type needs some text, e.g. @type y.`);
         steps.push({ op: "type", text });
+        return;
       }
-      return;
     }
+    if (commented) return; // any other # line is a note
     if (CONTROL_EXCEPT_TAB.test(line)) throw new MacroError(`Line ${n} contains control characters.`);
     steps.push({ op: "line", text: line });
   });
@@ -130,4 +135,34 @@ export function signature(folder: string, script: string): string {
 /** Human-readable preview of rendered steps. */
 export function describe(steps: Step[]): string {
   return steps.map((s) => (s.op === "wait" ? `# @wait ${s.ms}` : s.op === "type" ? `# @type ${s.text}` : s.text)).join("\n");
+}
+
+export interface Explained {
+  line: number;
+  kind: "send" | "wait" | "type" | "note" | "error";
+  text: string;
+}
+
+/** One entry per non-blank script line, saying what it will do (for the editor). */
+export function explain(script: string): Explained[] {
+  const out: Explained[] = [];
+  script.split("\n").forEach((raw, i) => {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    if (!line.trim()) return;
+    const n = i + 1;
+    // Inputs aren't known yet: a pause length becomes 1, anything else stays as {{name}}.
+    const names = inputNames(line);
+    const isWait = /^\s*(?:#\s*)?@\s*wait\b/i.test(line);
+    const sample = fill(line, Object.fromEntries(names.map((x) => [x, isWait ? "1" : `{{${x}}}`])));
+    try {
+      const step = parse(sample)[0];
+      if (!step) out.push({ line: n, kind: "note", text: line.trim().replace(/^#\s*/, "") });
+      else if (step.op === "wait") out.push({ line: n, kind: "wait", text: names.length ? `length from {{${names[0]}}}` : `${step.ms} ms` });
+      else if (step.op === "type") out.push({ line: n, kind: "type", text: `"${step.text}" without Enter` });
+      else out.push({ line: n, kind: "send", text: step.text });
+    } catch (e) {
+      out.push({ line: n, kind: "error", text: (e as Error).message.replace(/^Line \d+: /, "") });
+    }
+  });
+  return out;
 }
