@@ -113,7 +113,7 @@ master password**.
 | What | How |
 | --- | --- |
 | New tab | `Ctrl+Shift+T` or the + button (opens what *Settings → New tabs open* says). Right-click + for any terminal or saved session |
-| Split a tab | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom, `Ctrl+Shift+G` four panes. A tab is split once; close a pane to change it (up to 4 panes) |
+| Split a tab | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom, `Ctrl+Shift+G` four panes. Each new pane starts empty and asks what to show: move one of your open sessions into it, open a terminal, or pick a saved session. Double-clicking a session in the Sessions panel also fills the empty pane. A tab is split once; close a pane to change it (up to 4 panes) |
 | Open a serial console | **+ Serial** in the Sessions panel, or right-click + |
 | Send a break (serial) | `Ctrl+Shift+B` |
 | Close a pane | The x in the pane's corner, right-click → *Close this pane*, `Ctrl+Shift+W`, or Enter once the session has ended |

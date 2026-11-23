@@ -7,7 +7,7 @@ import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
-import { TabManager, chooseShell, type Pane } from "./tabs";
+import { TabManager, chooseShell, type Pane, type Slot } from "./tabs";
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
@@ -111,6 +111,12 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.5.3",
+    title: "Choose what goes in a split",
+    text: "Split now adds an empty pane that asks what to show: move one of your open sessions into it, open a terminal, or pick a saved session. Double-clicking a session in the Sessions panel also fills the empty pane.",
+    target: "#btn-split-h",
   },
   {
     since: "0.5.1",
@@ -543,6 +549,61 @@ async function newLocal(where: "tab" | "h" | "v" = "tab") {
   if (sh) await tabs.openLocal(sh.id, sh.label, where);
 }
 
+/** The picker inside an empty pane made by Split. */
+tabs.slotContent = (slot: Slot) => {
+  const pick = (open: () => unknown) => {
+    tabs.targetSlot = slot;
+    void open();
+  };
+  const item = (ico: string, label: string, sub: string, run: () => unknown) =>
+    h("button", { class: "slot-item", onclick: run }, icon(ico, 15), h("span", { class: "name" }, label), sub ? h("span", { class: "sub" }, sub) : null);
+  const open = tabs.allPanes().filter((p) => p.tab !== slot.tab);
+  const list = h("div", { class: "slot-list" });
+  const search = h("input", { type: "search", placeholder: "Search saved sessions", spellcheck: "false" }) as HTMLInputElement;
+  const drawSessions = () => {
+    const q = search.value.toLowerCase();
+    const hits = sidebar.sessions
+      .filter((s) => !q || [s.name, s.host, s.folder].some((x) => x.toLowerCase().includes(q)))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 40);
+    list.replaceChildren(
+      ...hits.map((s) =>
+        item(s.kind === "ssh" ? "remote" : s.kind === "serial" ? "serial" : "terminal", s.name, s.kind === "ssh" ? `${s.user}@${s.host}` : s.folder, () =>
+          pick(() => sidebar.connectSession(s)),
+        ),
+      ),
+      ...(hits.length ? [] : [h("p", { class: "muted small" }, sidebar.sessions.length ? "No saved session matches." : "No saved sessions yet.")]),
+    );
+  };
+  search.addEventListener("input", drawSessions);
+  drawSessions();
+  return h(
+    "div",
+    { class: "slot-body" },
+    h("button", { class: "pane-close", title: "Close this empty pane", onclick: () => tabs.removeSlot(slot) }, icon("x", 13)),
+    h("h3", {}, "What should open here?"),
+    open.length
+      ? h(
+          "section",
+          {},
+          h("h4", {}, "Move an open session here"),
+          ...open.map((p) =>
+            item(p.kind === "ssh" ? "remote" : p.kind === "serial" ? "serial" : "terminal", p.tab.customTitle ?? p.title, p.status === "connected" ? "open" : p.status, () => tabs.movePane(p, slot)),
+          ),
+        )
+      : null,
+    h(
+      "section",
+      {},
+      h("h4", {}, "New terminal on this PC"),
+      ...sidebar.shells.map((sh) => item("terminal", sh.label, "", () => pick(() => tabs.openLocal(sh.id, sh.label)))),
+      item("serial", "Serial console...", "", () => pick(() => sidebar.quickSerial())),
+    ),
+    h("section", {}, h("h4", {}, "Saved session"), search, list),
+    h("p", { class: "muted small" }, "You can also double-click a session in the Sessions panel: it opens in this pane."),
+  );
+};
+
 /** Right-click (or long-press) on +: every terminal and saved session. */
 function newMenu(e: MouseEvent) {
   showMenu(e, [
@@ -634,7 +695,10 @@ window.addEventListener("keydown", (e) => {
 }, true);
 
 // Post-connect macros.
-sidebar.onReload = () => renderWelcome();
+sidebar.onReload = () => {
+  renderWelcome();
+  tabs.refreshSlots();
+};
 
 /** The command that changes folder, quoted for the shell the pane runs. */
 function cdCommand(pane: Pane, dir: string): string {

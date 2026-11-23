@@ -27,6 +27,11 @@ export class SftpPanel {
 
   constructor(tabs: TabManager, private isVisible: () => boolean) {
     tabs.onFocus((p) => this.follow(p));
+    // The followed pane finished connecting (e.g. the panel was open first).
+    tabs.onPaneConnected((p) => {
+      if (p === this.pane && this.isVisible()) void this.refresh();
+      else if (p === this.pane) this.render();
+    });
     tabs.onPaneClosed((p) => {
       this.cwd.delete(p.uid);
       if (p === this.pane) this.follow(null);

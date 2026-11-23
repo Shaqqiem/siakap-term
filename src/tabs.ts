@@ -55,7 +55,14 @@ export function friendlyError(kind: Pane["kind"], raw: string, target = ""): str
   return nice ? `${nice}\n(Details: ${raw})` : raw;
 }
 
-type SplitNode = { type: "leaf"; pane: Pane } | { type: "split"; dir: "h" | "v"; ratio: number; a: SplitNode; b: SplitNode };
+/** An empty pane made by Split: it shows a picker until something opens in it. */
+export interface Slot {
+  type: "slot";
+  id: number;
+  el: HTMLElement;
+  tab: Tab;
+}
+type SplitNode = { type: "leaf"; pane: Pane } | Slot | { type: "split"; dir: "h" | "v"; ratio: number; a: SplitNode; b: SplitNode };
 
 export interface Tab {
   uid: number;
@@ -67,6 +74,9 @@ export interface Tab {
   customTitle?: string;
 }
 
+/** Where a new pane goes: "tab" fills an empty pane of the active tab, else a new tab. */
+export type Where = "tab" | "newtab" | "h" | "v";
+
 /** Most panes one tab can hold. */
 export const MAX_PANES = 4;
 
@@ -74,8 +84,44 @@ type Listener<T> = (v: T) => void;
 
 let uidSeq = 1;
 
+function slotsOf(n: SplitNode): Slot[] {
+  return n.type === "slot" ? [n] : n.type === "leaf" ? [] : [...slotsOf(n.a), ...slotsOf(n.b)];
+}
+
+/** Panes plus empty slots: what counts toward MAX_PANES. */
+function cellsOf(n: SplitNode): number {
+  return n.type === "split" ? cellsOf(n.a) + cellsOf(n.b) : 1;
+}
+
+function firstPane(n: SplitNode): Pane | null {
+  return n.type === "leaf" ? n.pane : n.type === "slot" ? null : (firstPane(n.a) ?? firstPane(n.b));
+}
+
+/** Replace one node (by identity) in the tree. */
+function replaceNode(n: SplitNode, target: SplitNode, by: SplitNode): SplitNode {
+  if (n === target) return by;
+  if (n.type !== "split") return n;
+  return { ...n, a: replaceNode(n.a, target, by), b: replaceNode(n.b, target, by) };
+}
+
+/** Remove the nodes matching `drop`, collapsing their parent splits. */
+function removeNode(n: SplitNode, drop: (x: SplitNode) => boolean): SplitNode | null {
+  if (n.type !== "split") return drop(n) ? null : n;
+  const a = removeNode(n.a, drop);
+  const b = removeNode(n.b, drop);
+  if (!a) return b;
+  if (!b) return a;
+  return { ...n, a, b };
+}
+
+function leafOf(n: SplitNode, pane: Pane): SplitNode | null {
+  if (n.type === "leaf") return n.pane === pane ? n : null;
+  if (n.type === "slot") return null;
+  return leafOf(n.a, pane) ?? leafOf(n.b, pane);
+}
+
 function panesOf(n: SplitNode): Pane[] {
-  return n.type === "leaf" ? [n.pane] : [...panesOf(n.a), ...panesOf(n.b)];
+  return n.type === "leaf" ? [n.pane] : n.type === "slot" ? [] : [...panesOf(n.a), ...panesOf(n.b)];
 }
 
 export class TabManager {
@@ -90,6 +136,11 @@ export class TabManager {
 
   onFocus(l: Listener<Pane | null>) {
     this.focusListeners.push(l);
+  }
+  private connectedListeners: Listener<Pane>[] = [];
+  /** A pane finished connecting. */
+  onPaneConnected(l: Listener<Pane>) {
+    this.connectedListeners.push(l);
   }
   onPaneClosed(l: Listener<Pane>) {
     this.closeListeners.push(l);
@@ -264,8 +315,8 @@ export class TabManager {
       }
       return;
     }
-    const count = panesOf(pane.tab.root).length;
-    const canSplit = pane.kind !== "serial" && count < MAX_PANES;
+    const count = cellsOf(pane.tab.root);
+    const canSplit = count < MAX_PANES;
     const entries: MenuEntry[] = [
       { label: "Copy", disabled: !sel, action: () => api.clipboardWrite(sel) },
       {
@@ -275,8 +326,8 @@ export class TabManager {
       },
       { label: "Select all", action: () => pane.term.selectAll() },
       { label: "Clear screen", action: () => pane.term.clear() },
-      { label: "Split side by side", disabled: !canSplit, action: () => (this.focus(pane), this.splitFocused("h")) },
-      { label: "Split top and bottom", disabled: !canSplit, action: () => (this.focus(pane), this.splitFocused("v")) },
+      { label: "Split side by side", disabled: !canSplit, action: () => this.splitEmpty(pane, "h") },
+      { label: "Split top and bottom", disabled: !canSplit, action: () => this.splitEmpty(pane, "v") },
       ...(pane.status === "closed" && pane.reconnect ? [{ label: "Reconnect", action: () => this.reconnectPane(pane) }] : []),
       count > 1
         ? { label: "Close this pane", danger: true, action: () => this.closePane(pane) }
@@ -384,7 +435,7 @@ export class TabManager {
   // ------------------------------------------------------------ open
 
   /** Open a serial console. Each port can only be open once. */
-  async openSerial(config: SerialConfig, title?: string, where: "tab" | "h" | "v" = "tab", session?: RedactedSession) {
+  async openSerial(config: SerialConfig, title?: string, where: Where = "tab", session?: RedactedSession) {
     const pane = this.place(this.makePane("serial", title || config.port, null), where);
     pane.serial = config;
     pane.session = session; // enables its post-connect macro
@@ -413,7 +464,7 @@ export class TabManager {
     }
   }
 
-  async openLocal(shellId: string, label: string, where: "tab" | "h" | "v" = "tab", session?: RedactedSession) {
+  async openLocal(shellId: string, label: string, where: Where = "tab", session?: RedactedSession) {
     const pane = this.place(this.makePane("local", label, null), where);
     pane.shellId = shellId;
     pane.session = session; // enables its startup commands
@@ -431,7 +482,7 @@ export class TabManager {
     }
   }
 
-  async openSsh(session: RedactedSession, where: "tab" | "h" | "v" = "tab") {
+  async openSsh(session: RedactedSession, where: Where = "tab") {
     const pane = this.place(this.makePane("ssh", session.name, null), where);
     pane.session = session;
     pane.reconnect = () => void this.connectSsh(pane);
@@ -538,6 +589,7 @@ export class TabManager {
     if (queued && pane.termId !== null) api.termWrite(pane.termId, queued).catch(() => {});
     this.refit(pane);
     this.renderTabs();
+    this.connectedListeners.forEach((l) => l(pane));
     this.onConnected(pane);
   }
 
@@ -556,9 +608,16 @@ export class TabManager {
 
   // ------------------------------------------------------------ layout
 
-  private place(pane: Pane, where: "tab" | "h" | "v"): Pane {
+  private place(pane: Pane, where: Where): Pane {
+    // A split tab with an empty pane: open there instead of in a new tab.
+    if (where === "tab" && this.active) {
+      const slots = slotsOf(this.active.root);
+      const slot = slots.find((s) => s === this.targetSlot) ?? slots[0];
+      if (slot) return this.fillSlot(slot, pane);
+    }
+    if (where === "newtab") where = "tab";
     const target = this.focusedPane;
-    if (where !== "tab" && target && panesOf(target.tab.root).length >= MAX_PANES) {
+    if (where !== "tab" && target && cellsOf(target.tab.root) >= MAX_PANES) {
       toast(`A tab holds up to ${MAX_PANES} panes, so this opened in a new tab.`, "info");
       where = "tab";
     }
@@ -577,11 +636,8 @@ export class TabManager {
     } else {
       const tab = target.tab;
       pane.tab = tab;
-      const replace = (n: SplitNode): SplitNode => {
-        if (n.type === "leaf") return n.pane === target ? { type: "split", dir: where, ratio: 0.5, a: n, b: { type: "leaf", pane } } : n;
-        return { ...n, a: replace(n.a), b: replace(n.b) };
-      };
-      tab.root = replace(tab.root);
+      const leaf = leafOf(tab.root, target)!;
+      tab.root = replaceNode(tab.root, leaf, { type: "split", dir: where, ratio: 0.5, a: leaf, b: { type: "leaf", pane } });
       tab.focused = pane;
       this.renderTab(tab);
     }
@@ -593,19 +649,134 @@ export class TabManager {
     return pane;
   }
 
+  // ------------------------------------------------------------ empty panes
+
+  /** The empty pane that the next opened session fills (if it is in the active tab). */
+  targetSlot: Slot | null = null;
+  /** Builds the picker shown in an empty pane (set by main.ts). */
+  slotContent: (slot: Slot) => HTMLElement = () => h("div");
+
+  private makeSlot(tab: Tab): Slot {
+    const slot: Slot = { type: "slot", id: uidSeq++, el: h("div", { class: "pane pane-slot", tabindex: 0 }), tab };
+    slot.el.addEventListener("mousedown", () => this.selectSlot(slot));
+    slot.el.addEventListener("focusin", () => this.selectSlot(slot));
+    return slot;
+  }
+
+  private selectSlot(slot: Slot) {
+    this.targetSlot = slot;
+    slot.tab.el.querySelectorAll(".pane-slot").forEach((el) => el.classList.toggle("target", el === slot.el));
+  }
+
+  private refreshSlot(slot: Slot) {
+    // Don't rebuild under the user's cursor (e.g. while typing in its search box).
+    const a = document.activeElement;
+    if (a && a !== slot.el && slot.el.contains(a) && a.tagName === "INPUT") return;
+    slot.el.replaceChildren(this.slotContent(slot));
+  }
+
+  /** Rebuild every picker (open tabs and sessions may have changed). */
+  refreshSlots() {
+    for (const t of this.tabs) for (const s of slotsOf(t.root)) this.refreshSlot(s);
+  }
+
+  private fillSlot(slot: Slot, pane: Pane): Pane {
+    const tab = slot.tab;
+    tab.root = replaceNode(tab.root, slot, { type: "leaf", pane });
+    pane.tab = tab;
+    tab.focused = pane;
+    slot.el.remove();
+    this.targetSlot = slotsOf(tab.root)[0] ?? null;
+    if (this.active !== tab) this.activate(tab);
+    this.renderTab(tab);
+    this.renderTabs();
+    this.emitFocus();
+    requestAnimationFrame(() => {
+      this.refit(pane);
+      pane.term.focus();
+    });
+    return pane;
+  }
+
+  /** Move an open pane (from any tab) into an empty pane. */
+  movePane(pane: Pane, slot: Slot) {
+    const src = pane.tab;
+    const dst = slot.tab;
+    const leaf = leafOf(src.root, pane);
+    if (!leaf || pane.disposed) return;
+    const rest = removeNode(src.root, (n) => n === leaf);
+    if (src !== dst) {
+      if (!rest || !firstPane(rest)) {
+        // The tab it came from is now empty (or only empty panes): drop it.
+        this.tabs = this.tabs.filter((t) => t !== src);
+        src.el.remove();
+      } else {
+        src.root = rest;
+        if (src.focused === pane) src.focused = firstPane(rest)!;
+        this.renderTab(src);
+      }
+    } else if (rest) {
+      dst.root = rest;
+    }
+    this.fillSlot(slot, pane);
+  }
+
+  /** Close an empty pane. */
+  removeSlot(slot: Slot) {
+    const tab = slot.tab;
+    const rest = removeNode(tab.root, (n) => n === slot);
+    slot.el.remove();
+    if (this.targetSlot === slot) this.targetSlot = null;
+    if (!rest || !firstPane(rest)) return;
+    tab.root = rest;
+    this.renderTab(tab);
+    this.renderTabs();
+    if (this.active === tab) requestAnimationFrame(() => tab.focused.term.focus());
+  }
+
+  /** Put an empty pane next to `pane`. */
+  splitEmpty(pane: Pane, dir: "h" | "v") {
+    const tab = pane.tab;
+    if (cellsOf(tab.root) >= MAX_PANES) return toast(`A tab holds up to ${MAX_PANES} panes.`, "info");
+    const leaf = leafOf(tab.root, pane);
+    if (!leaf) return;
+    const slot = this.makeSlot(tab);
+    tab.root = replaceNode(tab.root, leaf, { type: "split", dir, ratio: 0.5, a: leaf, b: slot });
+    this.renderTab(tab);
+    this.renderTabs();
+    this.selectSlot(slot);
+  }
+
   /**
-   * The toolbar layouts (side by side, top and bottom, 4 panes): they only
-   * split a tab that has one pane, so clicking again does nothing.
+   * The toolbar layouts (side by side, top and bottom, 4 panes). They add
+   * empty panes where you pick what to show: an open tab, a terminal or a
+   * saved session. They only split a tab that has one pane, so clicking
+   * again does nothing.
    */
   layout(kind: "h" | "v" | "grid"): boolean {
     const p = this.focusedPane;
     if (!p) return false;
-    if (panesOf(p.tab.root).length > 1) {
+    const tab = p.tab;
+    if (cellsOf(tab.root) > 1) {
       toast("This tab is already split. To change it, close a pane (right-click it, or the x in its corner).", "info");
       return true;
     }
-    if (kind === "grid") this.splitGrid();
-    else this.splitFocused(kind);
+    if (kind !== "grid") {
+      this.splitEmpty(p, kind);
+      return true;
+    }
+    const leaf = tab.root;
+    const [s1, s2, s3] = [this.makeSlot(tab), this.makeSlot(tab), this.makeSlot(tab)];
+    tab.root = {
+      type: "split",
+      dir: "h",
+      ratio: 0.5,
+      a: { type: "split", dir: "v", ratio: 0.5, a: leaf, b: s2 },
+      b: { type: "split", dir: "v", ratio: 0.5, a: s1, b: s3 },
+    };
+    this.renderTab(tab);
+    this.renderTabs();
+    this.selectSlot(s1);
     return true;
   }
 
@@ -614,14 +785,14 @@ export class TabManager {
     const p = tab.focused;
     if (p.kind === "serial") return toast("A serial port can only be open once.", "error");
     this.activate(tab);
-    if (p.kind === "ssh" && p.session) void this.openSsh(p.session, "tab");
-    else void this.openLocal(p.shellId ?? "", p.title, "tab", p.session);
+    if (p.kind === "ssh" && p.session) void this.openSsh(p.session, "newtab");
+    else void this.openLocal(p.shellId ?? "", p.title, "newtab", p.session);
   }
 
   splitFocused(dir: "h" | "v") {
     const p = this.focusedPane;
     if (!p) return;
-    if (panesOf(p.tab.root).length >= MAX_PANES) {
+    if (cellsOf(p.tab.root) >= MAX_PANES) {
       toast(`A tab holds up to ${MAX_PANES} panes.`, "info");
       return;
     }
@@ -698,16 +869,10 @@ export class TabManager {
     pane.term.dispose();
     pane.el.remove();
     const tab = pane.tab;
-    const remove = (n: SplitNode): SplitNode | null => {
-      if (n.type === "leaf") return n.pane === pane ? null : n;
-      const a = remove(n.a);
-      const b = remove(n.b);
-      if (!a) return b;
-      if (!b) return a;
-      return { ...n, a, b };
-    };
-    const root = remove(tab.root);
-    if (!root) {
+    const root = removeNode(tab.root, (n) => n.type === "leaf" && n.pane === pane);
+    if (!root || !firstPane(root)) {
+      // Last real pane gone: the tab closes, empty panes included.
+      if (this.targetSlot?.tab === tab) this.targetSlot = null;
       this.tabs = this.tabs.filter((t) => t !== tab);
       tab.el.remove();
       if (this.active === tab) {
@@ -722,8 +887,7 @@ export class TabManager {
       return;
     }
     tab.root = root;
-    const first = (n: SplitNode): Pane => (n.type === "leaf" ? n.pane : first(n.a));
-    if (tab.focused === pane) tab.focused = first(root);
+    if (tab.focused === pane) tab.focused = firstPane(root)!;
     this.renderTab(tab);
     this.renderTabs();
     if (this.active === tab) {
@@ -745,6 +909,10 @@ export class TabManager {
 
   private renderTab(tab: Tab) {
     const build = (n: SplitNode): HTMLElement => {
+      if (n.type === "slot") {
+        this.refreshSlot(n);
+        return n.el;
+      }
       if (n.type === "leaf") {
         n.pane.el.classList.toggle("focused", n.pane === tab.focused);
         return n.pane.el;
@@ -778,7 +946,7 @@ export class TabManager {
       return box;
     };
     tab.el.replaceChildren(build(tab.root));
-    tab.el.classList.toggle("multi", panesOf(tab.root).length > 1);
+    tab.el.classList.toggle("multi", cellsOf(tab.root) > 1);
   }
 
   private tabMenu(t: Tab, e: MouseEvent) {
@@ -896,6 +1064,7 @@ export class TabManager {
         return el;
       }),
     );
+    this.refreshSlots();
   }
 }
 
