@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Siakap Terminal</title>
+  </head>
+  <body>
+    <div id="lock" class="lock hidden">
+      <form id="lock-form" class="lock-card" autocomplete="off">
+        <div class="brand"><span class="logo">◆</span> Siakap Terminal</div>
+        <p id="lock-hint" class="muted"></p>
+        <input id="lock-pass" type="password" placeholder="Master password" autocomplete="off" spellcheck="false" />
+        <input id="lock-pass2" type="password" placeholder="Repeat master password" class="hidden" autocomplete="off" />
+        <div id="lock-error" class="error"></div>
+        <button id="lock-submit" type="submit" class="primary">Unlock</button>
+        <p class="muted small">Your sessions, macros, saved passwords and known hosts are encrypted with this password
+          (Argon2id + XChaCha20-Poly1305). It cannot be recovered if you forget it.</p>
+      </form>
+    </div>
+
+    <div id="app" class="app hidden">
+      <nav class="rail" aria-label="Tools">
+        <button data-panel="sessions" title="Sessions">🖧<span>Sessions</span></button>
+        <button data-panel="macros" title="Macros">⚡<span>Macros</span></button>
+        <button data-panel="sftp" title="SFTP">📁<span>SFTP</span></button>
+        <button data-panel="settings" title="Settings">⚙<span>Settings</span></button>
+        <div class="rail-spacer"></div>
+        <button id="btn-yubikey" title="Toggle YubiKey between Windows and WSL (usbipd)">🔑<span>YubiKey</span></button>
+        <button id="btn-lock" title="Lock the vault">🔒<span>Lock</span></button>
+      </nav>
+      <aside id="panel" class="panel">
+        <section id="panel-sessions" class="panel-body"></section>
+        <section id="panel-macros" class="panel-body hidden"></section>
+        <section id="panel-sftp" class="panel-body hidden"></section>
+        <section id="panel-settings" class="panel-body hidden"></section>
+      </aside>
+      <div id="panel-resizer" class="resizer" title="Drag to resize, double-click to collapse"></div>
+      <main class="main">
+        <div class="tabbar">
+          <div id="tabs" class="tabs"></div>
+          <div class="tab-actions">
+            <button id="btn-new-local" title="New local shell (Ctrl+Shift+T)">＋</button>
+            <button id="btn-split-h" title="Split side by side (Ctrl+Shift+D)">◫</button>
+            <button id="btn-split-v" title="Split top/bottom (Ctrl+Shift+E)">⊟</button>
+          </div>
+        </div>
+        <div id="macro-bar" class="macro-bar hidden"></div>
+        <div id="workspace" class="workspace">
+          <div id="empty" class="empty">
+            <p>Open a session from the sidebar, or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> for a local shell.</p>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div id="modal-root"></div>
+    <div id="toasts" class="toasts"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

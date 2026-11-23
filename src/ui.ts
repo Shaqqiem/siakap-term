@@ -1,0 +1,208 @@
+// Tiny DOM + modal helpers. All text goes through textContent (never
+// innerHTML with data), so names from the vault can't inject markup.
+
+type Attrs = Record<string, string | number | boolean | EventListener | undefined>;
+
+export function h<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  attrs: Attrs = {},
+  ...children: (Node | string | null | undefined | false)[]
+): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === undefined || v === false) continue;
+    if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v as EventListener);
+    else if (k === "class") el.className = String(v);
+    else if (k === "value" && "value" in el) (el as HTMLInputElement).value = String(v);
+    else if (k === "checked" && "checked" in el) (el as HTMLInputElement).checked = Boolean(v);
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children) {
+    if (c === null || c === undefined || c === false) continue;
+    el.append(typeof c === "string" ? document.createTextNode(c) : c);
+  }
+  return el;
+}
+
+/** replaceChildren that skips null/false entries. */
+export function fill(el: Element, ...children: (Node | string | null | undefined | false)[]) {
+  el.replaceChildren(...(children.filter((c) => c !== null && c !== undefined && c !== false) as (Node | string)[]));
+}
+
+export function $(id: string): HTMLElement {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing`);
+  return el;
+}
+
+export function toast(msg: string, kind: "info" | "error" | "ok" = "info", ms = 4000) {
+  const t = h("div", { class: `toast ${kind}` }, msg);
+  $("toasts").append(t);
+  setTimeout(() => t.remove(), kind === "error" ? Math.max(ms, 7000) : ms);
+}
+
+let modalDepth = 0;
+export function isModalOpen() {
+  return modalDepth > 0;
+}
+
+/** Show a modal; resolves with whatever `close` is called with. */
+export function modal<T>(
+  title: string,
+  build: (close: (v: T) => void) => { body: Node; actions?: Node[]; focus?: HTMLElement },
+  opts: { wide?: boolean; danger?: boolean; dismissValue?: T } = {},
+): Promise<T> {
+  return new Promise((resolve) => {
+    const prev = document.activeElement as HTMLElement | null;
+    const backdrop = h("div", { class: "modal-backdrop" });
+    let done = false;
+    const close = (v: T) => {
+      if (done) return;
+      done = true;
+      modalDepth--;
+      backdrop.remove();
+      prev?.focus?.();
+      resolve(v);
+    };
+    const { body, actions = [], focus } = build(close);
+    const box = h(
+      "div",
+      { class: `modal${opts.wide ? " wide" : ""}${opts.danger ? " danger" : ""}`, role: "dialog", "aria-modal": "true" },
+      h("h2", {}, title),
+      body,
+      actions.length ? h("div", { class: "modal-actions" }, ...actions) : null,
+    );
+    backdrop.append(box);
+    backdrop.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close(opts.dismissValue as T);
+      }
+    });
+    modalDepth++;
+    $("modal-root").append(backdrop);
+    (focus ?? (box.querySelector("input,textarea,select,button") as HTMLElement | null))?.focus();
+  });
+}
+
+export function confirmDialog(
+  title: string,
+  message: string | Node,
+  okLabel = "OK",
+  opts: { danger?: boolean } = {},
+): Promise<boolean> {
+  return modal<boolean>(
+    title,
+    (close) => {
+      const ok = h("button", { class: opts.danger ? "danger" : "primary", onclick: () => close(true) }, okLabel);
+      return {
+        body: typeof message === "string" ? h("p", { class: "pre" }, message) : message,
+        actions: [h("button", { onclick: () => close(false) }, "Cancel"), ok],
+        focus: opts.danger ? undefined : ok,
+      };
+    },
+    { danger: opts.danger, dismissValue: false },
+  );
+}
+
+export function alertDialog(title: string, message: string): Promise<void> {
+  return modal<void>(title, (close) => {
+    const ok = h("button", { class: "primary", onclick: () => close() }, "OK");
+    return { body: h("p", { class: "pre" }, message), actions: [ok], focus: ok };
+  });
+}
+
+/** Ask for one value. `validate` returns an error message or null. */
+export function promptDialog(
+  title: string,
+  label: string,
+  opts: { value?: string; password?: boolean; validate?: (v: string) => string | null; okLabel?: string; hint?: string } = {},
+): Promise<string | null> {
+  return modal<string | null>(
+    title,
+    (close) => {
+      const input = h("input", {
+        type: opts.password ? "password" : "text",
+        value: opts.value ?? "",
+        spellcheck: "false",
+        autocomplete: "off",
+      });
+      const err = h("div", { class: "error" });
+      const submit = () => {
+        const v = input.value;
+        const e = opts.validate?.(v) ?? null;
+        if (e) {
+          err.textContent = e;
+          return;
+        }
+        close(v);
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        }
+      });
+      return {
+        body: h("label", { class: "field" }, h("span", {}, label), input, opts.hint ? h("small", { class: "muted" }, opts.hint) : null, err),
+        actions: [
+          h("button", { onclick: () => close(null) }, "Cancel"),
+          h("button", { class: "primary", onclick: submit }, opts.okLabel ?? "OK"),
+        ],
+        focus: input,
+      };
+    },
+    { dismissValue: null },
+  );
+}
+
+export function field(label: string, input: HTMLElement, hint?: string): HTMLElement {
+  return h("label", { class: "field" }, h("span", {}, label), input, hint ? h("small", { class: "muted" }, hint) : null);
+}
+
+export function select(options: [string, string][], value: string): HTMLSelectElement {
+  const s = h("select", {});
+  for (const [v, l] of options) s.append(h("option", { value: v }, l));
+  s.value = value;
+  return s;
+}
+
+export function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const u = ["KiB", "MiB", "GiB", "TiB"];
+  let i = -1;
+  do {
+    n /= 1024;
+    i++;
+  } while (n >= 1024 && i < u.length - 1);
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${u[i]}`;
+}
+
+/** Group items into a folder tree for rendering. */
+export interface FolderNode<T> {
+  name: string;
+  path: string;
+  children: Map<string, FolderNode<T>>;
+  items: T[];
+}
+export function buildTree<T>(items: T[], folderOf: (t: T) => string, extraFolders: string[] = []): FolderNode<T> {
+  const root: FolderNode<T> = { name: "", path: "", children: new Map(), items: [] };
+  const ensure = (path: string) => {
+    let node = root;
+    if (!path) return node;
+    let acc = "";
+    for (const seg of path.split("/")) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      let c = node.children.get(seg);
+      if (!c) {
+        c = { name: seg, path: acc, children: new Map(), items: [] };
+        node.children.set(seg, c);
+      }
+      node = c;
+    }
+    return node;
+  };
+  for (const f of extraFolders) ensure(f);
+  for (const it of items) ensure(folderOf(it)).items.push(it);
+  return root;
+}
