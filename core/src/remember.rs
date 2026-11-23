@@ -20,6 +20,10 @@ const VERSION: u32 = 1;
 #[derive(Serialize, Deserialize)]
 struct RememberFile {
     version: u32,
+    /// The vault has no master password (UI hint only; the vault itself
+    /// records this authoritatively).
+    #[serde(default)]
+    passwordless: bool,
     scheme: String,
     data: String,
 }
@@ -45,10 +49,10 @@ fn unavailable() -> CoreError {
 }
 
 /// Save `secret` protected for the current user.
-pub fn save(path: &Path, secret: &[u8]) -> Result<()> {
+pub fn save(path: &Path, secret: &[u8], passwordless: bool) -> Result<()> {
     let scheme = scheme().ok_or_else(unavailable)?;
     let data = protect(scheme, secret)?;
-    let f = RememberFile { version: VERSION, scheme: scheme.into(), data: B64.encode(data) };
+    let f = RememberFile { version: VERSION, passwordless, scheme: scheme.into(), data: B64.encode(data) };
     atomic_write(path, &serde_json::to_vec(&f)?)
 }
 
@@ -61,6 +65,22 @@ pub fn load(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
     }
     let data = B64.decode(&f.data).map_err(|_| CoreError::format("The saved key is damaged."))?;
     unprotect(scheme, &data)
+}
+
+/// Whether the saved key belongs to a vault without a master password.
+pub fn is_passwordless(path: &Path) -> bool {
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<RememberFile>(&b).ok())
+        .is_some_and(|f| f.passwordless)
+}
+
+/// A random master password nobody types: 32 random bytes as base64.
+pub fn random_password() -> Zeroizing<String> {
+    use rand::RngCore;
+    let mut b = Zeroizing::new([0u8; 32]);
+    rand::rngs::OsRng.fill_bytes(b.as_mut());
+    Zeroizing::new(B64.encode(b.as_ref()))
 }
 
 pub fn exists(path: &Path) -> bool {
@@ -203,5 +223,35 @@ mod tests {
         v.lock();
         assert!(v.unlock_with_device_key(&k).is_err());
         v.unlock("another long passphrase").unwrap();
+    }
+
+    #[test]
+    fn passwordless_vault_can_get_a_password_later() {
+        use crate::vault::{KdfParams, Vault};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.json");
+        let pw = random_password();
+        assert!(pw.len() >= 40);
+        crate::vault::check_new_password(&pw).unwrap();
+        let mut v = Vault::new(&path);
+        v.create_with_params(&pw, KdfParams { m: 8192, t: 1, p: 1 }).unwrap();
+        v.update(|d| {
+            d.passwordless = true;
+            Ok(())
+        })
+        .unwrap();
+        let k = v.device_key().unwrap();
+        v.lock();
+        v.unlock_with_device_key(&k).unwrap();
+        assert!(v.data().unwrap().passwordless);
+        v.rekey("my own long password").unwrap();
+        v.lock();
+        v.unlock("my own long password").unwrap();
+        // The hint is read from the file.
+        let r = dir.path().join("remember.json");
+        std::fs::write(&r, r#"{"version":1,"passwordless":true,"scheme":"x","data":""}"#).unwrap();
+        assert!(is_passwordless(&r));
+        std::fs::write(&r, r#"{"version":1,"scheme":"x","data":""}"#).unwrap();
+        assert!(!is_passwordless(&r));
     }
 }

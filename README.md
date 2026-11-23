@@ -81,6 +81,12 @@ If you'd rather not type it every time, untick **Settings → Security → Ask f
 opens** (it asks for the password once to confirm). Siakap then opens straight away on this PC, for your Windows
 account only. The Lock button and auto-lock still ask for the password. Tick the box again to go back.
 
+On Windows you can also skip the master password entirely: on the first-launch screen, tick **Don't use a master
+password on this PC**. The vault is still encrypted, but only your Windows account on this PC can open it, and Lock
+just hides the window behind an **Open** button. If your Windows account is reset or you move to a new PC, that vault
+can't be opened, so export a backup now and then. You can add a password later with **Settings → Security → Set a
+master password**.
+
 ## Using it
 
 | What | How |

@@ -50,6 +50,13 @@ master password. Ticking the box again deletes the file, and changing the master
 can't be used, Siakap deletes it and asks for the password. The Lock button and auto-lock still need the password.
 The option isn't offered on Linux or macOS.
 
+**No master password at all (optional, Windows only).** On first launch you can create the vault without a master
+password. Siakap then encrypts it with a random 256-bit password that is never shown or stored anywhere except as the
+Windows-protected key in `remember.json`. Locking only hides the window; **Open** unlocks with your Windows account. If
+that key can't be read, Siakap never deletes it, because it is the only way in. Losing your Windows profile means
+losing the vault. **Set a master password** re-encrypts the vault under a password you choose, deletes the saved key,
+and from then on the vault behaves like any other.
+
 **SSH host keys.** The first time you connect to a host, you see its SHA-256 fingerprint and decide whether to trust
 it. Trusted keys are stored inside the vault, not in a plain `known_hosts` file. If a host later presents a different
 key, the connection is refused with a warning, and nothing in the UI lets you click past it. This includes a key of a
@@ -107,7 +114,7 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
 
 - **Malware running as you while the vault is unlocked.** It can read memory, log keystrokes, watch the clipboard or
   drive the app. No desktop app can defend against that.
-- **Your Windows account, if you open without the master password.** With that option on, anyone or any program that
+- **Your Windows account, if you open without the master password or have none.** With either option, anyone or any program that
   can use your signed-in Windows account can open the vault: someone at your unlocked PC, malware running as you, or
   an attacker who learns your Windows password. Keep the option off on shared PCs, and lock Windows when you walk away.
 - **A weak master password.** Argon2id makes guessing slow, not impossible. New master passwords must be at least 12

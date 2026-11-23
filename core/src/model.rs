@@ -307,6 +307,10 @@ pub struct VaultData {
     pub settings: Settings,
     /// Session id → secret.
     pub secrets: BTreeMap<String, SessionSecret>,
+    /// Created without a master password: the key exists only in the
+    /// Windows-protected `remember.json`. Lets the user set a password
+    /// later without knowing the random one.
+    pub passwordless: bool,
 }
 
 impl VaultData {

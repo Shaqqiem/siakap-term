@@ -42,13 +42,73 @@ pub struct VaultStatus {
     remember_available: bool,
     /// The user turned that on: the key is saved for this Windows account.
     remembered: bool,
+    /// The vault has no master password; it opens with the Windows account only.
+    passwordless: bool,
 }
 
 #[tauri::command]
 pub fn vault_status(st: State<'_, AppState>) -> VaultStatus {
-    let remembered = remember::available() && remember::exists(&st.remember_path());
+    let path = st.remember_path();
+    let remembered = remember::available() && remember::exists(&path);
+    let passwordless = remembered && remember::is_passwordless(&path);
     let v = st.vault();
-    VaultStatus { exists: v.exists(), unlocked: v.is_unlocked(), remember_available: remember::available(), remembered }
+    VaultStatus {
+        exists: v.exists(),
+        unlocked: v.is_unlocked(),
+        remember_available: remember::available(),
+        remembered,
+        passwordless,
+    }
+}
+
+/// First launch without a master password: the vault gets a random password
+/// nobody knows, and its key is saved only for this Windows account.
+#[tauri::command]
+pub async fn vault_create_passwordless(st: State<'_, AppState>) -> Res<()> {
+    if !remember::available() {
+        return Err(CoreError::invalid("A vault without a master password is only available on Windows."));
+    }
+    let path = st.remember_path();
+    let pw = remember::random_password();
+    let mut v = st.vault();
+    v.create(&pw)?;
+    let r = v
+        .update(|d| {
+            d.passwordless = true;
+            Ok(())
+        })
+        .and_then(|_| v.device_key())
+        .and_then(|k| remember::save(&path, &k, true));
+    if let Err(e) = r {
+        // Without the saved key nobody could ever open this vault.
+        v.lock();
+        let _ = std::fs::remove_file(v.path());
+        let _ = remember::clear(&path);
+        return Err(e);
+    }
+    drop(v);
+    st.touch();
+    Ok(())
+}
+
+/// Give a vault created without a master password a real one. Afterwards
+/// Siakap asks for it when it opens, like any other vault.
+#[tauri::command]
+pub async fn vault_set_master_password(st: State<'_, AppState>, password: String) -> Res<()> {
+    let password = Zeroizing::new(password);
+    let mut v = st.vault();
+    if !v.data()?.passwordless {
+        return Err(CoreError::invalid(
+            "This vault already has a master password. Use Change master password instead.",
+        ));
+    }
+    v.rekey(&password)?;
+    v.update(|d| {
+        d.passwordless = false;
+        Ok(())
+    })?;
+    drop(v);
+    remember::clear(&st.remember_path())
 }
 
 /// Open the vault with the key saved for this Windows account. If that fails
@@ -58,6 +118,12 @@ pub fn vault_status(st: State<'_, AppState>) -> VaultStatus {
 pub async fn vault_unlock_remembered(st: State<'_, AppState>) -> Res<()> {
     let path = st.remember_path();
     let r = remember::load(&path).and_then(|k| st.vault().unlock_with_device_key(&k));
+    if r.is_err() && remember::is_passwordless(&path) {
+        // This file is the only way in: never delete it.
+        return Err(CoreError::invalid(
+            "Siakap couldn't open the vault with your Windows account. Nothing was deleted. Try again, or check that you're signed in to the same Windows account as before.",
+        ));
+    }
     if r.is_err() {
         let _ = remember::clear(&path);
         return Err(CoreError::invalid(
@@ -74,6 +140,9 @@ pub async fn vault_unlock_remembered(st: State<'_, AppState>) -> Res<()> {
 pub async fn vault_set_remember(st: State<'_, AppState>, remember: bool, password: Option<String>) -> Res<()> {
     st.ensure_unlocked()?;
     let path = st.remember_path();
+    if st.vault().data()?.passwordless {
+        return Err(CoreError::invalid("This vault has no master password yet. Set one first."));
+    }
     if !remember {
         return remember::clear(&path);
     }
@@ -86,7 +155,7 @@ pub async fn vault_set_remember(st: State<'_, AppState>, remember: bool, passwor
     st.unlock_result(ok.is_ok());
     ok?;
     let key = st.vault().device_key()?;
-    remember::save(&path, &key)
+    remember::save(&path, &key, false)
 }
 
 #[tauri::command]
@@ -125,7 +194,7 @@ pub async fn vault_change_password(st: State<'_, AppState>, old: String, new: St
     let path = st.remember_path();
     if remember::exists(&path) {
         let key = st.vault().device_key()?;
-        if remember::save(&path, &key).is_err() {
+        if remember::save(&path, &key, false).is_err() {
             let _ = remember::clear(&path);
         }
     }

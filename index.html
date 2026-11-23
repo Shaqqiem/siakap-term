@@ -20,9 +20,15 @@
         <p id="lock-hint" class="muted"></p>
         <input id="lock-pass" type="password" placeholder="Master password" autocomplete="off" spellcheck="false" />
         <input id="lock-pass2" type="password" placeholder="Repeat master password" class="hidden" autocomplete="off" />
+        <div id="lock-nopw" class="hidden">
+          <label class="check"><input id="lock-nopw-box" type="checkbox" /> Don't use a master password on this PC</label>
+          <p id="lock-nopw-hint" class="muted small hidden">Siakap will open with your Windows account only. Anyone who can use your
+            Windows account can open your sessions and saved passwords. If your Windows account is reset or you move to a new
+            PC, this vault can't be opened, so export a backup from time to time. You can set a master password later in Settings.</p>
+        </div>
         <div id="lock-error" class="error"></div>
         <button id="lock-submit" type="submit" class="primary">Unlock</button>
-        <p class="muted small">Sessions, macros, saved passwords and known hosts are encrypted with this password.
+        <p id="lock-note" class="muted small">Sessions, macros, saved passwords and known hosts are encrypted with this password.
           There is no way to recover it, so keep it somewhere safe.</p>
       </form>
     </div>

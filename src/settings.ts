@@ -108,7 +108,7 @@ export class SettingsPanel {
     const lockDisconnects = chk(s.lockDisconnects);
     // Applies at once (not with Save): it needs the master password to turn off.
     const vs = await api.vaultStatus();
-    const askOnOpen = h("input", { type: "checkbox", checked: !vs.remembered, disabled: !vs.rememberAvailable }) as HTMLInputElement;
+    const askOnOpen = h("input", { type: "checkbox", checked: !vs.remembered, disabled: !vs.rememberAvailable || vs.passwordless }) as HTMLInputElement;
     askOnOpen.addEventListener("change", async () => {
       const ask = askOnOpen.checked;
       askOnOpen.disabled = true;
@@ -134,7 +134,7 @@ export class SettingsPanel {
         askOnOpen.checked = !ask;
         toast(messageOf(e), "error");
       } finally {
-        askOnOpen.disabled = !vs.rememberAvailable;
+        askOnOpen.disabled = !vs.rememberAvailable || vs.passwordless;
       }
     });
 
@@ -215,14 +215,21 @@ export class SettingsPanel {
         field("Theme", theme),
         field("Text size", textSize),
         h("h4", {}, "Security"),
-        h("label", { class: "check" }, askOnOpen, " Ask for the master password when Siakap opens"),
-        h(
-          "small",
-          { class: "muted" },
-          vs.rememberAvailable
-            ? "Off: Siakap opens straight away on this PC, for your Windows account only. The Lock button and auto-lock still ask for the password."
-            : "Turning this off is only available on Windows.",
-        ),
+        ...(vs.passwordless
+          ? [
+              h("p", { class: "muted small" }, "No master password: Siakap opens with your Windows account on this PC. Lock only hides the window."),
+              h("button", { type: "button", onclick: () => void this.setMasterPassword() }, "Set a master password"),
+            ]
+          : [
+              h("label", { class: "check" }, askOnOpen, " Ask for the master password when Siakap opens"),
+              h(
+                "small",
+                { class: "muted" },
+                vs.rememberAvailable
+                  ? "Off: Siakap opens straight away on this PC, for your Windows account only. The Lock button and auto-lock still ask for the password."
+                  : "Turning this off is only available on Windows.",
+              ),
+            ]),
         field("Lock the app", autoLock, "When nobody has used Siakap for this long, it locks and asks for the master password."),
         h("label", { class: "check" }, lockDisconnects, " Disconnect all sessions when Siakap locks"),
         h("small", { class: "muted" }, "Off: open terminals keep running but stay hidden until you unlock. On: every terminal is closed when Siakap locks."),
@@ -256,7 +263,7 @@ export class SettingsPanel {
         ),
         h("button", { type: "submit", class: "primary" }, "Save settings"),
       ),
-      h("button", { onclick: () => this.changePassword() }, "Change master password"),
+      ...(vs.passwordless ? [] : [h("button", { onclick: () => this.changePassword() }, "Change master password")]),
       h("div", { class: "inline" },
         h("button", { onclick: () => this.onTour("full") }, "Show the tour again"),
         h("button", { onclick: () => this.onTour("whatsNew") }, "What's new"),
@@ -271,6 +278,45 @@ export class SettingsPanel {
       h("p", { class: "muted small" }, "Siakap only connects to the servers and devices you open. It sends no usage data and checks for nothing online."),
     );
   }
+
+  private async setMasterPassword() {
+    const n1 = h("input", { type: "password", autocomplete: "off" });
+    const n2 = h("input", { type: "password", autocomplete: "off" });
+    const err = h("div", { class: "error" });
+    const done = await modal<boolean>("Set a master password", (close) => {
+      const go = async () => {
+        if (n1.value !== n2.value) return void (err.textContent = "The passwords don't match.");
+        if (n1.value.length < 12) return void (err.textContent = "Use at least 12 characters. A short sentence works well.");
+        try {
+          await api.vaultSetMasterPassword(n1.value);
+          n1.value = n2.value = "";
+          close(true);
+        } catch (e) {
+          err.textContent = messageOf(e);
+        }
+      };
+      return {
+        body: h(
+          "div",
+          { class: "form" },
+          h("p", { class: "muted small" }, "Siakap will ask for it when it opens and when it is locked. You can still turn off asking when it opens, below."),
+          field("Master password", n1),
+          field("Repeat master password", n2),
+          err,
+        ),
+        actions: [h("button", { onclick: () => close(false) }, "Cancel"), h("button", { class: "primary", onclick: () => void go() }, "Set password")],
+        focus: n1,
+      };
+    }, { dismissValue: false });
+    if (done) {
+      toast("Master password set. Siakap will ask for it when it opens.", "ok");
+      this.onPasswordModeChanged?.();
+      await this.render();
+    }
+  }
+
+  /** Set by main.ts: the vault's password mode changed. */
+  onPasswordModeChanged?: () => void;
 
   private async changePassword() {
     const old = h("input", { type: "password", autocomplete: "off" });

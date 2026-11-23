@@ -66,6 +66,8 @@ pub fn run() {
             commands::vault_lock,
             commands::vault_unlock_remembered,
             commands::vault_set_remember,
+            commands::vault_create_passwordless,
+            commands::vault_set_master_password,
             commands::vault_change_password,
             commands::touch,
             commands::sessions_list,

@@ -261,6 +261,13 @@ impl Vault {
         if !ct_eq(check.as_ref(), u.key.as_ref()) {
             return Err(CoreError::wrong_password());
         }
+        self.rekey(new)
+    }
+
+    /// Re-encrypt under `new` without checking the old password. Only for a
+    /// vault created without a master password (the caller checks that).
+    pub fn rekey(&mut self, new: &str) -> Result<()> {
+        let u = self.unlocked.as_ref().ok_or_else(CoreError::locked)?;
         check_new_password(new)?;
         let mut salt = [0u8; SALT_LEN];
         rand::rngs::OsRng.fill_bytes(&mut salt);

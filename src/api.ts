@@ -145,7 +145,11 @@ export function messageOf(e: unknown): string {
 
 export const api = {
   vaultStatus: () =>
-    invoke<{ exists: boolean; unlocked: boolean; rememberAvailable: boolean; remembered: boolean }>("vault_status"),
+    invoke<{ exists: boolean; unlocked: boolean; rememberAvailable: boolean; remembered: boolean; passwordless: boolean }>(
+      "vault_status",
+    ),
+  vaultCreatePasswordless: () => invoke<void>("vault_create_passwordless"),
+  vaultSetMasterPassword: (password: string) => invoke<void>("vault_set_master_password", { password }),
   vaultUnlockRemembered: () => invoke<void>("vault_unlock_remembered"),
   vaultSetRemember: (remember: boolean, password?: string) => invoke<void>("vault_set_remember", { remember, password: password ?? null }),
   vaultCreate: (password: string) => invoke<void>("vault_create", { password }),

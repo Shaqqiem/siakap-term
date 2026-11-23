@@ -50,6 +50,7 @@ let currentPanel: PanelName = "sessions";
 let collapsed = false;
 const sftp = new SftpPanel(tabs, () => !collapsed && currentPanel === "sftp" && !$("app").classList.contains("hidden"));
 const settingsPanel = new SettingsPanel((s) => applySettings(s), (kind) => void startTour(kind, kind === "whatsNew" ? previousMinor() : undefined));
+settingsPanel.onPasswordModeChanged = () => void refreshVaultStatus().catch(() => {});
 
 /** For "What's new" from Settings: show what this version added. */
 function previousMinor(): string {
@@ -244,7 +245,12 @@ function renderWelcome() {
 
 // ------------------------------------------------------------------ lock screen
 
-function showLock(mode: "create" | "unlock", hint = "") {
+// The vault has no master password: locking only hides the window, and
+// "Open" unlocks it with the Windows account.
+let passwordless = false;
+let rememberAvailable = false;
+
+function showLock(mode: "create" | "unlock" | "open", hint = "") {
   runner.stop("the vault was locked");
   // Wipe what the UI holds from the vault: lists, open dialogs, menus, messages.
   if (tabs.settings?.lockDisconnects) void tabs.closeAll();
@@ -260,13 +266,50 @@ function showLock(mode: "create" | "unlock", hint = "") {
   const pass = $("lock-pass") as HTMLInputElement;
   const pass2 = $("lock-pass2") as HTMLInputElement;
   pass.value = pass2.value = "";
+  const nopw = $("lock-nopw-box") as HTMLInputElement;
+  nopw.checked = false;
+  $("lock-nopw").classList.toggle("hidden", mode !== "create" || !rememberAvailable);
+  $("lock-nopw-hint").classList.add("hidden");
+  pass.classList.toggle("hidden", mode === "open");
   pass2.classList.toggle("hidden", mode !== "create");
-  $("lock-submit").textContent = mode === "create" ? "Create vault" : "Unlock";
+  $("lock-note").classList.toggle("hidden", mode === "open");
+  $("lock-submit").textContent = submitLabel(mode);
   $("lock-hint").textContent =
-    hint || (mode === "create" ? "Choose a master password to create your encrypted vault." : "Enter your master password.");
+    hint ||
+    (mode === "create"
+      ? "Choose a master password to create your encrypted vault."
+      : mode === "open"
+        ? "Siakap is locked. It opens with your Windows account."
+        : "Enter your master password.");
   $("lock-error").textContent = "";
   ($("lock-form") as HTMLFormElement).dataset.mode = mode;
-  setTimeout(() => pass.focus(), 50);
+  setTimeout(() => (mode === "open" ? $("lock-submit") : pass).focus(), 50);
+}
+
+function submitLabel(mode: string) {
+  return mode === "create" ? "Create vault" : mode === "open" ? "Open" : "Unlock";
+}
+
+$("lock-nopw-box").addEventListener("change", () => {
+  const on = ($("lock-nopw-box") as HTMLInputElement).checked;
+  $("lock-pass").classList.toggle("hidden", on);
+  $("lock-pass2").classList.toggle("hidden", on);
+  $("lock-nopw-hint").classList.toggle("hidden", !on);
+  $("lock-note").classList.toggle("hidden", on);
+  $("lock-hint").textContent = on ? "Siakap will create your encrypted vault without a master password." : "Choose a master password to create your encrypted vault.";
+  $("lock-error").textContent = "";
+});
+
+/** Lock screen for the current vault. */
+function lockMode(): "unlock" | "open" {
+  return passwordless ? "open" : "unlock";
+}
+
+async function refreshVaultStatus() {
+  const st = await api.vaultStatus();
+  passwordless = st.passwordless;
+  rememberAvailable = st.rememberAvailable;
+  return st;
 }
 
 async function onUnlocked() {
@@ -294,29 +337,33 @@ $("lock-form").addEventListener("submit", async (e) => {
   const err = $("lock-error");
   const btn = $("lock-submit") as HTMLButtonElement;
   err.textContent = "";
-  if (form.dataset.mode === "create") {
+  const noPassword = form.dataset.mode === "create" && ($("lock-nopw-box") as HTMLInputElement).checked;
+  if (form.dataset.mode === "create" && !noPassword) {
     if (pass.value.length < 12) return void (err.textContent = "Use at least 12 characters. A short sentence works well.");
     if (pass.value !== pass2.value) return void (err.textContent = "The passwords don't match.");
   }
   btn.disabled = true;
-  btn.textContent = "Unlocking...";
+  btn.textContent = form.dataset.mode === "create" ? "Creating..." : "Opening...";
   try {
-    if (form.dataset.mode === "create") await api.vaultCreate(pass.value);
+    if (noPassword) await api.vaultCreatePasswordless();
+    else if (form.dataset.mode === "create") await api.vaultCreate(pass.value);
+    else if (form.dataset.mode === "open") await api.vaultUnlockRemembered();
     else await api.vaultUnlock(pass.value);
     pass.value = pass2.value = "";
+    await refreshVaultStatus().catch(() => {});
     await onUnlocked();
   } catch (x) {
     err.textContent = messageOf(x);
-    pass.select();
+    if (form.dataset.mode !== "open") pass.select();
   } finally {
     btn.disabled = false;
-    btn.textContent = form.dataset.mode === "create" ? "Create vault" : "Unlock";
+    btn.textContent = submitLabel(form.dataset.mode ?? "");
   }
 });
 
 async function lockNow(reason = "") {
   await api.vaultLock().catch(() => {});
-  showLock("unlock", reason);
+  showLock(lockMode(), passwordless ? "" : reason);
 }
 
 // ------------------------------------------------------------------ rail & panel
@@ -584,13 +631,13 @@ tabs.onConnected = async (pane) => {
   await runner.run({ name: `Startup: ${ses.name}`, script }, pane, { quiet: true });
 };
 
-void listen("vault-locked", () => showLock("unlock", "Locked after inactivity."));
+void listen("vault-locked", () => showLock(lockMode(), passwordless ? "" : "Locked after inactivity."));
 
 // ------------------------------------------------------------------ boot
 
 (async () => {
   try {
-    const st = await api.vaultStatus();
+    const st = await refreshVaultStatus();
     newInstall = !st.exists;
     if (st.unlocked) await onUnlocked();
     else if (st.exists && st.remembered) {
@@ -599,7 +646,8 @@ void listen("vault-locked", () => showLock("unlock", "Locked after inactivity.")
         await api.vaultUnlockRemembered();
         await onUnlocked();
       } catch (e) {
-        showLock("unlock", messageOf(e));
+        await refreshVaultStatus().catch(() => {});
+        showLock(lockMode(), messageOf(e));
       }
     } else showLock(st.exists ? "unlock" : "create");
   } catch (e) {
