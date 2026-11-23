@@ -5,10 +5,8 @@ what it doesn't, and how to report a problem.
 
 ## Reporting a vulnerability
 
-Please don't open a public issue. Use GitHub's private vulnerability reporting
-(Security > Report a vulnerability) on this repository. Include the version, steps to reproduce, and what an attacker
-could do with it. I'll acknowledge reports as soon as I can and credit you in the fix unless you'd rather stay
-anonymous.
+Contact the maintainer directly rather than opening an issue. Include the version, steps to reproduce, and what an
+attacker could do with it.
 
 ## What is protected
 

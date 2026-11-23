@@ -1,6 +1,6 @@
 # Siakap Terminal
 
-Siakap Terminal is a terminal and SSH client for Windows 10 and 11. I wanted something that looks as clean as Tabby,
+Siakap Terminal is an internal terminal and SSH client for Windows 10 and 11. I wanted something that looks as clean as Tabby,
 has MobaXterm's habit of putting an SFTP browser next to the terminal, and keeps the macros I've been using in
 Siakap. It also had to keep everything encrypted on disk and stay quiet on the network.
 
@@ -28,9 +28,9 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 
 ## Installing
 
-Grab the installer from the [Releases](https://github.com/Shaqqiem/siakap-term/releases) page: either the NSIS
-`setup.exe` (installs per user, no admin needed) or the `.msi`. Each release comes with a `SHA256SUMS.txt`. Check the
-file you downloaded before running it:
+Grab the installer from the [Releases](https://github.com/Shaqqiem/siakap-term/releases) page (you need access to
+this repository): either the `setup.exe` (installs per user, no admin needed) or the `.msi`. Each release comes with
+a `SHA256SUMS.txt`. Check the file you downloaded before running it:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 '.\Siakap Terminal_0.1.0_x64-setup.exe'
@@ -128,8 +128,9 @@ cargo test -p siakap-core --test ssh_live
 ```
 
 CI runs the tests on `windows-latest` and builds both installers on every push (see
-[`.github/workflows/build.yml`](.github/workflows/build.yml)). Pushing a `v*` tag also publishes a release with the
-installers and `SHA256SUMS.txt`.
+[`.github/workflows/build.yml`](.github/workflows/build.yml)). The first time a new version number reaches `main`,
+CI also publishes a release for it with the installers and `SHA256SUMS.txt`. To ship an update, bump `version` in
+`src-tauri/tauri.conf.json` and `package.json`, then push to `main`.
 
 ## Project layout
 
@@ -159,4 +160,4 @@ See [SECURITY.md](SECURITY.md) for what the app protects against, what it doesn'
 
 ## License
 
-MIT
+Proprietary. For internal use only; not for redistribution.

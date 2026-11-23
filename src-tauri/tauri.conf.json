@@ -33,7 +33,7 @@
     "targets": ["nsis", "msi"],
     "publisher": "Siakap",
     "shortDescription": "Secure terminal and SSH client",
-    "copyright": "MIT licensed",
+    "copyright": "Proprietary. Internal use only.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
