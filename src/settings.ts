@@ -12,7 +12,10 @@ const THEMES: Record<string, { label: string; background: string; foreground: st
 };
 
 export class SettingsPanel {
-  constructor(private onSaved: (s: Settings) => void) {}
+  constructor(
+    private onSaved: (s: Settings) => void,
+    private onTour: (kind: "full" | "whatsNew") => void = () => {},
+  ) {}
 
   async render() {
     const panel = $("panel-settings");
@@ -92,8 +95,29 @@ export class SettingsPanel {
     startupAction.addEventListener("change", syncStartup);
     syncStartup();
 
+    const chk = (v: boolean) => h("input", { type: "checkbox", checked: v });
+    const reviewAll = chk(s.reviewAll);
+    const newMacroReview = chk(s.newMacroReview);
+    const searchInCommands = chk(s.searchInCommands);
+    const macroSort = select([["manual", "Saved order"], ["name", "Folder, then name"]], s.macroSort);
+    const activation = select([["single", "Single click"], ["double", "Double click"]], s.activation);
+    const startupMacros = chk(s.startupMacrosEnabled);
+    const startupTimeout = h("input", { type: "number", min: 1000, max: 60000, step: 1000, value: s.startupTimeoutMs });
+    const tabStatus = chk(s.tabStatus);
+    const tabStatusFallback = chk(s.tabStatusFallback);
+
     const save = async () => {
       const next: Settings = {
+        ...s,
+        reviewAll: reviewAll.checked,
+        newMacroReview: newMacroReview.checked,
+        searchInCommands: searchInCommands.checked,
+        macroSort: macroSort.value as Settings["macroSort"],
+        activation: activation.value as Settings["activation"],
+        startupMacrosEnabled: startupMacros.checked,
+        startupTimeoutMs: Number(startupTimeout.value) || 10000,
+        tabStatus: tabStatus.checked,
+        tabStatusFallback: tabStatusFallback.checked,
         fontFamily: fontFamily.value,
         fontSize: Number(fontSize.value),
         background: bg.value,
@@ -170,13 +194,30 @@ export class SettingsPanel {
             field("Lines of history to keep", scrollback),
             h("label", { class: "check" }, copyOnSelect, " Copy text as soon as it is selected"),
             h("label", { class: "check" }, confirmPaste, " Ask before pasting more than one line"),
-            field("Macro: pause between lines (ms)", lineDelay),
-            field("Macro: allowed characters in {{values}}", mode),
+            h("h4", {}, "Macros"),
+            field("Run a macro with", activation, "Applies to macro names. The run button always takes one click."),
+            field("Sort macros", macroSort),
+            h("label", { class: "check" }, searchInCommands, " Search inside macro commands (names and folders are always searched)"),
+            field("Pause between commands (ms)", lineDelay, "# @wait pauses in a macro are added on top."),
+            h("label", { class: "check" }, reviewAll, " Review every macro before running"),
+            h("label", { class: "check" }, newMacroReview, " New macros: edit the whole command before run"),
+            field("Allowed characters in input values", mode, "Safe mode blocks shell operators and control characters."),
+            h("h4", {}, "Startup commands"),
+            h("label", { class: "check" }, startupMacros, " Run sessions' startup commands after connecting"),
+            field("Wait for a prompt for up to (ms)", startupTimeout, "If no prompt appears in time, the startup commands are skipped."),
+            h("h4", {}, "Tab status dots"),
+            h("label", { class: "check" }, tabStatus, " Show command status on tabs (blue running, green success, red failure)"),
+            h("label", { class: "check" }, tabStatusFallback, " Detect prompts and error messages"),
+            h("small", { class: "muted" }, "For devices and shells that don't report command results. Results are estimates. Kept in memory only."),
           ),
         ),
         h("button", { type: "submit", class: "primary" }, "Save settings"),
       ),
       h("button", { onclick: () => this.changePassword() }, "Change master password"),
+      h("div", { class: "inline" },
+        h("button", { onclick: () => this.onTour("full") }, "Show the tour again"),
+        h("button", { onclick: () => this.onTour("whatsNew") }, "What's new"),
+      ),
       h(
         "details",
         { class: "advanced" },

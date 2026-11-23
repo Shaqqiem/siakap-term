@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
 import { serialSummary } from "./serial";
+import { aggregate, TabCommandStatus } from "./status";
 import { $, alertDialog, confirmDialog, h, modal, promptDialog, toast } from "./ui";
 
 export type PaneStatus = "connecting" | "connected" | "closed";
@@ -24,6 +25,11 @@ export interface Pane {
   status: PaneStatus;
   tab: Tab;
   disposed: boolean;
+  /** Command status for the tab dot (null when switched off). */
+  cmd: TabCommandStatus | null;
+  /** Last ~4 KB of output with escape codes removed (used to spot a prompt). */
+  tail: string;
+  decoder: TextDecoder;
   /** Input typed before the backend returned the terminal id. */
   pending: string[];
   /** Reconnect in place after the connection ended (R key). */
@@ -101,12 +107,72 @@ export class TabManager {
   applySettings(s: Settings) {
     this.settings = s;
     for (const p of this.allPanes()) {
+      if (!s.tabStatus) p.cmd = null;
+      else if (!p.cmd) this.attachStatus(p);
+      else p.cmd.fallback = s.tabStatusFallback;
       p.term.options.fontFamily = s.fontFamily;
       p.term.options.fontSize = s.fontSize;
       p.term.options.scrollback = s.scrollback;
       p.term.options.theme = this.theme();
       this.refit(p);
     }
+  }
+
+  // ------------------------------------------------------------ command status & prompts
+
+  private promptWaiters = new Map<Pane, () => void>();
+  private clearTimers = new Map<Pane, number>();
+
+  private attachStatus(pane: Pane) {
+    if (!this.settings?.tabStatus) return;
+    pane.cmd = new TabCommandStatus((state) => {
+      // On the tab you're looking at, show the result briefly; background tabs keep it until opened.
+      if ((state === "success" || state === "error") && this.active === pane.tab) {
+        window.clearTimeout(this.clearTimers.get(pane));
+        this.clearTimers.set(pane, window.setTimeout(() => pane.cmd?.clearNotification(), 4000));
+      }
+      this.scheduleTabs();
+    }, this.settings.tabStatusFallback);
+  }
+
+  /** Called for text a macro sends, so the tab dot also tracks macro commands. */
+  noteInput(pane: Pane, text: string) {
+    pane.cmd?.input(text);
+  }
+
+  private observeOutput(pane: Pane, text: string) {
+    if (!text) return;
+    pane.cmd?.output(text);
+    // eslint-disable-next-line no-control-regex
+    const clean = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+    pane.tail = (pane.tail + clean).slice(-4096);
+    this.promptWaiters.get(pane)?.();
+  }
+
+  /** Resolve true once the pane shows a ready prompt ($ # > % ❯), false on timeout or close. */
+  waitForPrompt(pane: Pane, timeoutMs: number): Promise<boolean> {
+    const ready = () => /[$#>%❯]\s*$/.test(pane.tail);
+    if (ready()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (v: boolean) => {
+        window.clearTimeout(timer);
+        window.clearInterval(poll);
+        this.promptWaiters.delete(pane);
+        resolve(v);
+      };
+      const timer = window.setTimeout(() => done(false), timeoutMs);
+      const poll = window.setInterval(() => (pane.disposed || pane.status === "closed") && done(false), 250);
+      this.promptWaiters.set(pane, () => ready() && done(true));
+    });
+  }
+
+  private tabsTimer: number | null = null;
+  private scheduleTabs() {
+    if (this.tabsTimer !== null) return;
+    this.tabsTimer = window.setTimeout(() => {
+      this.tabsTimer = null;
+      this.renderTabs();
+    }, 40);
   }
 
   // ------------------------------------------------------------ pane creation
@@ -126,13 +192,15 @@ export class TabManager {
     const fit = new FitAddon();
     term.loadAddon(fit);
     const el = h("div", { class: "pane" });
-    const pane: Pane = { uid: uidSeq++, termId: null, term, fit, el, kind, title, status: "connecting", tab: tab as Tab, disposed: false, pending: [] };
+    const pane: Pane = { uid: uidSeq++, termId: null, term, fit, el, kind, title, status: "connecting", tab: tab as Tab, disposed: false, pending: [], cmd: null, tail: "", decoder: new TextDecoder() };
+    this.attachStatus(pane);
 
     term.open(el);
     term.attachCustomKeyEventHandler((e) => this.keyHandler(pane, e));
     term.onData((d) => {
       if (pane.termId !== null && pane.status === "connected") {
         api.termWrite(pane.termId, d).catch(() => {});
+        pane.cmd?.input(d);
       } else if (pane.status === "connecting") {
         // Output can arrive before the open call returns; keep keystrokes.
         if (pane.pending.length < 256) pane.pending.push(d);
@@ -224,9 +292,13 @@ export class TabManager {
     const ch = new Channel<TermOut>();
     ch.onmessage = (m) => {
       if (pane.disposed) return;
-      if (m.kind === "data") pane.term.write(b64ToBytes(m.b64));
-      else {
+      if (m.kind === "data") {
+        const bytes = b64ToBytes(m.b64);
+        pane.term.write(bytes);
+        this.observeOutput(pane, pane.decoder.decode(bytes, { stream: true }));
+      } else {
         pane.status = "closed";
+        pane.cmd?.closed();
         pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : pane.kind === "serial" ? "port closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press R to reconnect or Enter to close.]\x1b[0m\r\n`);
         this.renderTabs();
         this.closeListeners.forEach((l) => l(pane));
@@ -267,9 +339,10 @@ export class TabManager {
     }
   }
 
-  async openLocal(shellId: string, label: string, where: "tab" | "h" | "v" = "tab") {
+  async openLocal(shellId: string, label: string, where: "tab" | "h" | "v" = "tab", session?: RedactedSession) {
     const pane = this.place(this.makePane("local", label, null), where);
     pane.shellId = shellId;
+    pane.session = session; // enables its startup commands
     pane.reconnect = () => void this.connectLocal(pane);
     await this.connectLocal(pane);
   }
@@ -484,6 +557,14 @@ export class TabManager {
   }
 
   activate(tab: Tab) {
+    // Opening a tab means its command results have been seen.
+    for (const p of panesOf(tab.root)) {
+      const st = p.cmd?.state;
+      if (st === "success" || st === "error") {
+        window.clearTimeout(this.clearTimers.get(p));
+        this.clearTimers.set(p, window.setTimeout(() => p.cmd?.clearNotification(), 4000));
+      }
+    }
     this.active = tab;
     for (const t of this.tabs) t.el.classList.toggle("hidden", t !== tab);
     $("empty").classList.toggle("hidden", this.tabs.length > 0);
@@ -599,11 +680,16 @@ export class TabManager {
           : panes.some((p) => p.status === "connecting")
             ? "connecting"
             : "closed";
+        const cmdState = this.settings?.tabStatus ? aggregate(panes.map((p) => p.cmd?.state ?? "idle")) : null;
+        const shown = cmdState && cmdState !== "closed" && status !== "closed" ? `cmd-${cmdState}` : status;
+        const detail = panes.map((p) => p.cmd?.detail).find(Boolean);
+        const dotTitle =
+          shown === "cmd-running" ? "Command running" : shown === "cmd-success" ? `Success: ${detail ?? ""}` : shown === "cmd-error" ? `Failure: ${detail ?? ""}` : status === "connected" ? "Connected" : status === "connecting" ? "Connecting" : "Closed";
         const label = t.focused.title + (panes.length > 1 ? ` (${panes.length})` : "");
         const el = h(
           "div",
           { class: `tab${t === this.active ? " active" : ""}`, title: label, onclick: () => this.activate(t) },
-          h("span", { class: `dot ${status}` }),
+          h("span", { class: `dot ${shown}`, title: dotTitle }),
           h("span", { class: "tab-title" }, label),
           h("button", {
             class: "tab-close",

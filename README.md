@@ -11,10 +11,18 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/grid.png" alt="Four terminals in a 2×2 grid"></td>
-    <td width="50%"><img src="docs/screenshots/sftp.png" alt="SFTP panel next to an SSH session"></td>
+    <td width="50%"><img src="docs/screenshots/macro-run.png" alt="Running a macro that asks for a value"></td>
   </tr>
   <tr>
     <td align="center"><sub>Four panes in one tab</sub></td>
+    <td align="center"><sub>A macro asking for a value, with a live preview</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/serial.png" alt="Serial console to a switch"></td>
+    <td width="50%"><img src="docs/screenshots/sftp.png" alt="SFTP panel next to an SSH session"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Serial console over a USB cable</sub></td>
     <td align="center"><sub>SFTP over the same connection</sub></td>
   </tr>
 </table>
@@ -31,9 +39,14 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **SSH.** Authentication tries the Windows OpenSSH agent first, then Pageant, then a key file (with a passphrase
   prompt) or a password. FIDO security keys work through the agent. Host keys are trusted on first use, and a
   changed key is refused, full stop.
-- **Macros.** Scripts send one line at a time with a short delay between lines. They support `# @wait`, `# @type`
-  and `{{placeholders}}`. You can sort them into folders, search them, import and export them as JSON, preview them
-  before they run, and attach one to a session so it runs right after connecting.
+- **Macros (Siakap compatible).** A macro types a list of commands into the terminal you clicked last. Highlight a
+  value and click *Make input* to be asked for it on every run (`{{Switch port}}`), with a live preview and a paste
+  button. Optionally edit the whole command before a run without changing the saved macro. Organise them in folders
+  with drag and drop, duplicate, rename, search across folders (and inside commands), and import or export Siakap
+  backups, including the ones made by the Siakap Tabby plugin.
+- **Startup commands.** A saved session can type commands once its prompt is ready, optionally in a start folder.
+- **Command status on tabs.** The dot on each tab turns blue while a command runs, green on success and red on
+  failure.
 - **Serial consoles.** Connect to switches, routers and other devices over a COM port, like you would in PuTTY or
   MobaXterm. Ports are detected automatically (plug in a USB console cable and it shows up), the speed is picked
   from a dropdown (9600 by default, up to 921600, or a custom rate), and data bits, parity, stop bits and flow
@@ -84,17 +97,16 @@ this off in Settings, but I'd leave it on.
 ### Writing macros
 
 ```text
-# Lines starting with # are comments.
-uname -a
+# Lines starting with # are notes.
+show interface {{Switch port}} status
 # @wait 1500
 # @type y
-ping -c 3 {{host}}
 ```
 
-Each ordinary line is typed and followed by Enter. `# @wait 1500` pauses for 1.5 seconds (the limit is one hour, and
-Stop cancels the wait). `# @type y` types `y` without pressing Enter. `{{host}}` asks you for a value once per run,
-however many times it appears. A blank line in the middle of a script sends a bare Enter; blank lines at the end are
-ignored.
+Each ordinary line is typed and followed by Enter; blank lines are skipped. `# @wait 1500` pauses for 1.5 seconds
+(the limit is one hour, and Stop cancels the wait). `# @type y` types `y` without pressing Enter. `{{Switch port}}` is
+an input: it's asked for once per run, however many times it appears, and its name can contain spaces. The easiest
+way to make one is to highlight the value in the editor, type a name and click **Make input**.
 
 By default, placeholder values may only contain letters, digits, spaces and `_ . / : @ , + -`, which keeps a stray
 `;` or `$(...)` out of your commands. You can switch to unrestricted mode in Settings; control characters are still
@@ -102,6 +114,22 @@ rejected there, so a value can never sneak in an extra Enter.
 
 A macro only types into the pane that had focus when you started it. If that pane closes or you click into another
 one, the macro stops.
+
+### Moving from the Siakap Tabby plugin
+
+In the Siakap plugin, export a backup (*Export sessions and macros*). In Siakap Terminal, open **Macros** and click
+the import button, then pick that file. Macros, folders and SSH, local and serial sessions come across, along with their
+startup commands. Two things are deliberate:
+
+- Imported macros ask you to review them before their first run.
+- Imported startup commands are switched off until you turn them on in each session.
+
+Passwords are never part of a backup.
+
+### Guided tour
+
+The first time you start Siakap Terminal, a short tour points out each part of the app. After an update, it only
+shows what's new since the version you last used. Replay it any time from **Settings > Show the tour again**.
 
 ### Startup
 

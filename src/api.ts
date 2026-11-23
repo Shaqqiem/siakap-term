@@ -19,6 +19,9 @@ export interface Session {
   shell: string;
   postConnectMacro: string | null;
   serial: SerialConfig;
+  startupScript: string;
+  startupEnabled: boolean;
+  startupDir: string;
 }
 export interface SerialConfig {
   port: string;
@@ -48,7 +51,8 @@ export interface Macro {
   name: string;
   folder: string;
   script: string;
-  preview: boolean;
+  editBeforeRun: boolean;
+  parameterDefaults: Record<string, string>;
 }
 export interface Settings {
   fontFamily: string;
@@ -68,6 +72,15 @@ export interface Settings {
   startupSession: string;
   defaultShell: string;
   startupPanes: 1 | 2 | 4;
+  reviewAll: boolean;
+  newMacroReview: boolean;
+  startupMacrosEnabled: boolean;
+  startupTimeoutMs: number;
+  macroSort: "manual" | "name";
+  activation: "single" | "double";
+  searchInCommands: boolean;
+  tabStatus: boolean;
+  tabStatusFallback: boolean;
 }
 export interface KnownHost {
   host: string;
@@ -139,9 +152,12 @@ export const api = {
   macroSave: (m: Macro) => invoke<string>("macro_save", { m }),
   macroDelete: (id: string) => invoke<void>("macro_delete", { id }),
   macroRender: (script: string, values: Record<string, string>) => invoke<Step[]>("macro_render", { script, values }),
-  macrosExportFile: (path: string, ids: string[] | null) => invoke<number>("macros_export_file", { path, ids }),
-  macrosImportFile: (path: string) =>
-    invoke<{ added: number; duplicates: number; invalid: number }>("macros_import_file", { path }),
+  macroDuplicate: (id: string) => invoke<string>("macro_duplicate", { id }),
+  macroMove: (id: string, folder: string) => invoke<void>("macro_move", { id, folder }),
+  macroFolderSave: (name: string, parent: string, oldPath: string | null) =>
+    invoke<string>("macro_folder_save", { name, parent, oldPath }),
+  backupExportFile: (path: string, scope: "macros" | "all") => invoke<number>("backup_export_file", { path, scope }),
+  backupImportFile: (path: string) => invoke<ImportReport>("backup_import_file", { path }),
 
   settingsGet: () => invoke<Settings>("settings_get"),
   settingsSave: (settings: Settings) => invoke<Settings>("settings_save", { settings }),
@@ -182,6 +198,15 @@ export const api = {
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyToggle: () => invoke<KeyPlan>("security_key_toggle"),
 };
+
+export interface ImportReport {
+  macros: number;
+  duplicates: number;
+  sessions: number;
+  skippedSessions: number;
+  invalid: number;
+  startupDisabled: number;
+}
 
 export interface Progress {
   done: number;

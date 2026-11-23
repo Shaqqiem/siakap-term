@@ -1,12 +1,12 @@
 // Sessions and Macros panels.
 import { icon } from "./icons";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type SerialPortInfo, type Session, type ShellInfo } from "./api";
+import { MacroPanel } from "./macropanel";
 import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
-import { parse, placeholders, MacroError } from "./macros";
 import type { MacroRunner } from "./runner";
 import type { TabManager } from "./tabs";
-import { $, fill, buildTree, confirmDialog, field, h, modal, promptDialog, select, toast, type FolderNode } from "./ui";
+import { $, fill, showMenu, buildTree, confirmDialog, field, h, modal, promptDialog, select, toast, type FolderNode } from "./ui";
 
 export class Sidebar {
   sessions: RedactedSession[] = [];
@@ -16,12 +16,14 @@ export class Sidebar {
   shells: ShellInfo[] = [];
   private collapsed = new Set<string>();
   private sessionQuery = "";
-  private macroQuery = "";
 
   serialPorts: SerialPortInfo[] = [];
   private serialKey = "";
 
-  constructor(private tabs: TabManager, private runner: MacroRunner) {
+  readonly macroPanel: MacroPanel;
+
+  constructor(public tabs: TabManager, runner: MacroRunner) {
+    this.macroPanel = new MacroPanel(this, runner);
     // Keep the "Serial ports" list current so a newly plugged-in cable shows up.
     window.setInterval(() => {
       const panel = document.getElementById("panel-sessions");
@@ -144,7 +146,16 @@ export class Sidebar {
         h("button", { title: "Add a remote server (SSH)", onclick: () => this.editSession(null, "ssh") }, "+ SSH"),
         h("button", { title: "Save a terminal on this PC (PowerShell, WSL, cmd)", onclick: () => this.editSession(null, "local") }, "+ Local"),
         h("button", { title: "Connect a console cable (COM port)", onclick: () => this.quickSerial() }, "+ Serial"),
-        h("button", { class: "tool", title: "New folder", onclick: () => this.newFolder("sessions") }, icon("folder-plus", 15)),
+        h("button", {
+          class: "tool",
+          title: "More: new folder, import, export",
+          onclick: (e: Event) =>
+            showMenu(e as MouseEvent, [
+              { label: "New folder", action: () => this.newFolder("sessions") },
+              { label: "Import sessions and macros...", action: () => this.macroPanel.importBackup() },
+              { label: "Export sessions and macros...", action: () => this.macroPanel.exportBackup("all") },
+            ]),
+        }, icon("more", 15)),
       ),
       search,
       tree,
@@ -195,7 +206,7 @@ export class Sidebar {
     else {
       const sh = this.shells.find((x) => x.id === s.shell) ?? this.shells[0];
       if (!sh) return toast("No terminal program was found on this PC.", "error");
-      void this.tabs.openLocal(sh.id, s.name, where);
+      void this.tabs.openLocal(sh.id, s.name, where, s);
     }
   }
 
@@ -285,6 +296,9 @@ export class Sidebar {
           shell: this.shells[0]?.id ?? "",
           postConnectMacro: null,
           serial: serial ?? DEFAULT_SERIAL,
+          startupScript: "",
+          startupEnabled: true,
+          startupDir: "",
         };
     // data-f attributes give every field a stable name (used by tests too).
     const name = h("input", { "data-f": "name", value: s.name, spellcheck: "false", placeholder: "Optional, e.g. Web server" });
@@ -323,8 +337,32 @@ export class Sidebar {
     const clearPw = h("input", { type: "checkbox" });
     const shell = select(this.shells.map((x) => [x.id, x.label]), s.shell);
     shell.dataset.f = "shell";
-    const macro = select([["", "None"], ...this.macros.map((m): [string, string] => [m.id, (m.folder ? m.folder + "/" : "") + m.name])], s.postConnectMacro ?? "");
-    macro.dataset.f = "macro";
+    // Startup commands (Siakap "startup macro"): typed once the prompt is ready.
+    const legacy = s.postConnectMacro ? this.macros.find((x) => x.id === s.postConnectMacro) : undefined;
+    const startupScript = h("textarea", {
+      "data-f": "startup",
+      rows: 4,
+      class: "mono",
+      spellcheck: "false",
+      placeholder: "One command per line, e.g.\nterminal length 0\n# @wait 1000",
+    });
+    startupScript.value = s.startupScript || legacy?.script || "";
+    const startupEnabled = h("input", { type: "checkbox", "data-f": "startup-enabled", checked: s.startupEnabled !== false });
+    const startupDir = h("input", { "data-f": "startup-dir", value: s.startupDir, spellcheck: "false", placeholder: "Optional, e.g. /var/log or C:\\Projects" });
+    const insertMacro = select([["", "Insert a saved macro..."], ...this.macros.map((m): [string, string] => [m.id, (m.folder ? m.folder + "/" : "") + m.name])], "");
+    insertMacro.addEventListener("change", () => {
+      const m = this.macros.find((x) => x.id === insertMacro.value);
+      if (m) startupScript.value = (startupScript.value.trim() ? startupScript.value.replace(/\s*$/, "\n") : "") + m.script;
+      insertMacro.value = "";
+    });
+    const startupFields = h(
+      "div",
+      { class: "form startup-fields" },
+      h("label", { class: "check" }, startupEnabled, " Run startup commands after connecting"),
+      h("label", { class: "field" }, h("span", {}, "Startup commands"), startupScript, insertMacro,
+        h("small", { class: "muted" }, "Typed once the prompt is ready (not for serial consoles). If no prompt appears in time, they are skipped.")),
+      field("Start in folder", startupDir, "Optional. Changes to this folder first."),
+    );
     const err = h("div", { class: "error" });
 
     // Basic fields first; everything else lives under "Advanced settings".
@@ -350,16 +388,17 @@ export class Sidebar {
       { class: "advanced" },
       h("summary", {}, "Advanced settings"),
       sshAdvanced,
-      field("Run a macro after connecting", macro, "Optional. Useful for logging in or setting up the session automatically."),
+      startupFields,
     );
     const nonDefault =
-      !!s.postConnectMacro || (s.kind === "ssh" && ((s.port && s.port !== 22) || s.auth !== "auto" || !!s.keyPath));
+      !!s.postConnectMacro || !!s.startupScript.trim() || !!s.startupDir || (s.kind === "ssh" && ((s.port && s.port !== 22) || s.auth !== "auto" || !!s.keyPath));
     if (nonDefault) advanced.open = true;
 
     let sform: SerialForm | null = null;
     const sync = () => {
       sshFields.classList.toggle("hidden", type.value !== "ssh");
       sshAdvanced.classList.toggle("hidden", type.value !== "ssh");
+      startupFields.classList.toggle("hidden", type.value === "serial");
       localFields.classList.toggle("hidden", type.value !== "local");
       serialFields.classList.toggle("hidden", type.value !== "serial");
       if (type.value === "serial" && !sform) {
@@ -398,7 +437,10 @@ export class Sidebar {
             auth: auth.value as Session["auth"],
             keyPath: keyPath.value,
             shell: shell.value,
-            postConnectMacro: macro.value || null,
+            postConnectMacro: null,
+            startupScript: startupScript.value,
+            startupEnabled: startupEnabled.checked,
+            startupDir: startupDir.value,
             serial: serialCfg,
           };
           try {
@@ -444,149 +486,6 @@ export class Sidebar {
   // ------------------------------------------------------------------ macros
 
   renderMacros() {
-    const panel = $("panel-macros");
-    const q = this.macroQuery.toLowerCase();
-    const list = this.macros
-      .filter((m) => !q || [m.name, m.folder, m.script].some((x) => x.toLowerCase().includes(q)))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const search = h("input", { type: "search", placeholder: "Search macros", value: this.macroQuery, spellcheck: "false" });
-    search.addEventListener("input", () => {
-      this.macroQuery = search.value;
-      this.renderMacros();
-      const s = panel.querySelector("input[type=search]") as HTMLInputElement;
-      s.focus();
-      s.setSelectionRange(s.value.length, s.value.length);
-    });
-    fill(panel, 
-      h("header", { class: "panel-head" }, h("h3", {}, "Macros")),
-      h(
-        "div",
-        { class: "toolbar" },
-        h("button", { onclick: () => this.editMacro(null) }, "+ Macro"),
-        h("button", { class: "tool", title: "New folder", onclick: () => this.newFolder("macros") }, icon("folder-plus", 15)),
-        h("button", { onclick: () => this.importMacros(), title: "Import macros from JSON" }, "Import"),
-        h("button", { onclick: () => this.exportMacros(), title: "Export all macros to JSON" }, "Export"),
-      ),
-      search,
-      this.renderTree(buildTree(list, (m) => m.folder, q ? [] : this.macroFolders), "m", (m) => this.macroItem(m), !!q, (p) => this.deleteFolder("macros", p)),
-      list.length === 0 && !q ? h("p", { class: "muted small" }, "No macros yet. Macros send lines to the focused pane; use # @wait 500, # @type text and {{placeholders}}.") : null,
-    );
-  }
-
-  private macroItem(m: Macro): HTMLElement {
-    return h(
-      "li",
-      {},
-      h(
-        "div",
-        { class: "row item", title: "Click to run on the focused pane", onclick: () => this.runner.run(m) },
-        h("span", { class: "ico" }, icon("macros", 15)),
-        h("span", { class: "name" }, m.name),
-        placeholders(m.script).length ? h("span", { class: "sub" }, "input") : null,
-        h(
-          "span",
-          { class: "row-actions" },
-          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editMacro(m)) }, icon("edit", 14)),
-          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteMacro(m)) }, icon("trash", 14)),
-        ),
-      ),
-    );
-  }
-
-  private async deleteMacro(m: Macro) {
-    if (!(await confirmDialog("Delete macro?", `Delete "${m.name}"?`, "Delete", { danger: true }))) return;
-    await api.macroDelete(m.id).catch((e) => toast(messageOf(e), "error"));
-    await this.reload();
-  }
-
-  private async editMacro(existing: Macro | null) {
-    const m: Macro = existing ? { ...existing } : { id: "", name: "", folder: "", script: "", preview: false };
-    const name = h("input", { value: m.name, spellcheck: "false" });
-    const folder = h("input", { value: m.folder, list: "dl-mfolders", spellcheck: "false" });
-    const dl = h("datalist", { id: "dl-mfolders" }, ...this.macroFolders.map((f) => h("option", { value: f })));
-    const script = h("textarea", { rows: 14, spellcheck: "false", class: "mono", placeholder: "show version\n# @wait 1000\nping {{ip}}" });
-    script.value = m.script;
-    const preview = h("input", { type: "checkbox", checked: m.preview });
-    const info = h("div", { class: "muted small" });
-    const err = h("div", { class: "error" });
-    const check = () => {
-      try {
-        const steps = parse(script.value);
-        const ph = placeholders(script.value);
-        info.textContent = `${steps.length} step(s)${ph.length ? `, asks for ${ph.join(", ")}` : ""}`;
-        err.textContent = "";
-      } catch (e) {
-        err.textContent = e instanceof MacroError ? e.message : String(e);
-      }
-    };
-    script.addEventListener("input", check);
-    check();
-    await modal<void>(
-      existing ? "Edit macro" : "New macro",
-      (close) => {
-        const save = async () => {
-          try {
-            await api.macroSave({ ...m, name: name.value, folder: folder.value, script: script.value, preview: preview.checked });
-            close();
-            await this.reload();
-          } catch (e) {
-            err.textContent = messageOf(e);
-          }
-        };
-        return {
-          body: h(
-            "div",
-            { class: "form" },
-            h("div", { class: "grid2" }, field("Name", name), field("Folder", folder)),
-            dl,
-            field("What to type", script, "Each line is typed into the terminal, followed by Enter."),
-            h(
-              "details",
-              { class: "advanced" },
-              h("summary", {}, "How to write a macro"),
-              h(
-                "dl",
-                { class: "help-list" },
-                h("dt", {}, h("code", {}, "show version")), h("dd", {}, "A normal line is typed and Enter is pressed."),
-                h("dt", {}, h("code", {}, "# @wait 2000")), h("dd", {}, "Wait 2 seconds (2000 ms) before the next line."),
-                h("dt", {}, h("code", {}, "# @type y")), h("dd", {}, "Type y without pressing Enter (for yes/no questions)."),
-                h("dt", {}, h("code", {}, "ping {{ip}}")), h("dd", {}, "{{ip}} asks you for a value each time the macro runs."),
-                h("dt", {}, h("code", {}, "# my note")), h("dd", {}, "Lines starting with # are notes and are not typed."),
-              ),
-              h("p", { class: "muted small" }, "A macro always types into the terminal you clicked last. Press Esc or Stop to cancel it."),
-            ),
-            info,
-            h("label", { class: "check" }, preview, " Show what will be typed and ask before running"),
-            err,
-          ),
-          actions: [h("button", { onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: () => void save() }, "Save")],
-          focus: name,
-        };
-      },
-      { wide: true },
-    );
-  }
-
-  private async importMacros() {
-    const p = await openDialog({ multiple: false, title: "Import macros", filters: [{ name: "JSON", extensions: ["json"] }] });
-    if (typeof p !== "string") return;
-    try {
-      const r = await api.macrosImportFile(p);
-      toast(`Imported ${r.added}; ${r.duplicates} duplicate(s) and ${r.invalid} invalid skipped.`, "ok");
-      await this.reload();
-    } catch (e) {
-      toast(messageOf(e), "error");
-    }
-  }
-
-  private async exportMacros() {
-    const p = await saveDialog({ title: "Export macros", defaultPath: "siakap-macros.json", filters: [{ name: "JSON", extensions: ["json"] }] });
-    if (!p) return;
-    try {
-      const n = await api.macrosExportFile(p, null);
-      toast(`Exported ${n} macro(s).`, "ok");
-    } catch (e) {
-      toast(messageOf(e), "error");
-    }
+    this.macroPanel.render();
   }
 }

@@ -64,6 +64,11 @@ still rejects control characters, so a value can't add an Enter. The check runs 
 stored in the vault, so it can't be bypassed from the web view. A macro only types into the pane it started in, and
 stops if that pane closes or loses focus.
 
+**Backups.** Imports are parsed and validated in the Rust backend (20 MB and 20,000-entry limits; every macro,
+folder, host, user and serial setting is checked). Duplicate macros are skipped, and nothing existing is overwritten.
+Imported macros must be reviewed before their first run, and imported startup commands stay switched off until you
+enable them. Exports never contain passwords.
+
 **Privacy.** The app has no telemetry, analytics, crash reporting or update check, and loads no remote fonts or
 scripts. It doesn't log terminal output, passwords or keys. The only network traffic is the SSH sessions you start.
 

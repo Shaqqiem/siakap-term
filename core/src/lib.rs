@@ -12,6 +12,7 @@
 //! * [`serial`] — serial consoles (COM ports)
 //! * [`security_key`] — usbipd attach/detach toggle for hardware security keys
 
+pub mod backup;
 pub mod error;
 pub mod macros;
 pub mod model;

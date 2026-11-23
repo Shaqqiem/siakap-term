@@ -12,7 +12,8 @@ use tauri::ipc::Channel;
 use tauri::State;
 use zeroize::Zeroizing;
 
-use siakap_core::macros::{self, ImportReport, Step};
+use siakap_core::backup::{self, ImportReport};
+use siakap_core::macros::{self, Step};
 use siakap_core::model::{
     new_id, normalize_folder, validate_host, validate_name, validate_user, KnownHost, Macro, RedactedSession, Session,
     SessionKind, SessionSecret, Settings,
@@ -139,6 +140,16 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
             session.shell.clear();
         }
     }
+    if session.startup_script.len() > 256 * 1024 {
+        return Err(CoreError::invalid("Startup commands are limited to 256 KiB."));
+    }
+    if !session.startup_script.trim().is_empty() {
+        macros::check(&session.startup_script)?;
+    }
+    session.startup_dir = session.startup_dir.trim().to_string();
+    if session.startup_dir.chars().any(char::is_control) {
+        return Err(CoreError::invalid("The startup folder must be a single path."));
+    }
     st.vault().update(|d| {
         if let Some(m) = &session.post_connect_macro {
             if m.is_empty() {
@@ -208,14 +219,23 @@ pub fn macros_list(st: State<'_, AppState>) -> Res<Vec<Macro>> {
 pub fn macro_save(st: State<'_, AppState>, mut m: Macro) -> Res<String> {
     m.name = validate_name(&m.name)?;
     m.folder = normalize_folder(&m.folder)?;
+    if m.script.trim().is_empty() {
+        return Err(CoreError::invalid("Enter a name and at least one command."));
+    }
     if m.script.len() > 256 * 1024 {
         return Err(CoreError::invalid("Macros are limited to 256 KiB."));
     }
-    macros::parse(&m.script)?;
+    macros::check(&m.script)?;
+    // Keep only defaults for inputs the script still uses.
+    let names = macros::input_names(&m.script);
+    m.parameter_defaults.retain(|k, v| names.contains(k) && v.len() <= 1024 && !v.chars().any(char::is_control));
     st.vault().update(|d| {
-        let sig = macros::signature(&m.script);
-        if let Some(dup) = d.macros.iter().find(|x| x.id != m.id && macros::signature(&x.script) == sig) {
-            return Err(CoreError::invalid(format!("This script is identical to the macro \"{}\".", dup.name)));
+        let sig = macros::signature(&m.folder, &m.script);
+        if let Some(dup) = d.macros.iter().find(|x| x.id != m.id && macros::signature(&x.folder, &x.script) == sig) {
+            return Err(CoreError::invalid(format!(
+                "The macro \"{}\" in this folder already does the same thing.",
+                dup.name
+            )));
         }
         if m.id.is_empty() {
             m.id = new_id();
@@ -245,13 +265,110 @@ pub fn macro_delete(st: State<'_, AppState>, id: String) -> Res<()> {
     })
 }
 
-/// Parse + substitute + validate in the backend with the vault's validation
-/// mode, so the mode can't be bypassed from the webview.
+/// Copy a macro as "<name> copy", "<name> copy 2", ... (placed right after it).
+#[tauri::command]
+pub fn macro_duplicate(st: State<'_, AppState>, id: String) -> Res<String> {
+    st.vault().update(|d| {
+        let i = d.macros.iter().position(|m| m.id == id).ok_or_else(|| CoreError::not_found("macro"))?;
+        let mut copy = d.macros[i].clone();
+        let used: std::collections::HashSet<&str> = d.macros.iter().map(|m| m.name.as_str()).collect();
+        let base = format!("{} copy", copy.name);
+        let mut name = base.clone();
+        let mut n = 2;
+        while used.contains(name.as_str()) {
+            name = format!("{base} {n}");
+            n += 1;
+        }
+        copy.name = name;
+        copy.id = new_id();
+        let new = copy.id.clone();
+        d.macros.insert(i + 1, copy);
+        Ok(new)
+    })
+}
+
+/// Move a macro to another folder ("" = top level), e.g. after drag and drop.
+#[tauri::command]
+pub fn macro_move(st: State<'_, AppState>, id: String, folder: String) -> Res<()> {
+    let folder = normalize_folder(&folder)?;
+    st.vault().update(|d| {
+        let m = d
+            .macros
+            .iter_mut()
+            .find(|m| m.id == id)
+            .ok_or_else(|| CoreError::invalid("That macro is no longer available."))?;
+        m.folder = folder.clone();
+        if !folder.is_empty() && !d.macro_folders.contains(&folder) {
+            d.macro_folders.push(folder.clone());
+        }
+        Ok(())
+    })
+}
+
+/// Create a folder, or rename/move one (with everything inside it).
+#[tauri::command]
+pub fn macro_folder_save(
+    st: State<'_, AppState>,
+    name: String,
+    parent: String,
+    old_path: Option<String>,
+) -> Res<String> {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        return Err(CoreError::invalid("Enter a folder name without slashes."));
+    }
+    let path = normalize_folder(
+        &[parent.as_str(), name.as_str()].iter().filter(|x| !x.is_empty()).cloned().collect::<Vec<_>>().join("/"),
+    )?;
+    let old = old_path.filter(|p| !p.is_empty());
+    if let Some(o) = &old {
+        if path.starts_with(&format!("{o}/")) {
+            return Err(CoreError::invalid("A folder cannot be moved inside itself."));
+        }
+    }
+    st.vault().update(|d| {
+        let mut existing: Vec<String> = d.macro_folders.clone();
+        for m in &d.macros {
+            let parts: Vec<&str> = m.folder.split('/').filter(|x| !x.is_empty()).collect();
+            for i in 1..=parts.len() {
+                let p = parts[..i].join("/");
+                if !existing.contains(&p) {
+                    existing.push(p);
+                }
+            }
+        }
+        if old.as_deref() != Some(path.as_str()) && existing.contains(&path) {
+            return Err(CoreError::invalid("That folder already exists."));
+        }
+        let replace = |v: &str| -> String {
+            match &old {
+                Some(o) if v == o => path.clone(),
+                Some(o) if v.starts_with(&format!("{o}/")) => format!("{path}{}", &v[o.len()..]),
+                _ => v.to_string(),
+            }
+        };
+        let mut folders: Vec<String> = Vec::new();
+        for f in existing.iter().map(|f| replace(f)).chain(std::iter::once(path.clone())) {
+            if !folders.contains(&f) {
+                folders.push(f);
+            }
+        }
+        d.macro_folders = folders;
+        if old.is_some() {
+            for m in d.macros.iter_mut() {
+                m.folder = replace(&m.folder);
+            }
+        }
+        Ok(path.clone())
+    })
+}
+
+/// Fill inputs and parse in the backend with the vault's validation mode, so
+/// the mode can't be bypassed from the webview.
 #[tauri::command]
 pub fn macro_render(st: State<'_, AppState>, script: String, values: HashMap<String, String>) -> Res<Vec<Step>> {
     let mode = st.vault().data()?.settings.validation_mode;
-    let steps = macros::parse(&script)?;
-    macros::render(&steps, &values, mode)
+    macros::render(&script, &values, mode)
 }
 
 fn user_file_path(p: &str) -> Res<PathBuf> {
@@ -262,35 +379,30 @@ fn user_file_path(p: &str) -> Res<PathBuf> {
     Ok(path)
 }
 
+/// Export a Siakap backup: `scope` is "macros" or "all" (sessions without passwords too).
 #[tauri::command]
-pub fn macros_export_file(st: State<'_, AppState>, path: String, ids: Option<Vec<String>>) -> Res<usize> {
+pub fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) -> Res<usize> {
     let path = user_file_path(&path)?;
-    let list: Vec<Macro> = {
+    let (value, n) = {
         let v = st.vault();
         let d = v.data()?;
-        d.macros.iter().filter(|m| ids.as_ref().is_none_or(|ids| ids.contains(&m.id))).cloned().collect()
+        let sc = if scope == "all" { backup::Scope::All } else { backup::Scope::Macros };
+        (backup::export(d, sc), d.macros.len())
     };
-    atomic_write(&path, macros::export(&list)?.as_bytes())?;
-    Ok(list.len())
+    atomic_write(&path, serde_json::to_string_pretty(&value)?.as_bytes())?;
+    Ok(n)
 }
 
+/// Import a Siakap backup (from Siakap Terminal or the Siakap Tabby plugin).
 #[tauri::command]
-pub fn macros_import_file(st: State<'_, AppState>, path: String) -> Res<ImportReport> {
+pub fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportReport> {
     let path = user_file_path(&path)?;
     let meta = std::fs::metadata(&path)?;
-    if meta.len() as usize > macros::MAX_IMPORT_BYTES {
-        return Err(CoreError::invalid("The import file is too large."));
+    if meta.len() as usize > backup::MAX_BACKUP_BYTES {
+        return Err(CoreError::invalid("Choose a backup smaller than 20 MB."));
     }
     let json = std::fs::read_to_string(&path)?;
-    st.vault().update(|d| {
-        let rep = macros::import(&json, &mut d.macros)?;
-        for m in &d.macros {
-            if !m.folder.is_empty() && !d.macro_folders.contains(&m.folder) {
-                d.macro_folders.push(m.folder.clone());
-            }
-        }
-        Ok(rep)
-    })
+    st.vault().update(|d| backup::import(&json, d))
 }
 
 // ---------------------------------------------------------------- settings & known hosts

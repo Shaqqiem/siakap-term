@@ -6,9 +6,10 @@ import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
-import { TabManager, chooseShell } from "./tabs";
+import { TabManager, chooseShell, type Pane } from "./tabs";
 import { $, alertDialog, confirmDialog, h, isModalOpen, toast } from "./ui";
 import { icon } from "./icons";
+import { APP_VERSION, FIRST_SEEN, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
@@ -20,11 +21,113 @@ const sidebar = new Sidebar(tabs, runner);
 let currentPanel: PanelName = "sessions";
 let collapsed = false;
 const sftp = new SftpPanel(tabs, () => !collapsed && currentPanel === "sftp" && !$("app").classList.contains("hidden"));
-const settingsPanel = new SettingsPanel((s) => applySettings(s));
+const settingsPanel = new SettingsPanel((s) => applySettings(s), (kind) => void startTour(kind, kind === "whatsNew" ? previousMinor() : undefined));
+
+/** For "What's new" from Settings: show what this version added. */
+function previousMinor(): string {
+  const [maj, min] = APP_VERSION.split(".").map(Number);
+  return min > 0 ? `${maj}.${min - 1}.999` : `${maj - 1}.999.999`;
+}
 
 function applySettings(s: Settings) {
   tabs.applySettings(s);
   document.documentElement.style.setProperty("--term-bg", s.background);
+}
+
+// ------------------------------------------------------------------ guided tour
+
+const TOUR: TourStep[] = [
+  { since: "0.1.0", frame: true, title: "Welcome to Siakap Terminal", text: "A quick tour of the main parts. It takes about a minute. You can skip it and replay it any time from Settings." },
+  {
+    since: "0.1.0",
+    title: "Sessions",
+    text: "Your saved servers and devices live here, sorted into folders. Use + SSH for a server, + Local for a terminal on this PC and + Serial for a console cable. Double-click a session to connect.",
+    target: '.rail button[data-panel="sessions"]',
+    before: () => showPanel("sessions"),
+  },
+  { since: "0.1.0", title: "New terminal", text: "Opens your default terminal: PowerShell, WSL, cmd and so on. Shortcut: Ctrl+Shift+T. You choose the default in Settings.", target: "#btn-new-local" },
+  { since: "0.1.0", title: "Split the screen", text: "Split the current terminal side by side or top and bottom. Drag the divider between them to resize.", target: "#btn-split-h" },
+  { since: "0.2.0", title: "Four terminals at once", text: "Ctrl+Shift+G (or this button) splits the current terminal into a 2×2 grid of the same terminal or server.", target: "#btn-grid" },
+  {
+    since: "0.2.0",
+    title: "Choose what opens at start",
+    text: "In Settings, under When Siakap starts, pick a terminal (for example your WSL distro) or a saved session, in one, two or four panes.",
+    target: "#panel-settings form h4",
+    before: () => showPanel("settings"),
+  },
+  {
+    since: "0.3.0",
+    title: "Serial consoles",
+    text: "Plug in a console cable and click + Serial. The COM port is found automatically; pick the speed (usually 9600) and connect. Ctrl+Shift+B sends a break.",
+    target: '#panel-sessions button[title^="Connect a console"]',
+    before: () => showPanel("sessions"),
+  },
+  {
+    since: "0.1.0",
+    title: "Macros",
+    text: "A macro types a list of commands for you, into the terminal you clicked last. Click a macro to run it; Esc stops it.",
+    target: '.rail button[data-panel="macros"]',
+    before: () => showPanel("macros"),
+  },
+  {
+    since: "0.3.0",
+    title: "Smarter macros",
+    text: "Highlight a value in a macro and click Make input to be asked for it on each run. Drag macros into folders, right-click to duplicate or rename, and import your Siakap backups with the import button.",
+    target: "#panel-macros .toolbar",
+    before: () => showPanel("macros"),
+  },
+  {
+    since: "0.3.0",
+    title: "Command status on tabs",
+    text: "The dot on each tab turns blue while a command runs, green when it succeeds and red when it fails, so you can keep an eye on other tabs.",
+    target: "#tabs",
+  },
+  {
+    since: "0.3.0",
+    title: "Startup commands",
+    text: "A saved session can type commands for you once it's connected, for example terminal length 0. Find them under Advanced settings when you edit a session.",
+    target: '.rail button[data-panel="sessions"]',
+    before: () => showPanel("sessions"),
+  },
+  {
+    since: "0.1.0",
+    title: "Files (SFTP)",
+    text: "Browse, upload and download files on the server you're connected to. Drag files from Explorer onto this panel to upload them.",
+    target: '.rail button[data-panel="sftp"]',
+    before: () => showPanel("sftp"),
+  },
+  { since: "0.1.0", title: "Security key", text: "Moves your USB security key between Windows and WSL with one click (needs usbipd-win).", target: "#btn-security-key" },
+  {
+    since: "0.1.0",
+    title: "Lock",
+    text: "Locks Siakap and wipes your saved passwords from memory. Siakap also locks itself when you're away; you can change the time in Settings.",
+    target: "#btn-lock",
+    before: () => showPanel("sessions"),
+  },
+  { since: "0.1.0", frame: true, title: "You're all set", text: "You can replay this tour any time from Settings > Show the tour again." },
+];
+
+async function startTour(kind: "full" | "whatsNew", sinceVersion?: string) {
+  if (kind === "full") return runTour(TOUR, "Tour");
+  const seen = sinceVersion ?? readSeen() ?? FIRST_SEEN;
+  const fresh = stepsSince(TOUR.filter((s) => !s.frame), seen);
+  if (!fresh.length) return;
+  const steps: TourStep[] = [
+    { since: APP_VERSION, title: `What's new in ${APP_VERSION}`, text: `Siakap Terminal was updated. Here ${fresh.length === 1 ? "is the 1 new thing" : `are the ${fresh.length} new things`} since you last used it.` },
+    ...fresh,
+    { since: APP_VERSION, title: "That's everything new", text: "See the full tour any time from Settings > Show the tour again." },
+  ];
+  await runTour(steps, "What's new");
+  showPanel("sessions");
+}
+
+let newInstall = false;
+let tourChecked = false;
+function maybeTour() {
+  if (tourChecked) return;
+  tourChecked = true;
+  const kind = pendingTour(newInstall);
+  if (kind) setTimeout(() => void startTour(kind).then(() => showPanel("sessions")), 900);
 }
 
 // ------------------------------------------------------------------ welcome screen
@@ -107,6 +210,7 @@ async function onUnlocked() {
     if (currentPanel === "settings") await settingsPanel.render();
     if (currentPanel === "sftp") sftp.shown();
     void runStartup();
+    maybeTour();
   } catch (e) {
     toast(messageOf(e), "error");
   }
@@ -321,11 +425,38 @@ window.addEventListener("keydown", (e) => {
 // Post-connect macros.
 sidebar.onReload = () => renderWelcome();
 
-tabs.onConnected = (pane) => {
-  const id = pane.session?.postConnectMacro;
-  if (!id) return;
-  const m = sidebar.macros.find((x) => x.id === id);
-  if (m) setTimeout(() => void runner.run(m, pane), 600);
+/** The command that changes folder, quoted for the shell the pane runs. */
+function cdCommand(pane: Pane, dir: string): string {
+  if (/[\r\n\0]/.test(dir)) throw new Error("The startup folder must be a single path.");
+  const shell = pane.kind === "local" ? (pane.shellId ?? "") : "";
+  if (shell === "cmd") {
+    if (dir.includes('"')) throw new Error("Invalid startup folder.");
+    return `cd /d "${dir}"`;
+  }
+  if (shell === "pwsh" || shell === "powershell") return `Set-Location -LiteralPath '${dir.replaceAll("'", "''")}'`;
+  return `cd -- '${dir.replaceAll("'", "'\\''")}'`;
+}
+
+// Startup commands: once the session shows a ready prompt, type its startup
+// commands (local and SSH sessions, like the Siakap plugin).
+tabs.onConnected = async (pane) => {
+  const ses = pane.session;
+  if (!ses || pane.kind === "serial" || !tabs.settings.startupMacrosEnabled) return;
+  let script = ses.startupEnabled !== false ? ses.startupScript ?? "" : "";
+  const dir = ses.startupEnabled !== false ? (ses.startupDir ?? "").trim() : "";
+  if (!script.trim() && !dir && ses.postConnectMacro) {
+    script = sidebar.macros.find((x) => x.id === ses.postConnectMacro)?.script ?? ""; // older sessions
+  }
+  if (!script.trim() && !dir) return;
+  const ok = await tabs.waitForPrompt(pane, tabs.settings.startupTimeoutMs || 10000);
+  if (pane.disposed || pane.status !== "connected") return;
+  if (!ok) return toast(`Startup commands for "${ses.name}" were skipped: no ready prompt was detected.`, "error");
+  try {
+    if (dir) script = `${cdCommand(pane, dir)}\n${script}`;
+  } catch (e) {
+    return toast(messageOf(e), "error");
+  }
+  await runner.run({ name: `Startup: ${ses.name}`, script }, pane, { quiet: true });
 };
 
 void listen("vault-locked", () => showLock("unlock", "Locked after inactivity."));
@@ -335,6 +466,7 @@ void listen("vault-locked", () => showLock("unlock", "Locked after inactivity.")
 (async () => {
   try {
     const st = await api.vaultStatus();
+    newInstall = !st.exists;
     if (st.unlocked) await onUnlocked();
     else showLock(st.exists ? "unlock" : "create");
   } catch (e) {

@@ -206,3 +206,60 @@ export function buildTree<T>(items: T[], folderOf: (t: T) => string, extraFolder
   for (const it of items) ensure(folderOf(it)).items.push(it);
   return root;
 }
+
+export interface MenuEntry {
+  label: string;
+  action: () => unknown;
+  danger?: boolean;
+  disabled?: boolean;
+}
+
+let openMenu: HTMLElement | null = null;
+export function closeMenu() {
+  openMenu?.remove();
+  openMenu = null;
+}
+
+/** Small pop-up menu at the mouse (right-click) or under a button. */
+export function showMenu(ev: MouseEvent, entries: MenuEntry[]) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  closeMenu();
+  const menu = h(
+    "div",
+    { class: "menu", role: "menu" },
+    ...entries.map((e) =>
+      h(
+        "button",
+        {
+          class: `menu-item${e.danger ? " danger-text" : ""}`,
+          role: "menuitem",
+          disabled: e.disabled,
+          onclick: () => {
+            closeMenu();
+            void Promise.resolve(e.action()).catch((x) => toast(String((x as Error)?.message ?? x), "error"));
+          },
+        },
+        e.label,
+      ),
+    ),
+  );
+  document.body.append(menu);
+  const r = menu.getBoundingClientRect();
+  const target = ev.currentTarget instanceof HTMLElement && ev.type === "click" ? ev.currentTarget.getBoundingClientRect() : null;
+  let x = target ? target.left : ev.clientX;
+  let y = target ? target.bottom + 2 : ev.clientY;
+  x = Math.min(x, window.innerWidth - r.width - 8);
+  y = Math.min(y, window.innerHeight - r.height - 8);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+  openMenu = menu;
+  (menu.querySelector("button:not([disabled])") as HTMLElement | null)?.focus();
+}
+window.addEventListener("mousedown", (e) => {
+  if (openMenu && !openMenu.contains(e.target as Node)) closeMenu();
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMenu();
+});
+window.addEventListener("blur", closeMenu);

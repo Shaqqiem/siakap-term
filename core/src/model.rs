@@ -32,7 +32,7 @@ pub enum AuthMethod {
 }
 
 /// A saved session. Contains no secrets; those live in [`VaultData::secrets`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Session {
     pub id: String,
@@ -50,6 +50,33 @@ pub struct Session {
     pub post_connect_macro: Option<String>,
     /// Serial sessions: port, speed and line settings.
     pub serial: crate::serial::SerialConfig,
+    /// Commands typed once the prompt is ready after connecting (local and SSH).
+    pub startup_script: String,
+    pub startup_enabled: bool,
+    /// Optional folder to `cd` into before the startup commands.
+    pub startup_dir: String,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            folder: String::new(),
+            kind: SessionKind::Ssh,
+            host: String::new(),
+            port: 22,
+            user: String::new(),
+            auth: AuthMethod::Auto,
+            key_path: String::new(),
+            shell: String::new(),
+            post_connect_macro: None,
+            serial: Default::default(),
+            startup_script: String::new(),
+            startup_enabled: true,
+            startup_dir: String::new(),
+        }
+    }
 }
 
 /// What the frontend sees: a session plus `hasPassword`, never the password.
@@ -82,8 +109,11 @@ pub struct Macro {
     pub name: String,
     pub folder: String,
     pub script: String,
-    /// Show the expanded script and ask before running.
-    pub preview: bool,
+    /// Let the user edit the whole command before every run.
+    #[serde(alias = "preview")]
+    pub edit_before_run: bool,
+    /// Example values remembered by "Make input" (shown as hints).
+    pub parameter_defaults: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +127,24 @@ pub struct KnownHost {
     /// OpenSSH single-line public key.
     pub public_key: String,
     pub added: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum MacroSort {
+    /// The order macros were added in.
+    #[default]
+    Manual,
+    /// Folder, then name.
+    Name,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Activation {
+    #[default]
+    Single,
+    Double,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -144,6 +192,23 @@ pub struct Settings {
     pub default_shell: String,
     /// Panes to open at startup: 1, 2 (side by side) or 4 (2×2 grid).
     pub startup_panes: u8,
+    /// Ask to review/edit every macro before it runs.
+    pub review_all: bool,
+    /// New macros start with "Edit the whole command before run" ticked.
+    pub new_macro_review: bool,
+    /// Run sessions' startup commands after connecting.
+    pub startup_macros_enabled: bool,
+    /// How long to wait for a ready prompt before skipping startup commands.
+    pub startup_timeout_ms: u32,
+    pub macro_sort: MacroSort,
+    /// Click once or twice on a macro/session name to run it.
+    pub activation: Activation,
+    /// Macro search also looks inside the commands (names and folders always).
+    pub search_in_commands: bool,
+    /// Blue/green/red command status dots on tabs.
+    pub tab_status: bool,
+    /// Guess status from prompts and error text when the shell sends no markers.
+    pub tab_status_fallback: bool,
 }
 
 impl Default for Settings {
@@ -166,6 +231,15 @@ impl Default for Settings {
             startup_session: String::new(),
             default_shell: String::new(),
             startup_panes: 1,
+            review_all: false,
+            new_macro_review: false,
+            startup_macros_enabled: true,
+            startup_timeout_ms: 10_000,
+            macro_sort: MacroSort::Manual,
+            activation: Activation::Single,
+            search_in_commands: true,
+            tab_status: true,
+            tab_status_fallback: true,
         }
     }
 }
@@ -173,6 +247,7 @@ impl Default for Settings {
 impl Settings {
     /// Clamp values to sane ranges so a bad import can't wedge the UI.
     pub fn sanitized(mut self) -> Self {
+        self.startup_timeout_ms = self.startup_timeout_ms.clamp(1000, 60_000);
         if !matches!(self.startup_panes, 1 | 2 | 4) {
             self.startup_panes = 1;
         }
