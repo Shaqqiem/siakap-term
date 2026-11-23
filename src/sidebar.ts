@@ -4,7 +4,7 @@ import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, ty
 import { MacroPanel } from "./macropanel";
 import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
 import type { MacroRunner } from "./runner";
-import type { TabManager } from "./tabs";
+import type { TabManager, Where } from "./tabs";
 import { $, fill, showMenu, buildTree, confirmDialog, enableDrag, field, h, modal, promptDialog, select, toast, type FolderNode, type MenuEntry } from "./ui";
 
 export class Sidebar {
@@ -166,7 +166,7 @@ export class Sidebar {
     for (const s of node.items) into.append(this.sessionItem(s));
   }
 
-  connectSession(s: RedactedSession, where: "tab" | "h" | "v" = "tab") {
+  connectSession(s: RedactedSession, where: Where = "tab") {
     if (s.kind === "ssh") void this.tabs.openSsh(s, where);
     else if (s.kind === "serial") void this.tabs.openSerial(s.serial, s.name, where, s);
     else {

@@ -25,6 +25,7 @@ pub mod security_key;
 pub mod serial;
 pub mod sftp;
 pub mod ssh;
+pub mod termlog;
 pub mod vault;
 
 pub use error::{CoreError, Result};

@@ -142,6 +142,22 @@ export class SettingsPanel {
     const tabStatusFallback = chk(s.tabStatusFallback);
     const lockDisconnects = chk(s.lockDisconnects);
     const rightClickPaste = chk(s.rightClickPaste);
+    const logAuto = chk(s.logAuto);
+    const logDirText = h("span", { class: "mono small log-dir" }, s.logDir || "No folder chosen");
+    logAuto.disabled = !s.logDir;
+    const pickLogDir = h("button", {
+      type: "button",
+      onclick: async () => {
+        try {
+          const dir = await api.logFolderPick();
+          if (!dir) return;
+          logDirText.textContent = dir;
+          logAuto.disabled = false;
+        } catch (e) {
+          toast(messageOf(e), "error");
+        }
+      },
+    }, "Choose folder...");
     // Applies at once (not with Save): it needs the master password to turn off.
     const vs = await api.vaultStatus();
     const askOnOpen = h("input", { type: "checkbox", checked: !vs.remembered, disabled: !vs.rememberAvailable || vs.passwordless }) as HTMLInputElement;
@@ -188,6 +204,8 @@ export class SettingsPanel {
         tabStatusFallback: tabStatusFallback.checked,
         lockDisconnects: lockDisconnects.checked,
         rightClickPaste: rightClickPaste.checked,
+        logAuto: logAuto.checked && !logAuto.disabled,
+        logDir: s.logDir,
         fontFamily: fontFamily.value,
         fontSize: Number(fontSize.value),
         background: bg.value,
@@ -255,6 +273,14 @@ export class SettingsPanel {
         field("Text size", textSize),
         h("label", { class: "check" }, rightClickPaste, " Right-click pastes"),
         h("small", { class: "muted" }, "With text selected, right-click copies it instead. Shift+right-click shows the menu. Off: right-click shows the menu."),
+        h("h4", {}, "Session logs"),
+        h("label", { class: "check" }, logAuto, " Log every terminal to a file automatically"),
+        h("div", { class: "inline log-dir-row" }, logDirText, pickLogDir),
+        h(
+          "small",
+          { class: "muted" },
+          "Each terminal gets its own .log file in this folder, named with the date, time and session. Logs are plain text and contain everything the terminal shows, so keep the folder private. To log just one terminal, right-click it and choose Log to file.",
+        ),
         h("h4", {}, "Security"),
         ...(vs.passwordless
           ? [

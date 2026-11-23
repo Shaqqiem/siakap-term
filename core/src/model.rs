@@ -215,6 +215,11 @@ pub struct Settings {
     /// is selected (Shift+right-click shows the menu). Off: right-click shows
     /// the menu.
     pub right_click_paste: bool,
+    /// Start a session log for every terminal, in `log_dir`.
+    pub log_auto: bool,
+    /// Folder for automatic session logs. Set only through the backend's folder
+    /// dialog (settings_save keeps the stored value).
+    pub log_dir: String,
 }
 
 impl Default for Settings {
@@ -248,6 +253,8 @@ impl Default for Settings {
             tab_status_fallback: true,
             lock_disconnects: false,
             right_click_paste: true,
+            log_auto: false,
+            log_dir: String::new(),
         }
     }
 }

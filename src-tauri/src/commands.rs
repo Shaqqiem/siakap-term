@@ -24,10 +24,11 @@ use siakap_core::security_key;
 use siakap_core::serial::{self, SerialConfig, SerialTerm};
 use siakap_core::sftp::{Entry, Sftp};
 use siakap_core::ssh::{self, ConnectParams, SshConnection};
+use siakap_core::termlog;
 use siakap_core::vault::atomic_write;
 use siakap_core::CoreError;
 
-use crate::state::{AppState, Term};
+use crate::state::{AppState, LogSlot, Term};
 
 type Res<T> = std::result::Result<T, CoreError>;
 
@@ -541,6 +542,8 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
             .add_filter("Siakap or MobaXterm export", &["json", "mxtsessions", "ini"])
             .add_filter("All files", &["*"]),
         "export" => d.set_title("Export Siakap backup").add_filter("Siakap backup", &["json"]),
+        "log" => d.set_title("Log this session to a file").add_filter("Log file", &["log", "txt"]),
+        "text" => d.set_title("Save terminal output").add_filter("Text file", &["txt", "log"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
 }
@@ -579,6 +582,13 @@ pub async fn pick_save(
 ) -> Res<Option<String>> {
     st.ensure_unlocked()?;
     let name: String = default_name.chars().filter(|c| !c.is_control() && !matches!(c, '/' | '\\')).take(200).collect();
+    // Debug builds only: automated tests can't click a native dialog.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("SIAKAP_TEST_SAVE_DIR") {
+        let p = PathBuf::from(dir).join(&name);
+        st.grant([p.clone()]);
+        return Ok(Some(p.to_string_lossy().to_string()));
+    }
     let dlg = dialog_for(&app, &purpose)?.set_file_name(name);
     let picked = tauri::async_runtime::spawn_blocking(move || dlg.blocking_save_file())
         .await
@@ -646,8 +656,10 @@ pub fn settings_get(st: State<'_, AppState>) -> Res<Settings> {
 
 #[tauri::command]
 pub fn settings_save(st: State<'_, AppState>, settings: Settings) -> Res<Settings> {
-    let s = settings.sanitized();
+    let mut s = settings.sanitized();
     st.vault().update(|d| {
+        // The log folder is only set by log_folder_pick (a backend dialog).
+        s.log_dir = d.settings.log_dir.clone();
         d.settings = s.clone();
         Ok(())
     })?;
@@ -711,10 +723,19 @@ pub enum TermOut {
     Exit { code: Option<i32> },
 }
 
-fn sink_for(channel: Channel<TermOut>) -> EventSink {
+fn sink_for(channel: Channel<TermOut>, log: LogSlot) -> EventSink {
     Arc::new(move |e| {
         let msg = match e {
-            TermEvent::Data(d) => TermOut::Data { b64: B64.encode(d) },
+            TermEvent::Data(d) => {
+                let mut g = log.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(l) = g.as_mut() {
+                    if l.write(&d).is_err() {
+                        *g = None; // disk full or file gone: stop logging, keep the terminal
+                    }
+                }
+                drop(g);
+                TermOut::Data { b64: B64.encode(d) }
+            }
             TermEvent::Exit(code) => TermOut::Exit { code },
         };
         let _ = channel.send(msg);
@@ -737,8 +758,9 @@ pub async fn term_open_local(
 ) -> Res<u32> {
     st.ensure_unlocked()?;
     let info = pty::find_shell(&shell)?;
-    let p = LocalPty::spawn(&info, cols, rows, sink_for(channel))?;
-    Ok(st.add_term(Term::Local(p)))
+    let log = LogSlot::default();
+    let p = LocalPty::spawn(&info, cols, rows, sink_for(channel, log.clone()))?;
+    Ok(st.add_term(Term::Local(p), log))
 }
 
 /// Connect a saved SSH session. `password`/`passphrase` are only for one-off
@@ -782,8 +804,9 @@ pub async fn term_open_ssh(
             return Err(e);
         }
     };
-    let shell = conn.open_shell(cols, rows, sink_for(channel)).await?;
-    Ok(st.add_term(Term::Ssh { shell, conn, sftp: tokio::sync::Mutex::new(None) }))
+    let log = LogSlot::default();
+    let shell = conn.open_shell(cols, rows, sink_for(channel, log.clone())).await?;
+    Ok(st.add_term(Term::Ssh { shell, conn, sftp: tokio::sync::Mutex::new(None) }, log))
 }
 
 #[tauri::command]
@@ -845,11 +868,12 @@ pub async fn serial_ports_list(st: State<'_, AppState>) -> Res<SerialPortsView> 
 #[tauri::command]
 pub async fn term_open_serial(st: State<'_, AppState>, config: SerialConfig, channel: Channel<TermOut>) -> Res<u32> {
     st.ensure_unlocked()?;
-    let sink = sink_for(channel);
+    let log = LogSlot::default();
+    let sink = sink_for(channel, log.clone());
     let t = tauri::async_runtime::spawn_blocking(move || SerialTerm::open(&config, sink))
         .await
         .map_err(|e| CoreError::Io { message: e.to_string() })??;
-    Ok(st.add_term(Term::Serial(t)))
+    Ok(st.add_term(Term::Serial(t), log))
 }
 
 #[tauri::command]
@@ -1032,6 +1056,88 @@ pub async fn clipboard_write(st: State<'_, AppState>, text: String) -> Res<()> {
     })
     .await
     .map_err(|e| CoreError::invalid(e.to_string()))?
+}
+
+// ---------------------------------------------------------------- session logs
+
+/// Start logging a terminal to a file the user picked in a save dialog.
+#[tauri::command]
+pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String) -> Res<String> {
+    st.ensure_unlocked()?;
+    let path = granted_path(&st, &path)?;
+    let slot = st.log_slot(id)?;
+    let log = termlog::SessionLog::create(&path, &title)?;
+    let shown = log.path.to_string_lossy().to_string();
+    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
+    Ok(shown)
+}
+
+/// Start logging into the log folder chosen in Settings (automatic logging).
+#[tauri::command]
+pub fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String) -> Res<String> {
+    st.ensure_unlocked()?;
+    let dir = {
+        let v = st.vault();
+        let s = &v.data()?.settings;
+        if !s.log_auto || s.log_dir.is_empty() {
+            return Err(CoreError::invalid("Automatic session logs are turned off."));
+        }
+        PathBuf::from(&s.log_dir)
+    };
+    let slot = st.log_slot(id)?;
+    let log = termlog::SessionLog::in_folder(&dir, &stamp, &title)?;
+    let shown = log.path.to_string_lossy().to_string();
+    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
+    Ok(shown)
+}
+
+#[tauri::command]
+pub fn term_log_stop(st: State<'_, AppState>, id: u32) -> Res<()> {
+    st.ensure_unlocked()?;
+    st.log_slot(id)?.lock().unwrap_or_else(|e| e.into_inner()).take();
+    Ok(())
+}
+
+/// Choose the folder for automatic session logs. Only this backend dialog can
+/// set it (settings_save keeps the stored value), so the web view can't point
+/// logs somewhere you didn't pick.
+#[tauri::command]
+pub async fn log_folder_pick(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    st.ensure_unlocked()?;
+    // Debug builds only: automated tests can't click a native dialog.
+    #[cfg(debug_assertions)]
+    let test_dir = std::env::var_os("SIAKAP_TEST_LOG_DIR").map(PathBuf::from);
+    #[cfg(not(debug_assertions))]
+    let test_dir: Option<PathBuf> = None;
+    let dir = match test_dir {
+        Some(d) => d,
+        None => {
+            let dlg = app.dialog().file().set_title("Folder for session logs");
+            let picked = tauri::async_runtime::spawn_blocking(move || dlg.blocking_pick_folder())
+                .await
+                .map_err(|e| CoreError::Io { message: e.to_string() })?;
+            let Some(dir) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+            dir
+        }
+    };
+    let shown = dir.to_string_lossy().to_string();
+    st.vault().update(|d| {
+        d.settings.log_dir = shown.clone();
+        Ok(())
+    })?;
+    Ok(Some(shown))
+}
+
+/// Save a snapshot of a terminal's text to a file picked in a save dialog.
+#[tauri::command]
+pub fn save_text_file(st: State<'_, AppState>, path: String, text: String) -> Res<()> {
+    st.ensure_unlocked()?;
+    if text.len() > 64 * 1024 * 1024 {
+        return Err(CoreError::invalid("That is too much text to save at once."));
+    }
+    let path = granted_path(&st, &path)?;
+    termlog::save_text(&path, &text)
 }
 
 // ---------------------------------------------------------------- fonts

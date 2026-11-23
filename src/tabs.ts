@@ -34,6 +34,8 @@ export interface Pane {
   pending: string[];
   /** Reconnect in place after the connection ended (R key). */
   reconnect?: () => void;
+  /** File this pane's output is being logged to. */
+  logPath?: string;
   /** Size last given to the shell or server ("cols x rows"). */
   sentSize?: string;
 }
@@ -326,6 +328,10 @@ export class TabManager {
       },
       { label: "Select all", action: () => pane.term.selectAll() },
       { label: "Clear screen", action: () => pane.term.clear() },
+      { label: "Save output to file...", action: () => this.saveOutput(pane) },
+      pane.logPath
+        ? { label: "Stop logging to file", action: () => this.stopLog(pane) }
+        : { label: "Log to file...", disabled: pane.termId === null || pane.status !== "connected", action: () => this.startLog(pane) },
       { label: "Split side by side", disabled: !canSplit, action: () => this.splitEmpty(pane, "h") },
       { label: "Split top and bottom", disabled: !canSplit, action: () => this.splitEmpty(pane, "v") },
       ...(pane.status === "closed" && pane.reconnect ? [{ label: "Reconnect", action: () => this.reconnectPane(pane) }] : []),
@@ -334,6 +340,79 @@ export class TabManager {
         : { label: "Close tab", danger: true, action: () => this.closeTab(pane.tab) },
     ];
     showMenu(e, entries);
+  }
+
+  // ------------------------------------------------------------ saving output and logs
+
+  /** Everything in the terminal (scrollback included) as plain text. */
+  private bufferText(pane: Pane): string {
+    const b = pane.term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < b.length; i++) {
+      const line = b.getLine(i);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && lines.length) lines[lines.length - 1] += text;
+      else lines.push(text);
+    }
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    return lines.join("\n") + "\n";
+  }
+
+  private fileBase(pane: Pane) {
+    const name = (pane.tab.customTitle ?? pane.title).replace(/[^\w.@]+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 60) || "session";
+    return `${name}_${stamp()}`;
+  }
+
+  async saveOutput(pane: Pane) {
+    try {
+      const path = await api.pickSave("text", `${this.fileBase(pane)}.txt`);
+      if (!path) return;
+      await api.saveTextFile(path, this.bufferText(pane));
+      toast(`Saved to ${path}`, "ok");
+    } catch (e) {
+      toast(messageOf(e), "error");
+    }
+  }
+
+  async startLog(pane: Pane) {
+    if (pane.termId === null) return;
+    try {
+      const path = await api.pickSave("log", `${this.fileBase(pane)}.log`);
+      if (!path || pane.termId === null) return;
+      pane.logPath = await api.termLogStart(pane.termId, path, pane.title);
+      this.showLogging(pane);
+      toast(`Logging to ${pane.logPath}`, "ok");
+    } catch (e) {
+      toast(messageOf(e), "error");
+    }
+  }
+
+  async stopLog(pane: Pane) {
+    const path = pane.logPath;
+    pane.logPath = undefined;
+    this.showLogging(pane);
+    if (pane.termId !== null) await api.termLogStop(pane.termId).catch(() => {});
+    if (path) toast(`Stopped logging. The log is in ${path}`, "info", 6000);
+  }
+
+  /** Automatic logging (Settings): start a log in the chosen folder. */
+  private autoLog(pane: Pane) {
+    const s = this.settings;
+    if (!s?.logAuto || !s.logDir || pane.termId === null) return;
+    api
+      .termLogAuto(pane.termId, pane.title, stamp())
+      .then((p) => {
+        pane.logPath = p;
+        this.showLogging(pane);
+      })
+      .catch((e) => toast(`Couldn't start the session log: ${messageOf(e)}`, "error"));
+  }
+
+  private showLogging(pane: Pane) {
+    pane.el.querySelector(".pane-rec")?.remove();
+    if (pane.logPath) pane.el.append(h("span", { class: "pane-rec", title: `Logging to ${pane.logPath}` }, "REC"));
+    this.renderTabs();
   }
 
   private reconnectPane(pane: Pane) {
@@ -589,6 +668,12 @@ export class TabManager {
     if (queued && pane.termId !== null) api.termWrite(pane.termId, queued).catch(() => {});
     this.refit(pane);
     this.renderTabs();
+    // A reconnect is a new terminal: a manual log ended with the old one.
+    if (pane.logPath) {
+      pane.logPath = undefined;
+      this.showLogging(pane);
+    }
+    this.autoLog(pane);
     this.connectedListeners.forEach((l) => l(pane));
     this.onConnected(pane);
   }
@@ -956,6 +1041,10 @@ export class TabManager {
     const closed = panesOf(t.root).filter((p) => p.status === "closed" && p.reconnect);
     showMenu(e, [
       { label: "Rename tab...", action: () => this.renameTab(t) },
+      { label: "Save output to file...", action: () => this.saveOutput(t.focused) },
+      t.focused.logPath
+        ? { label: "Stop logging to file", action: () => this.stopLog(t.focused) }
+        : { label: "Log to file...", disabled: t.focused.status !== "connected", action: () => this.startLog(t.focused) },
       { label: "Duplicate tab", disabled: t.focused.kind === "serial", action: () => this.duplicateTab(t) },
       ...(closed.length ? [{ label: "Reconnect", action: () => closed.forEach((p) => this.reconnectPane(p)) }] : []),
       { label: "Close tab", danger: true, action: () => this.closeTab(t) },
@@ -1046,6 +1135,7 @@ export class TabManager {
           { class: `tab${t === this.active ? " active" : ""}`, title: label, onclick: () => this.activate(t) },
           h("span", { class: `dot ${shown}`, title: dotTitle }),
           h("span", { class: "tab-title" }, label),
+          panes.some((p) => p.logPath) ? h("span", { class: "tab-rec", title: "Logging to a file" }, "REC") : null,
           h("button", {
             class: "tab-close",
             title: "Close tab",
@@ -1066,6 +1156,13 @@ export class TabManager {
     );
     this.refreshSlots();
   }
+}
+
+/** Local date and time for file names: 2026-11-24_14-05-09. */
+function stamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
 /** A link in terminal output was clicked: show it as text, offer to copy. */

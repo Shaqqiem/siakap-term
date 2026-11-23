@@ -342,3 +342,9 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .slot-item:hover { background: var(--hover); border-color: var(--line); }
 .slot-item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slot-item .sub { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Session logging */
+.pane-rec { position: absolute; top: 6px; right: 34px; z-index: 6; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #fff; background: var(--err); opacity: .85; pointer-events: none; }
+.tab-rec { flex: none; padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: 700; color: #fff; background: var(--err); }
+.log-dir-row { align-items: center; gap: 8px; }
+.log-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

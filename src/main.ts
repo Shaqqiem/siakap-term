@@ -7,7 +7,7 @@ import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
-import { TabManager, chooseShell, type Pane, type Slot } from "./tabs";
+import { TabManager, chooseShell, type Pane, type Slot, type Where } from "./tabs";
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
@@ -111,6 +111,12 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.5.4",
+    title: "Save and log terminal output",
+    text: "Right-click a tab (or Shift+right-click in a terminal) to save everything on screen to a file, or to log the session to a file while it runs. Settings, under Session logs, can log every terminal automatically.",
+    target: "#tabs",
   },
   {
     since: "0.5.3",
@@ -539,7 +545,7 @@ function pickShell(id = "") {
 }
 
 /** What the + button opens: the default shell, or a saved session chosen in Settings. */
-async function newLocal(where: "tab" | "h" | "v" = "tab") {
+async function newLocal(where: Where = "newtab") {
   const def = tabs.settings?.defaultShell ?? "";
   if (def.startsWith("session:")) {
     const ses = sidebar.sessions.find((x) => x.id === def.slice(8));
@@ -607,13 +613,13 @@ tabs.slotContent = (slot: Slot) => {
 /** Right-click (or long-press) on +: every terminal and saved session. */
 function newMenu(e: MouseEvent) {
   showMenu(e, [
-    ...sidebar.shells.map((sh) => ({ label: sh.label, action: () => tabs.openLocal(sh.id, sh.label) })),
+    ...sidebar.shells.map((sh) => ({ label: sh.label, action: () => tabs.openLocal(sh.id, sh.label, "newtab") })),
     { label: "Serial console...", action: () => sidebar.quickSerial() },
     ...sidebar.sessions
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 30)
-      .map((s) => ({ label: `Session: ${s.name}`, action: () => sidebar.connectSession(s) })),
+      .map((s) => ({ label: `Session: ${s.name}`, action: () => sidebar.connectSession(s, "newtab") })),
   ]);
 }
 

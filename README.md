@@ -112,7 +112,7 @@ master password**.
 
 | What | How |
 | --- | --- |
-| New tab | `Ctrl+Shift+T` or the + button (opens what *Settings → New tabs open* says). Right-click + for any terminal or saved session |
+| New tab | `Ctrl+Shift+T` or the + button always open a new tab (with what *Settings → New tabs open* says). Right-click + for any terminal or saved session |
 | Split a tab | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom, `Ctrl+Shift+G` four panes. Each new pane starts empty and asks what to show: move one of your open sessions into it, open a terminal, or pick a saved session. Double-clicking a session in the Sessions panel also fills the empty pane. A tab is split once; close a pane to change it (up to 4 panes) |
 | Open a serial console | **+ Serial** in the Sessions panel, or right-click + |
 | Send a break (serial) | `Ctrl+Shift+B` |
@@ -121,6 +121,8 @@ master password**.
 | Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
 | Copy and paste | Right-click pastes; with text selected, right-click copies it. Shift+right-click for the menu. Also `Ctrl+Shift+C` and `Ctrl+Shift+V`. Both are in *Settings → Look* |
 | Organise sessions | The folder button makes a folder; drag sessions onto it. Right-click a session or folder for more. Click a folder to collapse it |
+| Save what's on screen | Right-click a tab, or Shift+right-click in the terminal → *Save output to file...* (scrollback included, as plain text) |
+| Log a session | Same menus → *Log to file...*; a red REC badge shows while it records. *Settings → Session logs* can log every terminal automatically into a folder you choose |
 | Change the font | *Settings → Look → Font* lists the fonts installed on your PC, fixed-width ones first |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |
 | Hide the side panel | Click the active icon in the left rail, or double-click the panel edge |

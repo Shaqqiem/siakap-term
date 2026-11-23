@@ -92,6 +92,13 @@ it can ask for:
 - **Programs:** shells are picked from a detected list by id. Host names, user names and serial port names are
   validated, SFTP names can't contain `/` or be `..`, and usbipd bus ids may only contain digits and dashes.
 
+**Session logs and saved output (opt-in).** *Save output to file* and *Log to file* write only to a file you pick in
+a save dialog (a one-time grant, like other file commands). Automatic logs go only to the folder you choose with the
+folder button in Settings: that dialog is run by the backend, which stores the folder itself, and saving settings
+from the web view can't change it. Log file names are built from a timestamp and the session name with path
+characters removed, and existing files are never overwritten. Logs are written in the Rust backend as output arrives,
+with colour and cursor codes removed.
+
 **Font list.** The font picker reads the name and fixed-width flag from font files in the system and per-user font
 folders. Only those two small tables are read, malformed files are skipped, and only family names reach the web view.
 
@@ -118,7 +125,8 @@ Imported macros must be reviewed before their first run, and imported startup co
 enable them. Exports never contain passwords.
 
 **Privacy.** The app has no telemetry, analytics, crash reporting or update check, and loads no remote fonts or
-scripts. It doesn't log terminal output, passwords or keys. The only network traffic is the SSH sessions you start.
+scripts. It doesn't log terminal output, passwords or keys on its own; session logs are only written when you turn
+them on. The only network traffic is the SSH sessions you start.
 
 ## What is not protected
 
@@ -145,6 +153,9 @@ scripts. It doesn't log terminal output, passwords or keys. The only network tra
   into it, and Tauri disables SmartScreen lookups, but the runtime itself is outside this app's control.
 - **The servers you connect to**, and whatever they do with what you type.
 - **Exported macros.** These are plain JSON files, so don't put secrets in macros.
+- **Session logs and saved output.** They are plain, unencrypted text containing everything the terminal showed,
+  including anything sensitive that was printed (a password you typed is normally not echoed, so it isn't logged).
+  Logging is off unless you turn it on. Keep the log folder private, and delete logs you no longer need.
 
 ## Supply chain
 

@@ -8,6 +8,7 @@ use siakap_core::pty::LocalPty;
 use siakap_core::serial::SerialTerm;
 use siakap_core::sftp::Sftp;
 use siakap_core::ssh::{SshConnection, SshShell};
+use siakap_core::termlog::SessionLog;
 use siakap_core::vault::Vault;
 use siakap_core::{CoreError, Result};
 
@@ -17,9 +18,14 @@ pub enum Term {
     Ssh { shell: SshShell, conn: Arc<SshConnection>, sftp: tokio::sync::Mutex<Option<Arc<Sftp>>> },
 }
 
+/** Where a terminal's output is logged, if logging is on. */
+pub type LogSlot = Arc<Mutex<Option<SessionLog>>>;
+
 pub struct AppState {
     vault: Mutex<Vault>,
     terms: Mutex<HashMap<u32, Arc<Term>>>,
+    /// Session-log slot per terminal (filled while logging).
+    logs: Mutex<HashMap<u32, LogSlot>>,
     next_id: AtomicU32,
     last_activity: Mutex<Instant>,
     pub transfers: Mutex<HashMap<u32, Arc<AtomicBool>>>,
@@ -39,6 +45,7 @@ impl AppState {
         Self {
             vault: Mutex::new(Vault::new(vault_path)),
             terms: Mutex::new(HashMap::new()),
+            logs: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
             last_activity: Mutex::new(Instant::now()),
             transfers: Mutex::new(HashMap::new()),
@@ -141,10 +148,20 @@ impl AppState {
         self.pending_host_keys.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
-    pub fn add_term(&self, t: Term) -> u32 {
+    pub fn add_term(&self, t: Term, log: LogSlot) -> u32 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.terms.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Arc::new(t));
+        self.logs.lock().unwrap_or_else(|e| e.into_inner()).insert(id, log);
         id
+    }
+
+    pub fn log_slot(&self, id: u32) -> Result<LogSlot> {
+        self.logs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| CoreError::not_found("terminal"))
     }
 
     pub fn term(&self, id: u32) -> Result<Arc<Term>> {
@@ -157,6 +174,10 @@ impl AppState {
     }
 
     pub fn remove_term(&self, id: u32) -> Option<Arc<Term>> {
+        // Dropping the slot closes (and flushes) the log once output stops.
+        if let Some(slot) = self.logs.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+            slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
         self.terms.lock().unwrap_or_else(|e| e.into_inner()).remove(&id)
     }
 }

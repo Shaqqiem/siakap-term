@@ -83,6 +83,8 @@ export interface Settings {
   tabStatusFallback: boolean;
   lockDisconnects: boolean;
   rightClickPaste: boolean;
+  logAuto: boolean;
+  logDir: string;
 }
 export interface KnownHost {
   host: string;
@@ -214,9 +216,14 @@ export const api = {
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
   pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
-  pickSave: (purpose: "download" | "export", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
+  pickSave: (purpose: "download" | "export" | "log" | "text", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   clipboardRead: () => invoke<string>("clipboard_read"),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
+  termLogStart: (id: number, path: string, title: string) => invoke<string>("term_log_start", { id, path, title }),
+  termLogAuto: (id: number, title: string, stamp: string) => invoke<string>("term_log_auto", { id, title, stamp }),
+  termLogStop: (id: number) => invoke<void>("term_log_stop", { id }),
+  logFolderPick: () => invoke<string | null>("log_folder_pick"),
+  saveTextFile: (path: string, text: string) => invoke<void>("save_text_file", { path, text }),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>
