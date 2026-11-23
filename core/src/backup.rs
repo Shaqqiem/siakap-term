@@ -135,6 +135,14 @@ pub struct ImportReport {
     pub invalid: usize,
     /// Sessions whose startup commands were imported but switched off.
     pub startup_disabled: usize,
+    /// Imported from undocumented parts of a foreign format: please check.
+    pub needs_review: Vec<String>,
+    /// Session types that were skipped (e.g. RDP from MobaXterm), with counts.
+    pub skipped_types: std::collections::BTreeMap<String, usize>,
+    /// "siakap" or "mobaxterm".
+    pub source: String,
+    /// Sessions that received (switched-off) startup commands.
+    pub startup_session_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -198,7 +206,7 @@ pub fn import(json_text: &str, d: &mut VaultData) -> Result<ImportReport> {
         return Err(CoreError::format("Invalid startup macros in backup."));
     }
 
-    let mut rep = ImportReport::default();
+    let mut rep = ImportReport { source: "siakap".into(), ..Default::default() };
 
     // Folders.
     for f in &folders {
@@ -435,7 +443,9 @@ mod tests {
                 sessions: 3,
                 skipped_sessions: 1,
                 invalid: 1,
-                startup_disabled: 1
+                startup_disabled: 1,
+                source: "siakap".into(),
+                ..Default::default()
             }
         );
         let m = &d.macros[0];

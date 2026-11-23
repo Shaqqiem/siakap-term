@@ -15,6 +15,7 @@
 pub mod backup;
 pub mod error;
 pub mod macros;
+pub mod mobaxterm;
 pub mod model;
 pub mod process;
 pub mod pty;

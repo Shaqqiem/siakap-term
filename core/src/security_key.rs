@@ -67,7 +67,7 @@ pub fn parse_state(json: &str) -> Result<Vec<Device>> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "action", rename_all = "camelCase")]
+#[serde(tag = "action", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Plan {
     Attach { bus_ids: Vec<String> },
     Detach { bus_ids: Vec<String> },
@@ -187,6 +187,15 @@ mod tests {
 
     fn dev(bus: &str, shared: bool, attached: bool) -> Device {
         Device { bus_id: Some(bus.into()), description: String::new(), instance_id: String::new(), shared, attached }
+    }
+
+    #[test]
+    fn plan_json_matches_the_frontend() {
+        // The UI reads `action` and `busIds`.
+        let v = serde_json::to_value(Plan::Attach { bus_ids: vec!["1-3".into()] }).unwrap();
+        assert_eq!(v, serde_json::json!({ "action": "attach", "busIds": ["1-3"] }));
+        let v = serde_json::to_value(Plan::Detach { bus_ids: vec![] }).unwrap();
+        assert_eq!(v, serde_json::json!({ "action": "detach", "busIds": [] }));
     }
 
     #[test]

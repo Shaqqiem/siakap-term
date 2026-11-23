@@ -107,7 +107,8 @@ show interface {{Switch port}} status
 Each ordinary line is typed and followed by Enter; blank lines are skipped. The `#` before `@wait` and `@type` is
 optional, and `@ wait 100` or `@WAIT 100` work too; other lines starting with `@` (such as `@echo off`) are typed as
 normal. The editor shows what each line will do as you write it. `# @wait 1500` pauses for 1.5 seconds
-(the limit is one hour, and Stop cancels the wait). `# @type y` types `y` without pressing Enter. `{{Switch port}}` is
+(the limit is one hour, and Stop cancels the wait). `# @type y` types `y` without pressing Enter. `@key tab` presses a key: enter, tab, up, down, left, right, esc, backspace, home, end, pageup,
+pagedown, delete, or ctrl+c/d/z/l/a/e/u/r. `{{Switch port}}` is
 an input: it's asked for once per run, however many times it appears, and its name can contain spaces. The easiest
 way to make one is to highlight the value in the editor, type a name and click **Make input**.
 
@@ -128,6 +129,20 @@ startup commands. Two things are deliberate:
 - Imported startup commands are switched off until you turn them on in each session.
 
 Passwords are never part of a backup.
+
+### Moving from MobaXterm
+
+In MobaXterm, right-click **User sessions** > **Export all sessions to file** (`.mxtsessions`), and export your macros
+(`.mxtmacros`). You can also use your `MobaXterm.ini`. In Siakap Terminal, click the import button in the **Macros**
+panel and pick both files at once.
+
+- **Sessions:** SSH, SFTP (as SSH), serial and WSL sessions come across in the same folders. Other session types
+  (RDP, VNC, Telnet, FTP, ...) are listed as skipped.
+- **Macros:** recorded steps are turned into Siakap macros: typed text, Enter, Tab and arrow keys (`@key`), and pauses
+  (`@wait`).
+- **Login macros:** a session's login macro, whether its own steps or a named macro, and its "execute command" become
+  startup commands. They are imported switched off; check one, then turn them all on from the import summary.
+- **Passwords:** passwords saved in MobaXterm are not imported.
 
 ### Guided tour
 

@@ -3,6 +3,8 @@
 //! * Each non-empty line is sent followed by `\r`. Blank lines are skipped.
 //! * `# @wait <ms>` pauses (0..=3_600_000 ms).
 //! * `# @type <text>` sends `<text>` without Enter.
+//! * `# @key <name>` presses a key: enter, tab, up, down, left, right, esc,
+//!   backspace, home, end, pageup, pagedown, delete, ctrl+c, ctrl+d, ...
 //! * The `#` is optional and spacing/case are forgiving: `@wait 100`,
 //!   `@ wait 100`, `#@WAIT 100` all pause. Other lines starting with `@`
 //!   (such as cmd's `@echo off`) are sent as normal commands.
@@ -74,6 +76,14 @@ pub fn parse(script: &str) -> Result<Vec<Step>> {
                 steps.push(Step::Wait { ms });
                 continue;
             }
+            if let Some(arg) = directive(after_at, "key") {
+                let name = arg.trim();
+                let seq = key_sequence(name).ok_or_else(|| {
+                    CoreError::invalid(format!("Line {n}: unknown key \"{name}\". Use e.g. @key enter, tab, up, down, left, right, esc, backspace, ctrl+c."))
+                })?;
+                steps.push(Step::Type { text: seq.to_string() });
+                continue;
+            }
             if let Some(arg) = directive(after_at, "type") {
                 // Exactly one separating space is consumed; the rest is literal.
                 let text = arg.strip_prefix(' ').unwrap_or(arg);
@@ -93,6 +103,37 @@ pub fn parse(script: &str) -> Result<Vec<Step>> {
         steps.push(Step::Line { text: line.to_string() });
     }
     Ok(steps)
+}
+
+/// Keys for `@key <name>` (case-insensitive), as the bytes a terminal sends.
+pub fn key_sequence(name: &str) -> Option<&'static str> {
+    Some(match name.to_ascii_lowercase().replace(['-', '_', ' '], "+").as_str() {
+        "enter" | "return" => "\r",
+        "tab" => "\t",
+        "esc" | "escape" => "\x1b",
+        "space" => " ",
+        "backspace" | "bksp" => "\x7f",
+        "up" => "\x1b[A",
+        "down" => "\x1b[B",
+        "right" => "\x1b[C",
+        "left" => "\x1b[D",
+        "home" => "\x1b[H",
+        "end" => "\x1b[F",
+        "pageup" | "pgup" => "\x1b[5~",
+        "pagedown" | "pgdn" => "\x1b[6~",
+        "delete" | "del" => "\x1b[3~",
+        "insert" | "ins" => "\x1b[2~",
+        "ctrl+c" => "\x03",
+        "ctrl+d" => "\x04",
+        "ctrl+z" => "\x1a",
+        "ctrl+l" => "\x0c",
+        "ctrl+a" => "\x01",
+        "ctrl+e" => "\x05",
+        "ctrl+u" => "\x15",
+        "ctrl+r" => "\x12",
+        "ctrl+]" => "\x1d",
+        _ => return None,
+    })
 }
 
 /// `rest` is the text after `#`. Matches `@wait`, `@wait 5`, but not `@waiter`.
@@ -270,6 +311,21 @@ mod tests {
         assert_eq!(parse("@{a=1}").unwrap(), vec![line("@{a=1}")]);
         assert!(parse("@wait soon").is_err());
         assert!(parse("@ wait").is_err());
+    }
+
+    #[test]
+    fn keys() {
+        assert_eq!(
+            parse("@key tab\n# @key UP\n@key ctrl+c\n@key Ctrl-D").unwrap(),
+            vec![
+                Step::Type { text: "\t".into() },
+                Step::Type { text: "\x1b[A".into() },
+                Step::Type { text: "\x03".into() },
+                Step::Type { text: "\x04".into() },
+            ]
+        );
+        assert!(parse("@key flux").is_err());
+        assert!(parse("@key").is_err());
     }
 
     #[test]

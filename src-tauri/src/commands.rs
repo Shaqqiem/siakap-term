@@ -187,6 +187,19 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
     })
 }
 
+/// Turn on the startup commands of the given sessions (after an import).
+#[tauri::command]
+pub fn sessions_enable_startup(st: State<'_, AppState>, ids: Vec<String>) -> Res<usize> {
+    st.vault().update(|d| {
+        let mut n = 0;
+        for s in d.sessions.iter_mut().filter(|s| ids.contains(&s.id) && !s.startup_script.trim().is_empty()) {
+            s.startup_enabled = true;
+            n += 1;
+        }
+        Ok(n)
+    })
+}
+
 #[tauri::command]
 pub fn session_delete(st: State<'_, AppState>, id: String) -> Res<()> {
     st.vault().update(|d| {
@@ -401,7 +414,10 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
         "upload" => d.set_title("Upload files"),
         "download" => d.set_title("Save file"),
         "key" => d.set_title("Choose private key"),
-        "import" => d.set_title("Import Siakap backup").add_filter("Siakap backup", &["json"]),
+        "import" => d
+            .set_title("Import sessions and macros")
+            .add_filter("Siakap or MobaXterm export", &["json", "mxtsessions", "ini"])
+            .add_filter("All files", &["*"]),
         "export" => d.set_title("Export Siakap backup").add_filter("Siakap backup", &["json"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
@@ -479,8 +495,24 @@ pub fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportRe
     if meta.len() as usize > backup::MAX_BACKUP_BYTES {
         return Err(CoreError::invalid("Choose a backup smaller than 20 MB."));
     }
-    let json = std::fs::read_to_string(&path)?;
-    st.vault().update(|d| backup::import(&json, d))
+    let text = siakap_core::mobaxterm::decode(&std::fs::read(&path)?);
+    if siakap_core::mobaxterm::looks_like_mobaxterm(&text) {
+        let shells: Vec<String> = pty::detect_shells().into_iter().map(|s| s.id).collect();
+        let r = st.vault().update(|d| siakap_core::mobaxterm::import(&text, d, &shells))?;
+        return Ok(ImportReport {
+            macros: r.macros,
+            duplicates: r.duplicate_macros,
+            startup_session_ids: r.startup_session_ids,
+            sessions: r.sessions,
+            skipped_sessions: r.duplicates + r.skipped.values().sum::<usize>(),
+            invalid: r.invalid,
+            startup_disabled: r.startup_disabled,
+            needs_review: r.needs_review,
+            skipped_types: r.skipped,
+            source: "mobaxterm".into(),
+        });
+    }
+    st.vault().update(|d| backup::import(&text, d))
 }
 
 // ---------------------------------------------------------------- settings & known hosts

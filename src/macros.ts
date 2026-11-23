@@ -27,6 +27,20 @@ const CONTROL_EXCEPT_TAB = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
 const SAFE = /^[A-Za-z0-9 _./:@,+-]+$/;
 const INPUT = /\{\{([^{}\r\n]+)\}\}/g;
 
+const KEYS: Record<string, string> = {
+  enter: "\r", return: "\r", tab: "\t", esc: "\x1b", escape: "\x1b", space: " ", backspace: "\x7f", bksp: "\x7f",
+  up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", home: "\x1b[H", end: "\x1b[F",
+  pageup: "\x1b[5~", pgup: "\x1b[5~", pagedown: "\x1b[6~", pgdn: "\x1b[6~", delete: "\x1b[3~", del: "\x1b[3~", insert: "\x1b[2~", ins: "\x1b[2~",
+  "ctrl+c": "\x03", "ctrl+d": "\x04", "ctrl+z": "\x1a", "ctrl+l": "\x0c", "ctrl+a": "\x01", "ctrl+e": "\x05", "ctrl+u": "\x15", "ctrl+r": "\x12", "ctrl+]": "\x1d",
+};
+
+/** Bytes for `@key <name>`, or null if unknown. */
+export function keySequence(name: string): string | null {
+  return KEYS[name.toLowerCase().replace(/[-_ ]/g, "+")] ?? null;
+}
+
+const KEY_LABEL: Record<string, string> = { "\r": "Enter", "\t": "Tab", "\x1b": "Esc", "\x7f": "Backspace", "\x1b[A": "Up", "\x1b[B": "Down", "\x1b[C": "Right", "\x1b[D": "Left", "\x03": "Ctrl+C", "\x04": "Ctrl+D" };
+
 function directive(rest: string, name: string): string | null {
   if (rest.slice(0, name.length).toLowerCase() !== name) return null;
   const after = rest.slice(name.length);
@@ -54,6 +68,13 @@ export function parse(script: string): Step[] {
         const ms = Number(t);
         if (ms > MAX_WAIT_MS) throw new MacroError(`Line ${n}: a pause must be one hour (3600000 ms) or less.`);
         steps.push({ op: "wait", ms });
+        return;
+      }
+      const key = directive(afterAt, "key");
+      if (key !== null) {
+        const seq = keySequence(key.trim());
+        if (seq === null) throw new MacroError(`Line ${n}: unknown key "${key.trim()}". Use e.g. @key enter, tab, up, down, left, right, esc, backspace, ctrl+c.`);
+        steps.push({ op: "type", text: seq });
         return;
       }
       const type = directive(afterAt, "type");
@@ -158,6 +179,7 @@ export function explain(script: string): Explained[] {
       const step = parse(sample)[0];
       if (!step) out.push({ line: n, kind: "note", text: line.trim().replace(/^#\s*/, "") });
       else if (step.op === "wait") out.push({ line: n, kind: "wait", text: names.length ? `length from {{${names[0]}}}` : `${step.ms} ms` });
+      else if (step.op === "type" && /^\s*(?:#\s*)?@\s*key\b/i.test(line)) out.push({ line: n, kind: "type", text: `press ${KEY_LABEL[step.text] ?? line.replace(/^.*@\s*key\s*/i, "")}` });
       else if (step.op === "type") out.push({ line: n, kind: "type", text: `"${step.text}" without Enter` });
       else out.push({ line: n, kind: "send", text: step.text });
     } catch (e) {

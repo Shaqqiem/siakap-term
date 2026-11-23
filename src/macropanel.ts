@@ -3,7 +3,7 @@
 // rename / delete), duplicate, search across all folders (optionally inside
 // commands), saved-order or name sorting, single/double click to run, and
 // backups in the Siakap format.
-import { api, messageOf, type Macro } from "./api";
+import { api, messageOf, type ImportReport, type Macro } from "./api";
 import { icon } from "./icons";
 import { check, explain, inputNames, MacroError, validateInputName } from "./macros";
 import { pasteButton, type MacroRunner } from "./runner";
@@ -436,23 +436,86 @@ export class MacroPanel {
     );
   }
 
+  /**
+   * Import one or more files: Siakap backups, Siakap plugin exports, MobaXterm
+   * session exports (.mxtsessions), macro exports (.mxtmacros) or MobaXterm.ini.
+   * Macro files go first so sessions can find the macros they refer to.
+   */
   async importBackup() {
-    const [p] = await api.pickFiles("import", false).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
-    if (!p) return;
-    try {
-      const r = await api.backupImportFile(p);
-      const parts = [`${r.macros} macro${r.macros === 1 ? "" : "s"}`, `${r.sessions} session${r.sessions === 1 ? "" : "s"}`];
-      let msg = `Imported ${parts.join(" and ")}.`;
-      if (r.duplicates) msg += ` ${r.duplicates} duplicate macro${r.duplicates === 1 ? "" : "s"} skipped.`;
-      if (r.skippedSessions) msg += ` ${r.skippedSessions} session${r.skippedSessions === 1 ? "" : "s"} skipped (already there or not supported).`;
-      if (r.invalid) msg += ` ${r.invalid} invalid entr${r.invalid === 1 ? "y" : "ies"} skipped.`;
-      if (r.startupDisabled) msg += ` Startup commands for ${r.startupDisabled} session${r.startupDisabled === 1 ? " were" : "s were"} imported switched off; review and turn them on in each session.`;
-      if (r.macros) msg += " Imported macros ask for review before their first run.";
-      toast(msg, "ok", 9000);
-      await this.sb.reload();
-    } catch (e) {
-      toast(messageOf(e), "error");
+    const picked = await api.pickFiles("import", true).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
+    if (!picked.length) return;
+    const order = (p: string) => (/\.mxtmacros$/i.test(p) ? 0 : /\.mxtsessions$/i.test(p) ? 2 : 1);
+    const files = [...picked].sort((a, b) => order(a) - order(b));
+    const total: ImportReport = { macros: 0, duplicates: 0, sessions: 0, skippedSessions: 0, invalid: 0, startupDisabled: 0, needsReview: [], skippedTypes: {}, source: "siakap", startupSessionIds: [] };
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        const r = await api.backupImportFile(f);
+        total.macros += r.macros;
+        total.duplicates += r.duplicates;
+        total.sessions += r.sessions;
+        total.skippedSessions += r.skippedSessions;
+        total.invalid += r.invalid;
+        total.startupDisabled += r.startupDisabled;
+        total.needsReview.push(...r.needsReview);
+        total.startupSessionIds.push(...(r.startupSessionIds ?? []));
+        for (const [k, v] of Object.entries(r.skippedTypes ?? {})) total.skippedTypes[k] = (total.skippedTypes[k] ?? 0) + v;
+        if (r.source === "mobaxterm") total.source = "mobaxterm";
+      } catch (e) {
+        failed.push(`${f.split(/[\\/]/).pop()}: ${messageOf(e)}`);
+      }
     }
+    await this.sb.reload();
+    // Sessions that referred to a macro imported in the same batch are fine now.
+    total.needsReview = total.needsReview.filter((x) => !(x.includes("uses MobaXterm macro") && files.some((f) => /\.mxtmacros$/i.test(f))));
+    await this.importSummary(total, failed);
+  }
+
+  /** What came across, what was skipped, what to check. */
+  private importSummary(r: ImportReport, failed: string[]) {
+    const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    const skipped = Object.entries(r.skippedTypes).map(([t, n]) => `${n} ${t}`).join(", ");
+    const enableBtn = h("button", {}, `Turn on startup commands (${r.startupSessionIds.length})`);
+    enableBtn.addEventListener("click", async () => {
+      try {
+        const n = await api.sessionsEnableStartup(r.startupSessionIds);
+        toast(`Startup commands turned on for ${plural(n, "session")}.`, "ok");
+        enableBtn.disabled = true;
+        enableBtn.textContent = "Startup commands turned on";
+        await this.sb.reload();
+      } catch (e) {
+        toast(messageOf(e), "error");
+      }
+    });
+    return modal<void>(
+      r.source === "mobaxterm" ? "MobaXterm import finished" : "Import finished",
+      (close) => ({
+        body: h(
+          "div",
+          { class: "form" },
+          h("p", {}, `Imported ${plural(r.sessions, "session")} and ${plural(r.macros, "macro")}, in the same folders as before.`),
+          r.duplicates || r.skippedSessions
+            ? h("p", { class: "muted" }, `Already there, so skipped: ${[r.duplicates ? plural(r.duplicates, "macro") : "", r.skippedSessions ? plural(r.skippedSessions, "session") : ""].filter(Boolean).join(" and ")}.`)
+            : null,
+          skipped ? h("p", { class: "muted" }, `Not supported by Siakap, so skipped: ${skipped}.`) : null,
+          r.invalid ? h("p", { class: "muted" }, `${plural(r.invalid, "entry")} couldn't be read and ${r.invalid === 1 ? "was" : "were"} skipped.`) : null,
+          r.macros ? h("p", { class: "muted small" }, "Imported macros show you their commands before their first run. Untick \"Edit the whole command before run\" in a macro once you're happy with it.") : null,
+          r.startupSessionIds.length
+            ? h(
+                "div",
+                { class: "callout" },
+                h("p", {}, `${plural(r.startupSessionIds.length, "session")} had a login macro or "execute command". It was imported as startup commands, switched off for safety. Check one or two (edit a session > Advanced settings), then turn them all on:`),
+                enableBtn,
+              )
+            : null,
+          r.needsReview.length ? h("div", {}, h("p", {}, "Please check:"), h("ul", { class: "review-list" }, ...r.needsReview.map((x) => h("li", {}, x)))) : null,
+          failed.length ? h("div", { class: "error" }, failed.join("\n")) : null,
+          r.source === "mobaxterm" ? h("p", { class: "muted small" }, "Passwords saved in MobaXterm aren't imported; you'll be asked when you first connect, and can save them in Siakap.") : null,
+        ),
+        actions: [h("button", { class: "primary", onclick: () => close() }, "Done")],
+      }),
+      { wide: true },
+    );
   }
 
   async exportBackup(scope: "macros" | "all") {

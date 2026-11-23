@@ -1,5 +1,6 @@
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { MacroRunner } from "./runner";
@@ -17,6 +18,30 @@ hydrateIcons();
 
 // Siakap never opens other pages or windows (the backend also blocks navigation).
 window.open = () => null;
+
+// ------------------------------------------------------------------ title bar
+// The native title bar is hidden: the tab bar is the title bar, with these controls.
+const appWindow = getCurrentWindow();
+async function syncMaxButton() {
+  const max = await appWindow.isMaximized().catch(() => false);
+  const b = $("win-max");
+  b.title = max ? "Restore" : "Maximize";
+  b.replaceChildren(icon(max ? "win-restore" : "win-max", 14));
+  document.documentElement.classList.toggle("maximized", max);
+}
+$("win-min").addEventListener("click", () => void appWindow.minimize());
+$("win-max").addEventListener("click", () => void appWindow.toggleMaximize());
+$("win-close").addEventListener("click", async () => {
+  const live = tabs.allPanes().filter((p) => p.status === "connected").length;
+  if (live && !$("app").classList.contains("hidden")) {
+    const ok = await confirmDialog("Close Siakap Terminal?", `${live} session${live === 1 ? " is" : "s are"} still open and will be disconnected.`, "Close", { danger: true });
+    if (!ok) return;
+  }
+  await tabs.closeAll();
+  void appWindow.close();
+});
+void appWindow.onResized(() => void syncMaxButton());
+void syncMaxButton();
 
 const tabs = new TabManager();
 const runner = new MacroRunner(tabs);
@@ -78,6 +103,19 @@ const TOUR: TourStep[] = [
     text: "Highlight a value in a macro and click Make input to be asked for it on each run. Drag macros into folders, right-click to duplicate or rename, and import your Siakap backups with the import button.",
     target: "#panel-macros .toolbar",
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.4.0",
+    title: "Bring your MobaXterm sessions and macros",
+    text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
+    target: '#panel-macros button[title^="Import"]',
+    before: () => showPanel("macros"),
+  },
+  {
+    since: "0.4.0",
+    title: "One clean title bar",
+    text: "The tabs now sit in the window's title bar. Drag the empty space to move the window, double-click it to maximise, and use the buttons on the right to minimise, maximise or close.",
+    target: "#win-controls",
   },
   {
     since: "0.3.1",
@@ -351,7 +389,8 @@ $("btn-security-key").addEventListener("click", async () => {
       if (!ok) return;
     }
     const plan = await api.securityKeyToggle();
-    toast(plan.action === "attach" ? `Security key attached to WSL (${plan.busIds.join(", ")}).` : `Security key detached from WSL (${plan.busIds.join(", ")}).`, "ok");
+    const ids = (plan.busIds ?? []).join(", ");
+    toast(plan.action === "attach" ? `Security key attached to WSL (${ids}).` : `Security key detached from WSL (${ids}).`, "ok");
   } catch (e) {
     await alertDialog("Security key", messageOf(e));
   } finally {

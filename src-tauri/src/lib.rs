@@ -69,6 +69,7 @@ pub fn run() {
             commands::sessions_list,
             commands::session_save,
             commands::session_delete,
+            commands::sessions_enable_startup,
             commands::folders_save,
             commands::macros_list,
             commands::macro_save,

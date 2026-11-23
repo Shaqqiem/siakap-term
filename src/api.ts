@@ -147,6 +147,7 @@ export const api = {
   sessionSave: (session: Session, password: string | null, clearPassword: boolean) =>
     invoke<string>("session_save", { input: { session, password, clearPassword } }),
   sessionDelete: (id: string) => invoke<void>("session_delete", { id }),
+  sessionsEnableStartup: (ids: string[]) => invoke<number>("sessions_enable_startup", { ids }),
   foldersSave: (kind: "sessions" | "macros", folders: string[]) => invoke<void>("folders_save", { kind, folders }),
 
   macrosList: () => invoke<Macro[]>("macros_list"),
@@ -209,6 +210,10 @@ export interface ImportReport {
   skippedSessions: number;
   invalid: number;
   startupDisabled: number;
+  needsReview: string[];
+  skippedTypes: Record<string, number>;
+  source: "siakap" | "mobaxterm";
+  startupSessionIds: string[];
 }
 
 export interface Progress {

@@ -7,7 +7,14 @@
     <title>Siakap Terminal</title>
   </head>
   <body>
+    <!-- Window controls: always top-right, also over the lock screen. -->
+    <div class="win-controls" id="win-controls">
+      <button id="win-min" title="Minimize" data-icon="win-min" data-icon-size="14"></button>
+      <button id="win-max" title="Maximize" data-icon="win-max" data-icon-size="14"></button>
+      <button id="win-close" class="win-close" title="Close" data-icon="x" data-icon-size="15"></button>
+    </div>
     <div id="lock" class="lock hidden">
+      <div class="lock-drag" data-tauri-drag-region></div>
       <form id="lock-form" class="lock-card" autocomplete="off">
         <div class="brand"><span class="logo" data-icon="logo" data-icon-size="28"></span><span>Siakap Terminal</span></div>
         <p id="lock-hint" class="muted"></p>
@@ -26,7 +33,7 @@
         <button data-panel="macros" title="Macros" data-icon="macros"><span>Macros</span></button>
         <button data-panel="sftp" title="SFTP" data-icon="folder"><span>SFTP</span></button>
         <button data-panel="settings" title="Settings" data-icon="settings"><span>Settings</span></button>
-        <div class="rail-spacer"></div>
+        <div class="rail-spacer" data-tauri-drag-region></div>
         <button id="btn-security-key" title="Move your security key between Windows and WSL (usbipd)" data-icon="key"><span>Key</span></button>
         <button id="btn-lock" title="Lock the vault" data-icon="lock"><span>Lock</span></button>
       </nav>
@@ -38,8 +45,9 @@
       </aside>
       <div id="panel-resizer" class="resizer" title="Drag to resize, double-click to collapse"></div>
       <main class="main">
-        <div class="tabbar">
+        <div class="tabbar" data-tauri-drag-region>
           <div id="tabs" class="tabs"></div>
+          <div class="titlebar-drag" data-tauri-drag-region></div>
           <div class="tab-actions">
             <button id="btn-new-local" title="New local shell (Ctrl+Shift+T)" data-icon="plus" data-icon-size="16"></button>
             <button id="btn-split-h" title="Split side by side (Ctrl+Shift+D)" data-icon="split-h" data-icon-size="16"></button>

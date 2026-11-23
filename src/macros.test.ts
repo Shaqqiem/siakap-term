@@ -36,6 +36,17 @@ test("forgiving directive spellings", () => {
   assert.throws(() => parse("@ wait"));
 });
 
+test("@key presses special keys", () => {
+  assert.deepEqual(parse("@key tab\n# @key UP\n@key ctrl+c\n@key Ctrl-D"), [
+    { op: "type", text: "\t" },
+    { op: "type", text: "\x1b[A" },
+    { op: "type", text: "\x03" },
+    { op: "type", text: "\x04" },
+  ]);
+  assert.throws(() => parse("@key flux"));
+  assert.equal(explain("@key tab")[0].text, "press Tab");
+});
+
 test("explain says what each line does", () => {
   const e = explain("uname -a\n@ wait 100\n# note\n@type y\n@wait soon\n# @wait {{d}}");
   assert.deepEqual(e.map((x) => x.kind), ["send", "wait", "note", "type", "error", "wait"]);
