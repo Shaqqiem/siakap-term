@@ -153,7 +153,7 @@ export class TabManager {
       return false;
     }
     // Let app shortcuts bubble to the window handler.
-    if (ctrlShift && ["KeyT", "KeyD", "KeyE", "KeyW"].includes(e.code)) return false;
+    if (ctrlShift && ["KeyT", "KeyD", "KeyE", "KeyG", "KeyW"].includes(e.code)) return false;
     if (e.ctrlKey && e.code === "Tab") return false;
     return true;
   }
@@ -361,6 +361,22 @@ export class TabManager {
     if (!p) return;
     if (p.kind === "ssh" && p.session) void this.openSsh(p.session, dir);
     else void this.openLocal(p.shellId ?? "", p.title, dir);
+  }
+
+  /** Turn the focused pane into a 2×2 grid of the same shell or session. */
+  splitGrid() {
+    const topLeft = this.focusedPane;
+    if (!topLeft) return;
+    this.splitFocused("h"); // panes are placed synchronously, so focus is already on the new one
+    const topRight = this.focusedPane;
+    this.focus(topLeft);
+    this.splitFocused("v");
+    if (topRight && topRight !== topLeft) {
+      this.focus(topRight);
+      this.splitFocused("v");
+    }
+    this.focus(topLeft);
+    requestAnimationFrame(() => topLeft.term.focus());
   }
 
   focus(pane: Pane) {

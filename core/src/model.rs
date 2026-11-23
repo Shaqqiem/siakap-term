@@ -103,6 +103,18 @@ pub enum ValidationMode {
     Unrestricted,
 }
 
+/// What to open when the app starts (after the vault is unlocked).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum StartupAction {
+    Nothing,
+    /// Open `startup_shell` (or the default shell if empty).
+    #[default]
+    Shell,
+    /// Connect to the saved session `startup_session`.
+    Session,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -119,6 +131,15 @@ pub struct Settings {
     /// 0 disables auto-lock.
     pub auto_lock_minutes: u32,
     pub confirm_multiline_paste: bool,
+    pub startup_action: StartupAction,
+    /// Shell id from `pty::detect_shells`, e.g. `wsl:Ubuntu`. Empty = default shell.
+    pub startup_shell: String,
+    /// Session id for `StartupAction::Session`.
+    pub startup_session: String,
+    /// Shell used for new local tabs. Empty = first detected shell.
+    pub default_shell: String,
+    /// Panes to open at startup: 1, 2 (side by side) or 4 (2×2 grid).
+    pub startup_panes: u8,
 }
 
 impl Default for Settings {
@@ -136,6 +157,11 @@ impl Default for Settings {
             validation_mode: ValidationMode::Safe,
             auto_lock_minutes: 15,
             confirm_multiline_paste: true,
+            startup_action: StartupAction::Shell,
+            startup_shell: String::new(),
+            startup_session: String::new(),
+            default_shell: String::new(),
+            startup_panes: 1,
         }
     }
 }
@@ -143,6 +169,14 @@ impl Default for Settings {
 impl Settings {
     /// Clamp values to sane ranges so a bad import can't wedge the UI.
     pub fn sanitized(mut self) -> Self {
+        if !matches!(self.startup_panes, 1 | 2 | 4) {
+            self.startup_panes = 1;
+        }
+        for id in [&mut self.startup_shell, &mut self.startup_session, &mut self.default_shell] {
+            if id.len() > 200 || id.chars().any(char::is_control) {
+                id.clear();
+            }
+        }
         self.font_size = self.font_size.clamp(6, 48);
         self.scrollback = self.scrollback.min(200_000);
         self.line_delay_ms = self.line_delay_ms.min(60_000);
@@ -352,5 +386,21 @@ mod tests {
         let s = Settings { font_size: 200, background: "red;x".into(), ..Default::default() }.sanitized();
         assert_eq!(s.font_size, 48);
         assert_eq!(s.background, Settings::default().background);
+        let s =
+            Settings { default_shell: "wsl:Ubuntu\n".into(), startup_shell: "wsl:Debian".into(), ..Default::default() }
+                .sanitized();
+        assert_eq!(s.default_shell, "");
+        assert_eq!(s.startup_shell, "wsl:Debian");
+        assert_eq!(Settings { startup_panes: 3, ..Default::default() }.sanitized().startup_panes, 1);
+        assert_eq!(Settings { startup_panes: 4, ..Default::default() }.sanitized().startup_panes, 4);
+    }
+
+    #[test]
+    fn old_settings_without_startup_fields_still_load() {
+        let s: Settings = serde_json::from_str(r#"{"fontSize": 13}"#).unwrap();
+        assert_eq!(s.font_size, 13);
+        assert_eq!(s.startup_action, StartupAction::Shell);
+        let s: Settings = serde_json::from_str(r#"{"startupAction": "session", "startupSession": "abc"}"#).unwrap();
+        assert_eq!(s.startup_action, StartupAction::Session);
     }
 }

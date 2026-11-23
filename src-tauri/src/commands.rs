@@ -18,10 +18,10 @@ use siakap_core::model::{
     SessionKind, SessionSecret, Settings,
 };
 use siakap_core::pty::{self, EventSink, LocalPty, ShellInfo, TermEvent};
+use siakap_core::security_key;
 use siakap_core::sftp::{Entry, Sftp};
 use siakap_core::ssh::{self, ConnectParams, SshConnection};
 use siakap_core::vault::atomic_write;
-use siakap_core::yubikey;
 use siakap_core::CoreError;
 
 use crate::state::{AppState, Term};
@@ -568,14 +568,14 @@ pub fn sftp_cancel(st: State<'_, AppState>, transfer_id: u32) {
     }
 }
 
-// ---------------------------------------------------------------- yubikey
+// ---------------------------------------------------------------- security key
 
 #[tauri::command]
-pub async fn yubikey_state() -> Res<Vec<yubikey::Device>> {
-    tauri::async_runtime::spawn_blocking(yubikey::state).await.map_err(|e| CoreError::usbipd(e.to_string()))?
+pub async fn security_key_state() -> Res<Vec<security_key::Device>> {
+    tauri::async_runtime::spawn_blocking(security_key::state).await.map_err(|e| CoreError::usbipd(e.to_string()))?
 }
 
 #[tauri::command]
-pub async fn yubikey_toggle() -> Res<yubikey::Plan> {
-    tauri::async_runtime::spawn_blocking(yubikey::toggle).await.map_err(|e| CoreError::usbipd(e.to_string()))?
+pub async fn security_key_toggle() -> Res<security_key::Plan> {
+    tauri::async_runtime::spawn_blocking(security_key::toggle).await.map_err(|e| CoreError::usbipd(e.to_string()))?
 }

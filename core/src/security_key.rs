@@ -1,4 +1,6 @@
-//! YubiKey → WSL toggle via `usbipd` (usbipd-win 4.x).
+//! Hardware security key -> WSL toggle via `usbipd` (usbipd-win 4.x).
+//!
+//! Devices are matched by USB vendor id 1050.
 //!
 //! `usbipd state` prints JSON like:
 //! ```json
@@ -15,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CoreError, Result};
 use crate::process::run_capture;
 
-pub const YUBICO_VID: &str = "VID_1050";
+pub const SECURITY_KEY_VID: &str = "VID_1050";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -47,13 +49,13 @@ pub struct Device {
     pub attached: bool,
 }
 
-/// Parse `usbipd state` output and return only Yubico devices.
+/// Parse `usbipd state` output and return only security-key devices.
 pub fn parse_state(json: &str) -> Result<Vec<Device>> {
     let s: StateJson =
         serde_json::from_str(json).map_err(|e| CoreError::usbipd(format!("Unexpected `usbipd state` output: {e}")))?;
     Ok(s.devices
         .into_iter()
-        .filter(|d| d.instance_id.as_deref().is_some_and(|i| i.to_ascii_uppercase().contains(YUBICO_VID)))
+        .filter(|d| d.instance_id.as_deref().is_some_and(|i| i.to_ascii_uppercase().contains(SECURITY_KEY_VID)))
         .map(|d| Device {
             bus_id: d.bus_id.filter(|b| !b.is_empty()),
             description: d.description.unwrap_or_default(),
@@ -79,13 +81,13 @@ fn valid_bus_id(b: &str) -> bool {
 pub fn plan_toggle(devices: &[Device]) -> Result<Plan> {
     let connected: Vec<&Device> = devices.iter().filter(|d| d.bus_id.is_some()).collect();
     if connected.is_empty() {
-        return Err(CoreError::usbipd("No YubiKey (USB VID 1050) is plugged in."));
+        return Err(CoreError::usbipd("No security key (USB vendor 1050) is plugged in."));
     }
     let not_shared: Vec<String> = connected.iter().filter(|d| !d.shared).filter_map(|d| d.bus_id.clone()).collect();
     if !not_shared.is_empty() {
         let cmds = not_shared.iter().map(|b| format!("usbipd bind --busid {b}")).collect::<Vec<_>>().join("\n");
         return Err(CoreError::usbipd(format!(
-            "The YubiKey is not shared with usbipd yet. Sharing needs administrator rights, so Siakap will not do it \
+            "The security key is not shared with usbipd yet. Sharing needs administrator rights, so Siakap will not do it \
              for you. Run this once in an elevated terminal:\n\n{cmds}"
         )));
     }
@@ -100,14 +102,14 @@ pub fn plan_toggle(devices: &[Device]) -> Result<Plan> {
         Ok(Plan::Attach { bus_ids })
     } else {
         Err(CoreError::usbipd(format!(
-            "Inconsistent state: {attached} of {} YubiKeys are attached to WSL. Attach or detach them manually \
+            "Inconsistent state: {attached} of {} security keys are attached to WSL. Attach or detach them manually \
              with usbipd so they all match, then try again.",
             connected.len()
         )))
     }
 }
 
-/// Query the current Yubico devices.
+/// Query the connected security keys.
 pub fn state() -> Result<Vec<Device>> {
     let out = run_capture("usbipd", &["state"])
         .map_err(|e| CoreError::usbipd(format!("Could not run usbipd ({e}). Is usbipd-win installed and on PATH?")))?;
@@ -117,7 +119,7 @@ pub fn state() -> Result<Vec<Device>> {
     parse_state(&out.stdout)
 }
 
-/// Toggle all connected YubiKeys between Windows and WSL. Returns the new plan
+/// Toggle all connected security keys between Windows and WSL. Returns the new plan
 /// that was executed.
 pub fn toggle() -> Result<Plan> {
     let devices = state()?;
@@ -144,12 +146,12 @@ mod tests {
 
     const SAMPLE: &str = r#"{
       "Devices": [
-        {"BusId":"1-3","ClientIPAddress":null,"Description":"YubiKey OTP+FIDO+CCID",
+        {"BusId":"1-3","ClientIPAddress":null,"Description":"Security Key OTP+FIDO+CCID",
          "InstanceId":"USB\\VID_1050&PID_0407\\5&2A3B4C&0&3","IsForced":false,
          "PersistedGuid":"0b8e1d7a-0000-0000-0000-000000000000","StubInstanceId":null},
         {"BusId":"1-4","ClientIPAddress":null,"Description":"USB Input Device",
          "InstanceId":"USB\\VID_046D&PID_C52B\\6&1","IsForced":false,"PersistedGuid":null,"StubInstanceId":null},
-        {"BusId":null,"ClientIPAddress":null,"Description":"YubiKey (unplugged)",
+        {"BusId":null,"ClientIPAddress":null,"Description":"Security Key (unplugged)",
          "InstanceId":"USB\\vid_1050&pid_0402\\X","IsForced":false,"PersistedGuid":"g","StubInstanceId":null}
       ]
     }"#;
@@ -157,7 +159,7 @@ mod tests {
     #[test]
     fn parses_usbipd_state() {
         let d = parse_state(SAMPLE).unwrap();
-        assert_eq!(d.len(), 2, "only Yubico devices, case-insensitive VID");
+        assert_eq!(d.len(), 2, "only security keys, case-insensitive VID");
         assert_eq!(d[0].bus_id.as_deref(), Some("1-3"));
         assert!(d[0].shared && !d[0].attached);
         assert_eq!(d[1].bus_id, None);

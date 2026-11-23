@@ -210,7 +210,7 @@ export class Sidebar {
     const port = h("input", { type: "number", min: 1, max: 65535, value: s.port || 22 });
     const user = h("input", { value: s.user, spellcheck: "false" });
     const auth = select(
-      [["auto", "Automatic (agent, Pageant, key file, password)"], ["agent", "SSH agent / Pageant (YubiKey, FIDO)"], ["key", "Key file"], ["password", "Password"]],
+      [["auto", "Automatic (agent, Pageant, key file, password)"], ["agent", "SSH agent / Pageant (incl. FIDO security keys)"], ["key", "Key file"], ["password", "Password"]],
       s.auth,
     );
     const keyPath = h("input", { value: s.keyPath, spellcheck: "false", placeholder: "C:\\Users\\you\\.ssh\\id_ed25519" });

@@ -47,6 +47,11 @@ export interface Settings {
   validationMode: ValidationMode;
   autoLockMinutes: number;
   confirmMultilinePaste: boolean;
+  startupAction: "nothing" | "shell" | "session";
+  startupShell: string;
+  startupSession: string;
+  defaultShell: string;
+  startupPanes: 1 | 2 | 4;
 }
 export interface KnownHost {
   host: string;
@@ -69,14 +74,14 @@ export interface SftpEntry {
   mtime: number | null;
   permissions: number | null;
 }
-export interface YubiDevice {
+export interface KeyDevice {
   busId: string | null;
   description: string;
   instanceId: string;
   shared: boolean;
   attached: boolean;
 }
-export type YubiPlan = { action: "attach" | "detach"; busIds: string[] };
+export type KeyPlan = { action: "attach" | "detach"; busIds: string[] };
 export type Step = { op: "line"; text: string } | { op: "type"; text: string } | { op: "wait"; ms: number };
 export type TermOut = { kind: "data"; b64: string } | { kind: "exit"; code: number | null };
 
@@ -155,8 +160,8 @@ export const api = {
     invoke<string>("sftp_upload", { id, transferId, local, remoteDir, progress }),
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
-  yubikeyState: () => invoke<YubiDevice[]>("yubikey_state"),
-  yubikeyToggle: () => invoke<YubiPlan>("yubikey_toggle"),
+  securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
+  securityKeyToggle: () => invoke<KeyPlan>("security_key_toggle"),
 };
 
 export interface Progress {

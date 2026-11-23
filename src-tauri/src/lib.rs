@@ -67,8 +67,8 @@ pub fn run() {
             commands::sftp_download,
             commands::sftp_upload,
             commands::sftp_cancel,
-            commands::yubikey_state,
-            commands::yubikey_toggle,
+            commands::security_key_state,
+            commands::security_key_toggle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Siakap Terminal");

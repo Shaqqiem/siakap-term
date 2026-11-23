@@ -15,6 +15,7 @@ const P: Record<string, string> = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   "split-h": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
   "split-v": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/>',
+  grid: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h18"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',

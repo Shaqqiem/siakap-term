@@ -52,6 +52,7 @@ async function onUnlocked() {
     await sidebar.reload();
     if (currentPanel === "settings") await settingsPanel.render();
     if (currentPanel === "sftp") sftp.shown();
+    void runStartup();
   } catch (e) {
     toast(messageOf(e), "error");
   }
@@ -155,40 +156,78 @@ document.querySelectorAll<HTMLButtonElement>(".rail button[data-panel]").forEach
 
 $("btn-lock").addEventListener("click", () => void lockNow("Locked."));
 
-let yubiBusy = false;
-$("btn-yubikey").addEventListener("click", async () => {
-  if (yubiBusy) return;
-  yubiBusy = true;
-  $("btn-yubikey").classList.add("busy");
+let keyBusy = false;
+$("btn-security-key").addEventListener("click", async () => {
+  if (keyBusy) return;
+  keyBusy = true;
+  $("btn-security-key").classList.add("busy");
   try {
-    const devices = await api.yubikeyState();
+    const devices = await api.securityKeyState();
     const live = devices.filter((d) => d.busId);
     const attached = live.length > 0 && live.every((d) => d.attached);
     if (live.length && live.every((d) => d.shared)) {
       const ok = await confirmDialog(
-        "YubiKey",
+        "Security key",
         `${live.map((d) => `${d.busId}  ${d.description}  (${d.attached ? "attached to WSL" : "on Windows"})`).join("\n")}\n\n${attached ? "Detach from WSL and give it back to Windows?" : "Attach to WSL? Windows apps will lose access until you detach it."}`,
         attached ? "Detach" : "Attach to WSL",
       );
       if (!ok) return;
     }
-    const plan = await api.yubikeyToggle();
-    toast(plan.action === "attach" ? `YubiKey attached to WSL (${plan.busIds.join(", ")}).` : `YubiKey detached from WSL (${plan.busIds.join(", ")}).`, "ok");
+    const plan = await api.securityKeyToggle();
+    toast(plan.action === "attach" ? `Security key attached to WSL (${plan.busIds.join(", ")}).` : `Security key detached from WSL (${plan.busIds.join(", ")}).`, "ok");
   } catch (e) {
-    await alertDialog("YubiKey", messageOf(e));
+    await alertDialog("Security key", messageOf(e));
   } finally {
-    yubiBusy = false;
-    $("btn-yubikey").classList.remove("busy");
+    keyBusy = false;
+    $("btn-security-key").classList.remove("busy");
   }
 });
 
+/** A shell by id, falling back to the configured default, then the first one found. */
+function pickShell(id = "") {
+  const all = sidebar.shells;
+  return all.find((x) => x.id === id) ?? all.find((x) => x.id === tabs.settings?.defaultShell) ?? all[0];
+}
+
 async function newLocal(where: "tab" | "h" | "v" = "tab") {
-  const sh = sidebar.shells[0] ?? (await chooseShell());
+  const sh = pickShell() ?? (await chooseShell());
   if (sh) await tabs.openLocal(sh.id, sh.label, where);
+}
+
+// Runs once per app start, after the first unlock, if no tab is open yet.
+let startupDone = false;
+async function runStartup() {
+  if (startupDone) return;
+  startupDone = true;
+  if (tabs.tabs.length) return;
+  const s = tabs.settings;
+  if (s.startupAction === "shell") {
+    const sh = pickShell(s.startupShell);
+    if (!sh) return;
+    void tabs.openLocal(sh.id, sh.label);
+  } else if (s.startupAction === "session") {
+    const ses = sidebar.sessions.find((x) => x.id === s.startupSession);
+    if (!ses) return toast("The startup session no longer exists. Pick another one in Settings.", "error");
+    if (ses.kind === "ssh") void tabs.openSsh(ses);
+    else {
+      const sh = pickShell(ses.shell);
+      if (!sh) return;
+      void tabs.openLocal(sh.id, ses.name);
+    }
+  } else return;
+  // Panes are placed synchronously; the connections finish in the background.
+  if (s.startupPanes === 2) tabs.splitFocused("h");
+  else if (s.startupPanes === 4) tabs.splitGrid();
 }
 $("btn-new-local").addEventListener("click", () => void newLocal());
 $("btn-split-h").addEventListener("click", () => (tabs.focusedPane ? tabs.splitFocused("h") : void newLocal()));
 $("btn-split-v").addEventListener("click", () => (tabs.focusedPane ? tabs.splitFocused("v") : void newLocal()));
+$("btn-grid").addEventListener("click", () => void splitGrid());
+
+async function splitGrid() {
+  if (!tabs.focusedPane) await newLocal();
+  tabs.splitGrid();
+}
 
 // ------------------------------------------------------------------ shortcuts & activity
 
@@ -198,6 +237,7 @@ window.addEventListener("keydown", (e) => {
   if (cs && e.code === "KeyT") (e.preventDefault(), void newLocal());
   else if (cs && e.code === "KeyD") (e.preventDefault(), tabs.splitFocused("h"));
   else if (cs && e.code === "KeyE") (e.preventDefault(), tabs.splitFocused("v"));
+  else if (cs && e.code === "KeyG") (e.preventDefault(), void splitGrid());
   else if (cs && e.code === "KeyW") (e.preventDefault(), tabs.focusedPane && void tabs.closePane(tabs.focusedPane));
   else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), tabs.cycle(e.shiftKey ? -1 : 1));
   else if (e.key === "Escape" && runner.busy) runner.stop("stopped with Esc");

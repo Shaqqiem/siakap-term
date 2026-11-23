@@ -1,6 +1,6 @@
 // Settings panel: appearance, behaviour, security, known hosts.
 import { icon } from "./icons";
-import { api, messageOf, type KnownHost, type Settings } from "./api";
+import { api, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo } from "./api";
 import { $, confirmDialog, field, h, modal, select, toast } from "./ui";
 
 export class SettingsPanel {
@@ -10,8 +10,15 @@ export class SettingsPanel {
     const panel = $("panel-settings");
     let s: Settings;
     let hosts: KnownHost[];
+    let shells: ShellInfo[];
+    let sessions: RedactedSession[];
     try {
-      [s, hosts] = await Promise.all([api.settingsGet(), api.knownHostsList()]);
+      [s, hosts, shells, { sessions }] = await Promise.all([
+        api.settingsGet(),
+        api.knownHostsList(),
+        api.shellsList(),
+        api.sessionsList(),
+      ]);
     } catch (e) {
       panel.replaceChildren(h("p", { class: "error" }, messageOf(e)));
       return;
@@ -29,6 +36,32 @@ export class SettingsPanel {
     const mode = select([["safe", "Safe (A-Z 0-9 space _ . / : @ , + -)"], ["unrestricted", "Unrestricted (control characters still blocked)"]], s.validationMode);
     const autoLock = h("input", { type: "number", min: 0, max: 1440, value: s.autoLockMinutes });
 
+    const shellOpts = (firstLabel: string): [string, string][] => [["", firstLabel], ...shells.map((x): [string, string] => [x.id, x.label])];
+    const firstShell = shells[0]?.label ?? "none found";
+    const startupAction = select(
+      [["nothing", "Open nothing"], ["shell", "Open a local shell"], ["session", "Connect to a saved session"]],
+      s.startupAction,
+    );
+    const startupShell = select(shellOpts("Default shell"), shells.some((x) => x.id === s.startupShell) ? s.startupShell : "");
+    const startupSession = select(
+      sessions.length
+        ? sessions.map((x): [string, string] => [x.id, (x.folder ? x.folder + "/" : "") + x.name])
+        : [["", "No saved sessions yet"]],
+      s.startupSession,
+    );
+    const defaultShell = select(shellOpts(`First available (${firstShell})`), shells.some((x) => x.id === s.defaultShell) ? s.defaultShell : "");
+    const startupPanes = select([["1", "One pane"], ["2", "Two panes side by side"], ["4", "Four panes (2×2 grid)"]], String(s.startupPanes));
+    const startupPanesField = field("Layout", startupPanes);
+    const startupShellField = field("Shell to open", startupShell);
+    const startupSessionField = field("Session", startupSession);
+    const syncStartup = () => {
+      startupShellField.classList.toggle("hidden", startupAction.value !== "shell");
+      startupSessionField.classList.toggle("hidden", startupAction.value !== "session");
+      startupPanesField.classList.toggle("hidden", startupAction.value === "nothing");
+    };
+    startupAction.addEventListener("change", syncStartup);
+    syncStartup();
+
     const save = async () => {
       const next: Settings = {
         fontFamily: fontFamily.value,
@@ -43,6 +76,11 @@ export class SettingsPanel {
         lineDelayMs: Number(lineDelay.value),
         validationMode: mode.value as Settings["validationMode"],
         autoLockMinutes: Number(autoLock.value),
+        startupAction: startupAction.value as Settings["startupAction"],
+        startupShell: startupShell.value,
+        startupSession: startupSession.value,
+        defaultShell: defaultShell.value,
+        startupPanes: Number(startupPanes.value) as Settings["startupPanes"],
       };
       try {
         const saved = await api.settingsSave(next);
@@ -80,6 +118,12 @@ export class SettingsPanel {
       h(
         "form",
         { class: "form", onsubmit: (e: Event) => (e.preventDefault(), void save()) },
+        h("h4", {}, "Startup"),
+        field("When Siakap starts", startupAction),
+        startupShellField,
+        startupSessionField,
+        startupPanesField,
+        field("Default shell for new tabs", defaultShell, "Used by Ctrl+Shift+T and the + button."),
         h("h4", {}, "Terminal"),
         field("Font family", fontFamily, "Local fonts only, e.g. Cascadia Mono, Consolas."),
         field("Font size", fontSize),

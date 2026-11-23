@@ -9,16 +9,16 @@
 //! * [`pty`] — local shells (ConPTY on Windows)
 //! * [`ssh`] — russh client with trust-on-first-use host keys
 //! * [`sftp`] — SFTP over the same SSH connection
-//! * [`yubikey`] — usbipd attach/detach toggle
+//! * [`security_key`] — usbipd attach/detach toggle for hardware security keys
 
 pub mod error;
 pub mod macros;
 pub mod model;
 pub mod process;
 pub mod pty;
+pub mod security_key;
 pub mod sftp;
 pub mod ssh;
 pub mod vault;
-pub mod yubikey;
 
 pub use error::{CoreError, Result};

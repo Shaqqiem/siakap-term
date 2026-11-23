@@ -146,6 +146,9 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px;
 .pane { position: relative; padding: 4px 0 0 6px; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
 .split .pane.focused { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .pane .xterm { height: 100%; }
+/* xterm paints its viewport black by default; match the terminal theme instead. */
+.pane, .pane .xterm, .pane .xterm-viewport { background-color: var(--term-bg) !important; }
+.pane .xterm { --vscode-scrollbar-shadow: transparent; }
 .pane .xterm-viewport { scrollbar-width: thin; }
 
 /* ---------------------------------------------------------------- sftp */
