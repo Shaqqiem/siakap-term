@@ -1,4 +1,5 @@
 // Settings panel: appearance, behaviour, security, known hosts.
+import { icon } from "./icons";
 import { api, messageOf, type KnownHost, type Settings } from "./api";
 import { $, confirmDialog, field, h, modal, select, toast } from "./ui";
 
@@ -69,7 +70,7 @@ export class SettingsPanel {
               await this.render();
             },
           },
-          "🗑",
+          icon("trash", 15),
         ),
       ),
     );
@@ -93,7 +94,7 @@ export class SettingsPanel {
         field("Auto-lock after idle minutes", autoLock, "0 disables auto-lock."),
         h("button", { type: "submit", class: "primary" }, "Save settings"),
       ),
-      h("button", { onclick: () => this.changePassword() }, "Change master password…"),
+      h("button", { onclick: () => this.changePassword() }, "Change master password"),
       h("h4", {}, `Known hosts (${hosts.length})`),
       hosts.length ? h("div", { class: "kh-list" }, ...hostRows) : h("p", { class: "muted small" }, "No trusted host keys yet."),
       h("h4", {}, "Privacy"),

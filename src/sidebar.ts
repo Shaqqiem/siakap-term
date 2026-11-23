@@ -1,4 +1,5 @@
 // Sessions and Macros panels.
+import { icon } from "./icons";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, messageOf, type Macro, type RedactedSession, type Session, type ShellInfo } from "./api";
 import { parse, placeholders, MacroError } from "./macros";
@@ -59,10 +60,10 @@ export class Sidebar {
                 kind === "s" ? this.renderSessions() : this.renderMacros();
               },
             },
-            h("span", { class: "chev" }, open ? "▾" : "▸"),
+            h("span", { class: "chev" }, icon(open ? "chevron-down" : "chevron-right", 14)),
             h("span", { class: "name" }, c.name),
             empty
-              ? h("button", { class: "icon", title: "Delete empty folder", onclick: (e: Event) => (e.stopPropagation(), onDeleteFolder(c.path)) }, "×")
+              ? h("button", { class: "icon", title: "Delete empty folder", onclick: (e: Event) => (e.stopPropagation(), onDeleteFolder(c.path)) }, icon("x", 14))
               : null,
           ),
           open ? sub : null,
@@ -122,7 +123,7 @@ export class Sidebar {
             h(
               "div",
               { class: "row item", title: "Open (Shift+click: split)", onclick: (e: Event) => this.tabs.openLocal(sh.id, sh.label, (e as MouseEvent).shiftKey ? "h" : "tab") },
-              h("span", { class: "ico" }, "›_"),
+              h("span", { class: "ico" }, icon("terminal", 15)),
               h("span", { class: "name" }, sh.label),
             ),
           ),
@@ -148,20 +149,20 @@ export class Sidebar {
         {
           class: "row item",
           tabindex: 0,
-          title: s.kind === "ssh" ? `${s.user}@${s.host}:${s.port} — double-click to connect` : "Local shell",
+          title: s.kind === "ssh" ? `${s.user}@${s.host}:${s.port} (double-click to connect)` : "Local shell",
           ondblclick: () => connect(),
           onkeydown: (e: Event) => (e as KeyboardEvent).key === "Enter" && connect(),
         },
-        h("span", { class: "ico" }, s.kind === "ssh" ? "⇄" : "›_"),
+        h("span", { class: "ico" }, icon(s.kind === "ssh" ? "remote" : "terminal", 15)),
         h("span", { class: "name" }, s.name),
         h("span", { class: "sub" }, s.kind === "ssh" ? `${s.user}@${s.host}` : ""),
         h(
           "span",
           { class: "row-actions" },
-          h("button", { class: "icon", title: "Connect", onclick: (e: Event) => (e.stopPropagation(), connect()) }, "▶"),
-          h("button", { class: "icon", title: "Connect in split", onclick: (e: Event) => (e.stopPropagation(), connect("h")) }, "◫"),
-          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editSession(s, s.kind)) }, "✎"),
-          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteSession(s)) }, "🗑"),
+          h("button", { class: "icon", title: "Connect", onclick: (e: Event) => (e.stopPropagation(), connect()) }, icon("play", 14)),
+          h("button", { class: "icon", title: "Connect in split", onclick: (e: Event) => (e.stopPropagation(), connect("h")) }, icon("split-h", 14)),
+          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editSession(s, s.kind)) }, icon("edit", 14)),
+          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteSession(s)) }, icon("trash", 14)),
         ),
       ),
     );
@@ -209,19 +210,19 @@ export class Sidebar {
     const port = h("input", { type: "number", min: 1, max: 65535, value: s.port || 22 });
     const user = h("input", { value: s.user, spellcheck: "false" });
     const auth = select(
-      [["auto", "Auto (agent → Pageant → key → password)"], ["agent", "SSH agent / Pageant (YubiKey, FIDO)"], ["key", "Key file"], ["password", "Password"]],
+      [["auto", "Automatic (agent, Pageant, key file, password)"], ["agent", "SSH agent / Pageant (YubiKey, FIDO)"], ["key", "Key file"], ["password", "Password"]],
       s.auth,
     );
     const keyPath = h("input", { value: s.keyPath, spellcheck: "false", placeholder: "C:\\Users\\you\\.ssh\\id_ed25519" });
-    const browse = h("button", { type: "button" }, "Browse…");
+    const browse = h("button", { type: "button" }, "Browse");
     browse.addEventListener("click", async () => {
       const p = await openDialog({ multiple: false, directory: false, title: "Choose private key" });
       if (typeof p === "string") keyPath.value = p;
     });
-    const pw = h("input", { type: "password", placeholder: existing?.hasPassword ? "•••••• (saved — leave empty to keep)" : "optional", autocomplete: "off" });
+    const pw = h("input", { type: "password", placeholder: existing?.hasPassword ? "Saved. Leave empty to keep it." : "optional", autocomplete: "off" });
     const clearPw = h("input", { type: "checkbox" });
     const shell = select(this.shells.map((x) => [x.id, x.label]), s.shell);
-    const macro = select([["", "— none —"], ...this.macros.map((m): [string, string] => [m.id, (m.folder ? m.folder + "/" : "") + m.name])], s.postConnectMacro ?? "");
+    const macro = select([["", "None"], ...this.macros.map((m): [string, string] => [m.id, (m.folder ? m.folder + "/" : "") + m.name])], s.postConnectMacro ?? "");
     const err = h("div", { class: "error" });
 
     const sshFields = h(
@@ -320,14 +321,14 @@ export class Sidebar {
       h(
         "div",
         { class: "row item", title: "Click to run on the focused pane", onclick: () => this.runner.run(m) },
-        h("span", { class: "ico" }, "⚡"),
+        h("span", { class: "ico" }, icon("macros", 15)),
         h("span", { class: "name" }, m.name),
-        placeholders(m.script).length ? h("span", { class: "sub" }, "{{…}}") : null,
+        placeholders(m.script).length ? h("span", { class: "sub" }, "input") : null,
         h(
           "span",
           { class: "row-actions" },
-          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editMacro(m)) }, "✎"),
-          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteMacro(m)) }, "🗑"),
+          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editMacro(m)) }, icon("edit", 14)),
+          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteMacro(m)) }, icon("trash", 14)),
         ),
       ),
     );
@@ -353,7 +354,7 @@ export class Sidebar {
       try {
         const steps = parse(script.value);
         const ph = placeholders(script.value);
-        info.textContent = `${steps.length} step(s)${ph.length ? ` · prompts for: ${ph.join(", ")}` : ""}`;
+        info.textContent = `${steps.length} step(s)${ph.length ? `, asks for ${ph.join(", ")}` : ""}`;
         err.textContent = "";
       } catch (e) {
         err.textContent = e instanceof MacroError ? e.message : String(e);

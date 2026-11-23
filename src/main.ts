@@ -1,6 +1,7 @@
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, messageOf, type Settings } from "./api";
+import { hydrateIcons } from "./icons";
 import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
@@ -9,6 +10,8 @@ import { TabManager, chooseShell } from "./tabs";
 import { $, alertDialog, confirmDialog, isModalOpen, toast } from "./ui";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
+
+hydrateIcons();
 
 const tabs = new TabManager();
 const runner = new MacroRunner(tabs);
@@ -35,7 +38,7 @@ function showLock(mode: "create" | "unlock", hint = "") {
   pass2.classList.toggle("hidden", mode !== "create");
   $("lock-submit").textContent = mode === "create" ? "Create vault" : "Unlock";
   $("lock-hint").textContent =
-    hint || (mode === "create" ? "Welcome! Choose a master password to create your encrypted vault." : "Enter your master password.");
+    hint || (mode === "create" ? "Choose a master password to create your encrypted vault." : "Enter your master password.");
   $("lock-error").textContent = "";
   ($("lock-form") as HTMLFormElement).dataset.mode = mode;
   setTimeout(() => pass.focus(), 50);
@@ -68,7 +71,7 @@ $("lock-form").addEventListener("submit", async (e) => {
     if (pass.value !== pass2.value) return void (err.textContent = "The passwords don't match.");
   }
   btn.disabled = true;
-  btn.textContent = "Deriving key…";
+  btn.textContent = "Unlocking...";
   try {
     if (form.dataset.mode === "create") await api.vaultCreate(pass.value);
     else await api.vaultUnlock(pass.value);
@@ -164,7 +167,7 @@ $("btn-yubikey").addEventListener("click", async () => {
     if (live.length && live.every((d) => d.shared)) {
       const ok = await confirmDialog(
         "YubiKey",
-        `${live.map((d) => `${d.busId}  ${d.description}  — ${d.attached ? "attached to WSL" : "on Windows"}`).join("\n")}\n\n${attached ? "Detach from WSL and give it back to Windows?" : "Attach to WSL? Windows apps will lose access until you detach it."}`,
+        `${live.map((d) => `${d.busId}  ${d.description}  (${d.attached ? "attached to WSL" : "on Windows"})`).join("\n")}\n\n${attached ? "Detach from WSL and give it back to Windows?" : "Attach to WSL? Windows apps will lose access until you detach it."}`,
         attached ? "Detach" : "Attach to WSL",
       );
       if (!ok) return;

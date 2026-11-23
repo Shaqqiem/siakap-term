@@ -1,12 +1,12 @@
-// Pure macro parser — a TypeScript port of core/src/macros.rs (same rules,
+// Pure macro parser: a TypeScript port of core/src/macros.rs (same rules,
 // same test cases in macros.test.ts). No DOM, no Tauri: unit-testable in Node.
 //
-//   plain line        → sent followed by "\r"
-//   # @wait <ms>      → pause (0..3600000 ms), cancellable
-//   # @type <text>    → sent without Enter
-//   # anything else   → comment
-//   interior blank    → bare Enter; trailing blank lines ignored
-//   {{name}}          → prompted once per unique name
+//   plain line        sent followed by "\r"
+//   # @wait <ms>      pause (0..3600000 ms), cancellable
+//   # @type <text>    sent without Enter
+//   # anything else   comment
+//   interior blank    bare Enter; trailing blank lines ignored
+//   {{name}}          prompted once per unique name
 
 export type Step = { op: "line"; text: string } | { op: "type"; text: string } | { op: "wait"; ms: number };
 export type ValidationMode = "safe" | "unrestricted";
@@ -134,6 +134,6 @@ export function render(steps: Step[], values: Record<string, string>, mode: Vali
 /** Human-readable preview of rendered steps. */
 export function describe(steps: Step[]): string {
   return steps
-    .map((s) => (s.op === "wait" ? `⏱ wait ${s.ms} ms` : s.op === "type" ? `⌨ ${s.text}` : `↵ ${s.text}`))
+    .map((s) => (s.op === "wait" ? `wait  ${s.ms} ms` : s.op === "type" ? `type  ${s.text}` : `send  ${s.text}`))
     .join("\n");
 }

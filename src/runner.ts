@@ -1,5 +1,6 @@
 // Runs a macro against the focused pane only. Aborts if that pane closes or
 // focus moves elsewhere, and every wait is cancellable.
+import { icon } from "./icons";
 import { api, messageOf, type Macro } from "./api";
 import { describe, parse, placeholders, validateInput, MacroError } from "./macros";
 import type { Pane, TabManager } from "./tabs";
@@ -93,7 +94,7 @@ export class MacroRunner {
     this.current = { pane, ctl, name: m.name };
     const bar = $("macro-bar");
     const label = h("span", {});
-    bar.replaceChildren(h("span", { class: "spinner" }), label, h("button", { onclick: () => this.stop() }, "Stop"));
+    bar.replaceChildren(h("span", { class: "spinner" }), label, h("button", { onclick: () => this.stop() }, icon("stop", 12), "Stop"));
     bar.classList.remove("hidden");
     const delay = Math.max(0, this.tabs.settings.lineDelayMs);
     try {
@@ -101,7 +102,7 @@ export class MacroRunner {
         const s = steps[i];
         if (ctl.signal.aborted) throw new Aborted(String(ctl.signal.reason));
         if (pane.status !== "connected" || pane.termId === null) throw new Aborted("the session closed");
-        label.textContent = `▶ ${m.name} — step ${i + 1}/${steps.length}${s.op === "wait" ? ` (waiting ${s.ms} ms)` : ""}`;
+        label.textContent = `Running "${m.name}", step ${i + 1} of ${steps.length}${s.op === "wait" ? ` (waiting ${s.ms} ms)` : ""}`;
         if (s.op === "wait") {
           await sleep(s.ms, ctl.signal);
         } else {

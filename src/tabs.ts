@@ -1,4 +1,5 @@
 // Tabs, each holding a binary split tree of terminal panes.
+import { icon } from "./icons";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -161,7 +162,7 @@ export class TabManager {
     if (!text || pane.status === "closed") return;
     if (this.settings.confirmMultilinePaste && /[\r\n]/.test(text)) {
       const lines = text.split(/\r\n|\r|\n/);
-      const preview = h("pre", { class: "paste-preview" }, lines.slice(0, 30).join("\n") + (lines.length > 30 ? `\n… (${lines.length - 30} more lines)` : ""));
+      const preview = h("pre", { class: "paste-preview" }, lines.slice(0, 30).join("\n") + (lines.length > 30 ? `\n... and ${lines.length - 30} more lines` : ""));
       const ok = await confirmDialog(
         "Paste multiple lines?",
         h("div", {}, h("p", {}, `The clipboard contains ${lines.length} lines. Each line break may run a command.`), preview),
@@ -194,7 +195,7 @@ export class TabManager {
       if (m.kind === "data") pane.term.write(b64ToBytes(m.b64));
       else {
         pane.status = "closed";
-        pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""} — press Enter to close]\x1b[0m\r\n`);
+        pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press Enter to close.]\x1b[0m\r\n`);
         this.renderTabs();
         this.closeListeners.forEach((l) => l(pane));
       }
@@ -218,7 +219,7 @@ export class TabManager {
   async openSsh(session: RedactedSession, where: "tab" | "h" | "v" = "tab") {
     const pane = this.place(this.makePane("ssh", session.name, null), where);
     pane.session = session;
-    pane.term.write(`\x1b[2mConnecting to ${session.user}@${session.host}:${session.port}…\x1b[0m\r\n`);
+    pane.term.write(`\x1b[2mConnecting to ${session.user}@${session.host}:${session.port}...\x1b[0m\r\n`);
     let password: string | undefined;
     let passphrase: string | undefined;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -246,7 +247,7 @@ export class TabManager {
         if (e.kind === "hostKeyChanged") {
           this.failPane(pane, e.message, true);
           await modal<void>(
-            "⚠ HOST KEY CHANGED — possible attack",
+            "Host key changed: possible man-in-the-middle attack",
             (close) => ({
               body: h(
                 "div",
@@ -503,7 +504,7 @@ export class TabManager {
               e.stopPropagation();
               void this.closeTab(t);
             },
-          }, "×"),
+          }, icon("x", 13)),
         );
         el.addEventListener("auxclick", (e) => {
           if ((e as MouseEvent).button === 1) void this.closeTab(t);

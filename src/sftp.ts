@@ -1,4 +1,5 @@
 // MobaXterm-style SFTP browser that follows the active SSH pane.
+import { icon } from "./icons";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, Channel, messageOf, type Progress, type SftpEntry } from "./api";
@@ -101,13 +102,13 @@ export class SftpPanel {
     const tb = h(
       "div",
       { class: "toolbar" },
-      h("button", { title: "Up", onclick: () => this.refresh(parentOf(cwd)) }, "↑"),
-      h("button", { title: "Refresh", onclick: () => this.refresh(cwd) }, "⟳"),
-      h("button", { title: "New folder", onclick: () => this.mkdir(cwd) }, "+📁"),
-      h("button", { title: "Upload files", onclick: () => this.pickUpload() }, "⇪ Upload"),
-      h("button", { title: "Download selected file", disabled: !sel || sel.isDir, onclick: () => sel && this.download(sel) }, "⇩"),
-      h("button", { title: "Rename", disabled: !sel, onclick: () => sel && this.rename(sel) }, "✎"),
-      h("button", { title: "Delete", disabled: !sel, onclick: () => sel && this.remove(sel) }, "🗑"),
+      h("button", { class: "tool", title: "Parent folder", onclick: () => this.refresh(parentOf(cwd)) }, icon("arrow-up", 15)),
+      h("button", { class: "tool", title: "Refresh", onclick: () => this.refresh(cwd) }, icon("refresh", 15)),
+      h("button", { class: "tool", title: "New folder", onclick: () => this.mkdir(cwd) }, icon("folder-plus", 15)),
+      h("button", { class: "tool", title: "Upload files", onclick: () => this.pickUpload() }, icon("upload", 15)),
+      h("button", { class: "tool", title: "Download selected file", disabled: !sel || sel.isDir, onclick: () => sel && this.download(sel) }, icon("download", 15)),
+      h("button", { class: "tool", title: "Rename", disabled: !sel, onclick: () => sel && this.rename(sel) }, icon("edit", 15)),
+      h("button", { class: "tool", title: "Delete", disabled: !sel, onclick: () => sel && this.remove(sel) }, icon("trash", 15)),
     );
     const rows = this.entries.map((e) => {
       const row = h(
@@ -128,7 +129,7 @@ export class SftpPanel {
           },
           title: e.path,
         },
-        h("span", { class: "ico" }, e.isDir ? "📁" : e.isSymlink ? "↪" : "📄"),
+        h("span", { class: `ico${e.isDir ? " dir" : ""}` }, icon(e.isDir ? "folder" : e.isSymlink ? "link" : "file", 15)),
         h("span", { class: "name" }, e.name),
         h("span", { class: "size" }, e.isDir ? "" : fmtSize(e.size)),
         h("span", { class: "mtime" }, e.mtime ? new Date(e.mtime * 1000).toLocaleString() : ""),
@@ -144,7 +145,7 @@ export class SftpPanel {
       h(
         "div",
         { class: `file-list${this.loading ? " loading" : ""}` },
-        cwd !== "/" ? h("div", { class: "file-row", ondblclick: () => this.refresh(parentOf(cwd)) }, h("span", { class: "ico" }, "📁"), h("span", { class: "name" }, "..")) : null,
+        cwd !== "/" ? h("div", { class: "file-row", ondblclick: () => this.refresh(parentOf(cwd)) }, h("span", { class: "ico dir" }, icon("folder", 15)), h("span", { class: "name" }, "..")) : null,
         ...rows,
       ),
       h("p", { class: "muted small" }, "Drop files here to upload them to this folder."),
@@ -180,8 +181,8 @@ export class SftpPanel {
 
   private transferRow(label: string, transferId: number) {
     const bar = h("progress", { max: 1, value: 0 });
-    const txt = h("span", { class: "small" }, "starting…");
-    const row = h("div", { class: "transfer" }, h("div", { class: "small name" }, label), bar, txt, h("button", { class: "icon", title: "Cancel", onclick: () => api.sftpCancel(transferId) }, "×"));
+    const txt = h("span", { class: "small" }, "Starting");
+    const row = h("div", { class: "transfer" }, h("div", { class: "small name" }, label), bar, txt, h("button", { class: "icon", title: "Cancel", onclick: () => api.sftpCancel(transferId) }, icon("x", 14)));
     this.transfers.append(row);
     const ch = new Channel<Progress>();
     ch.onmessage = (p) => {
@@ -198,7 +199,7 @@ export class SftpPanel {
     const local = await saveDialog({ title: "Save file", defaultPath: e.name });
     if (!local) return;
     const tid = transferSeq++;
-    const t = this.transferRow(`⇩ ${e.name}`, tid);
+    const t = this.transferRow(`Download ${e.name}`, tid);
     try {
       await api.sftpDownload(id, tid, e.path, local, t.ch);
       t.txt.textContent = "done";
@@ -224,7 +225,7 @@ export class SftpPanel {
     if (!dir) return;
     for (const local of paths) {
       const tid = transferSeq++;
-      const t = this.transferRow(`⇪ ${baseName(local)}`, tid);
+      const t = this.transferRow(`Upload ${baseName(local)}`, tid);
       try {
         await api.sftpUpload(id, tid, local, dir, t.ch);
         t.txt.textContent = "done";

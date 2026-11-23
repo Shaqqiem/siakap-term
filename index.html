@@ -9,26 +9,26 @@
   <body>
     <div id="lock" class="lock hidden">
       <form id="lock-form" class="lock-card" autocomplete="off">
-        <div class="brand"><span class="logo">◆</span> Siakap Terminal</div>
+        <div class="brand"><span class="logo" data-icon="logo" data-icon-size="28"></span><span>Siakap Terminal</span></div>
         <p id="lock-hint" class="muted"></p>
         <input id="lock-pass" type="password" placeholder="Master password" autocomplete="off" spellcheck="false" />
         <input id="lock-pass2" type="password" placeholder="Repeat master password" class="hidden" autocomplete="off" />
         <div id="lock-error" class="error"></div>
         <button id="lock-submit" type="submit" class="primary">Unlock</button>
-        <p class="muted small">Your sessions, macros, saved passwords and known hosts are encrypted with this password
-          (Argon2id + XChaCha20-Poly1305). It cannot be recovered if you forget it.</p>
+        <p class="muted small">Sessions, macros, saved passwords and known hosts are encrypted with this password.
+          There is no way to recover it, so keep it somewhere safe.</p>
       </form>
     </div>
 
     <div id="app" class="app hidden">
       <nav class="rail" aria-label="Tools">
-        <button data-panel="sessions" title="Sessions">🖧<span>Sessions</span></button>
-        <button data-panel="macros" title="Macros">⚡<span>Macros</span></button>
-        <button data-panel="sftp" title="SFTP">📁<span>SFTP</span></button>
-        <button data-panel="settings" title="Settings">⚙<span>Settings</span></button>
+        <button data-panel="sessions" title="Sessions" data-icon="sessions"><span>Sessions</span></button>
+        <button data-panel="macros" title="Macros" data-icon="macros"><span>Macros</span></button>
+        <button data-panel="sftp" title="SFTP" data-icon="folder"><span>SFTP</span></button>
+        <button data-panel="settings" title="Settings" data-icon="settings"><span>Settings</span></button>
         <div class="rail-spacer"></div>
-        <button id="btn-yubikey" title="Toggle YubiKey between Windows and WSL (usbipd)">🔑<span>YubiKey</span></button>
-        <button id="btn-lock" title="Lock the vault">🔒<span>Lock</span></button>
+        <button id="btn-yubikey" title="Move YubiKey between Windows and WSL (usbipd)" data-icon="key"><span>YubiKey</span></button>
+        <button id="btn-lock" title="Lock the vault" data-icon="lock"><span>Lock</span></button>
       </nav>
       <aside id="panel" class="panel">
         <section id="panel-sessions" class="panel-body"></section>
@@ -41,9 +41,9 @@
         <div class="tabbar">
           <div id="tabs" class="tabs"></div>
           <div class="tab-actions">
-            <button id="btn-new-local" title="New local shell (Ctrl+Shift+T)">＋</button>
-            <button id="btn-split-h" title="Split side by side (Ctrl+Shift+D)">◫</button>
-            <button id="btn-split-v" title="Split top/bottom (Ctrl+Shift+E)">⊟</button>
+            <button id="btn-new-local" title="New local shell (Ctrl+Shift+T)" data-icon="plus" data-icon-size="16"></button>
+            <button id="btn-split-h" title="Split side by side (Ctrl+Shift+D)" data-icon="split-h" data-icon-size="16"></button>
+            <button id="btn-split-v" title="Split top and bottom (Ctrl+Shift+E)" data-icon="split-v" data-icon-size="16"></button>
           </div>
         </div>
         <div id="macro-bar" class="macro-bar hidden"></div>
