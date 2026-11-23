@@ -11,6 +11,8 @@ const THEMES: Record<string, { label: string; background: string; foreground: st
   light: { label: "Light", background: "#fafafa", foreground: "#1f2328", cursor: "#0969da", selection: "#c8ddf5" },
 };
 
+let fontCache: { name: string; monospace: boolean }[] | null = null;
+
 export class SettingsPanel {
   constructor(
     private onSaved: (s: Settings) => void,
@@ -34,7 +36,33 @@ export class SettingsPanel {
       panel.replaceChildren(h("p", { class: "error" }, messageOf(e)));
       return;
     }
-    const fontFamily = h("input", { value: s.fontFamily, spellcheck: "false" });
+    const fontFamily = h("input", { value: s.fontFamily, spellcheck: "false" }) as HTMLInputElement;
+    // Installed fonts: fixed-width ones first (best for terminals).
+    fontCache ??= await api.fontsList().catch(() => []);
+    const clean = (n: string) => n.replace(/['";{}<>\\]/g, "").trim();
+    const firstFamily = (css: string) => clean(css.split(",")[0] ?? "");
+    const current = firstFamily(s.fontFamily);
+    const mono = fontCache.filter((f) => f.monospace).map((f) => clean(f.name)).filter(Boolean);
+    const other = fontCache.filter((f) => !f.monospace).map((f) => clean(f.name)).filter(Boolean);
+    const fontPick = h("select", {}) as HTMLSelectElement;
+    const group = (label: string, names: string[]) =>
+      names.length ? h("optgroup", { label }, ...names.map((n) => h("option", { value: n }, n))) : null;
+    const known = new Set([...mono, ...other].map((n) => n.toLowerCase()));
+    for (const g of [
+      known.has(current.toLowerCase()) ? null : group("Current", [current]),
+      group("Fixed width (recommended)", mono),
+      group("Other fonts", other),
+    ])
+      if (g) fontPick.append(g);
+    fontPick.value = [...fontPick.options].find((o) => o.value.toLowerCase() === current.toLowerCase())?.value ?? current;
+    const preview = h("div", { class: "font-preview" }, "user@server:~$ ls -la  0O 1lI {}[] =>");
+    const showPreview = () => (preview.style.fontFamily = fontFamily.value);
+    fontPick.addEventListener("change", () => {
+      fontFamily.value = `'${fontPick.value}', monospace`;
+      showPreview();
+    });
+    fontFamily.addEventListener("input", showPreview);
+    showPreview();
     const fontSize = h("input", { type: "number", min: 6, max: 48, value: s.fontSize });
     const bg = h("input", { type: "color", value: s.background });
     const fg = h("input", { type: "color", value: s.foreground });
@@ -82,7 +110,14 @@ export class SettingsPanel {
         : [["", "No saved sessions yet"]],
       s.startupSession,
     );
-    const defaultShell = select(shellOpts(`First available (${firstShell})`), shells.some((x) => x.id === s.defaultShell) ? s.defaultShell : "");
+    const defaultChoices: [string, string][] = [
+      ...shellOpts(`First available (${firstShell})`),
+      ...sessions
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((x): [string, string] => [`session:${x.id}`, `Session: ${(x.folder ? x.folder + "/" : "") + x.name}`]),
+    ];
+    const defaultShell = select(defaultChoices, defaultChoices.some(([v]) => v === s.defaultShell) ? s.defaultShell : "");
     const startupPanes = select([["1", "One pane"], ["2", "Two panes side by side"], ["4", "Four panes (2×2 grid)"]], String(s.startupPanes));
     const startupPanesField = field("Layout", startupPanes);
     const startupShellField = field("Which terminal", startupShell);
@@ -210,9 +245,11 @@ export class SettingsPanel {
         startupShellField,
         startupSessionField,
         startupPanesField,
-        field("Default terminal for new tabs", defaultShell, "What the + button and Ctrl+Shift+T open. Pick your WSL distro here if you use WSL most."),
+        field("New tabs open", defaultShell, "What the + button and Ctrl+Shift+T open: a terminal on this PC, or one of your saved sessions. Right-click + to pick something else."),
         h("h4", {}, "Look"),
         field("Theme", theme),
+        field("Font", fontPick, fontCache.length ? undefined : "Couldn't list the fonts on this PC. Type a font name under Advanced settings."),
+        preview,
         field("Text size", textSize),
         h("h4", {}, "Security"),
         ...(vs.passwordless
@@ -238,7 +275,7 @@ export class SettingsPanel {
           { class: "advanced" },
           h("summary", {}, "Advanced settings"),
           h("div", { class: "form" },
-            field("Font", fontFamily, "Must be installed on this PC, e.g. Cascadia Mono or Consolas."),
+            field("Font (with fallbacks)", fontFamily, "Fonts are tried in order, e.g. Cascadia Mono, Consolas, monospace."),
             field("Exact text size", fontSize),
             h("div", { class: "grid2" }, field("Background", bg), field("Text", fg), field("Cursor", cursor), field("Selection", selection)),
             field("Lines of history to keep", scrollback),

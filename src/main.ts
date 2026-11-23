@@ -8,7 +8,7 @@ import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
 import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane } from "./tabs";
-import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, toast } from "./ui";
+import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
 
@@ -113,6 +113,13 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.5.0",
+    title: "Folders, right-click menus and tidier tabs",
+    text: "Make folders with the folder button and drag sessions onto them. Right-click sessions, folders, tabs and terminals for more options, including Copy and Paste. Drag tabs to reorder them, and pick any installed font in Settings.",
+    target: '.rail button[data-panel="sessions"]',
+    before: () => showPanel("sessions"),
+  },
+  {
     since: "0.4.3",
     title: "Skip the master password if you like",
     text: "In Settings, under Security, you can untick Ask for the master password when Siakap opens. Siakap then opens straight away on this PC, for your Windows account only. Lock still asks for it.",
@@ -210,7 +217,7 @@ function renderWelcome() {
         card("terminal", "Terminal on this PC", sh ? `Opens ${sh.label}` : "PowerShell, Command Prompt or WSL", () => void newLocal()),
         card("remote", "Connect to a server", "SSH to a Linux server, switch or router", () => void sidebar.newSession("ssh")),
         card("serial", "Serial console", "Use a console cable (COM port)", () => void sidebar.newSession("serial")),
-        card("grid", "Four terminals", "A 2×2 grid of your default terminal", () => void splitGrid()),
+        card("grid", "Four terminals", "A 2×2 grid of your default terminal", () => void layout("grid")),
       ),
       recent.length
         ? h(
@@ -519,9 +526,28 @@ function pickShell(id = "") {
   return all.find((x) => x.id === id) ?? all.find((x) => x.id === tabs.settings?.defaultShell) ?? all[0];
 }
 
+/** What the + button opens: the default shell, or a saved session chosen in Settings. */
 async function newLocal(where: "tab" | "h" | "v" = "tab") {
+  const def = tabs.settings?.defaultShell ?? "";
+  if (def.startsWith("session:")) {
+    const ses = sidebar.sessions.find((x) => x.id === def.slice(8));
+    if (ses) return sidebar.connectSession(ses, where);
+  }
   const sh = pickShell() ?? (await chooseShell());
   if (sh) await tabs.openLocal(sh.id, sh.label, where);
+}
+
+/** Right-click (or long-press) on +: every terminal and saved session. */
+function newMenu(e: MouseEvent) {
+  showMenu(e, [
+    ...sidebar.shells.map((sh) => ({ label: sh.label, action: () => tabs.openLocal(sh.id, sh.label) })),
+    { label: "Serial console...", action: () => sidebar.quickSerial() },
+    ...sidebar.sessions
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 30)
+      .map((s) => ({ label: `Session: ${s.name}`, action: () => sidebar.connectSession(s) })),
+  ]);
 }
 
 // Runs once per app start, after the first unlock, if no tab is open yet.
@@ -553,13 +579,20 @@ async function runStartup() {
   else if (s.startupPanes === 4) tabs.splitGrid();
 }
 $("btn-new-local").addEventListener("click", () => void newLocal());
-$("btn-split-h").addEventListener("click", () => (tabs.focusedPane ? tabs.splitFocused("h") : void newLocal()));
-$("btn-split-v").addEventListener("click", () => (tabs.focusedPane ? tabs.splitFocused("v") : void newLocal()));
-$("btn-grid").addEventListener("click", () => void splitGrid());
+$("btn-new-local").addEventListener("contextmenu", (e) => newMenu(e));
+$("btn-split-h").addEventListener("click", () => void layout("h"));
+$("btn-split-v").addEventListener("click", () => void layout("v"));
+$("btn-grid").addEventListener("click", () => void layout("grid"));
 
-async function splitGrid() {
-  if (!tabs.focusedPane) await newLocal();
-  tabs.splitGrid();
+/** Toolbar layouts: only split a tab that has a single pane. */
+async function layout(kind: "h" | "v" | "grid") {
+  if (!tabs.focusedPane) {
+    await newLocal();
+    if (kind === "grid") tabs.layout("grid");
+    else if (tabs.focusedPane) tabs.layout(kind);
+    return;
+  }
+  tabs.layout(kind);
 }
 
 // ------------------------------------------------------------------ shortcuts & activity
@@ -568,9 +601,9 @@ window.addEventListener("keydown", (e) => {
   if (isModalOpen() || !$("lock").classList.contains("hidden")) return;
   const cs = e.ctrlKey && e.shiftKey && !e.altKey;
   if (cs && e.code === "KeyT") (e.preventDefault(), void newLocal());
-  else if (cs && e.code === "KeyD") (e.preventDefault(), tabs.splitFocused("h"));
-  else if (cs && e.code === "KeyE") (e.preventDefault(), tabs.splitFocused("v"));
-  else if (cs && e.code === "KeyG") (e.preventDefault(), void splitGrid());
+  else if (cs && e.code === "KeyD") (e.preventDefault(), void layout("h"));
+  else if (cs && e.code === "KeyE") (e.preventDefault(), void layout("v"));
+  else if (cs && e.code === "KeyG") (e.preventDefault(), void layout("grid"));
   else if (cs && e.code === "KeyW") (e.preventDefault(), tabs.focusedPane && void tabs.closePane(tabs.focusedPane));
   else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), tabs.cycle(e.shiftKey ? -1 : 1));
   else if (e.key === "Escape" && runner.busy) runner.stop("stopped with Esc");

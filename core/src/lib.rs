@@ -14,6 +14,7 @@
 
 pub mod backup;
 pub mod error;
+pub mod fonts;
 pub mod macros;
 pub mod mobaxterm;
 pub mod model;

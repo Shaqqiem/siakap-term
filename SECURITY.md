@@ -88,6 +88,9 @@ it can ask for:
 - **Programs:** shells are picked from a detected list by id. Host names, user names and serial port names are
   validated, SFTP names can't contain `/` or be `..`, and usbipd bus ids may only contain digits and dashes.
 
+**Font list.** The font picker reads the name and fixed-width flag from font files in the system and per-user font
+folders. Only those two small tables are read, malformed files are skipped, and only family names reach the web view.
+
 **Running other programs.** `usbipd`, `wsl` and the shells are started with fixed argument lists, never through a
 shell command line. On Windows they run without a console window. Program locations are resolved to absolute paths:
 `usbipd` from its standard install folder first, then `PATH`, ignoring any relative `PATH` entries. The current folder

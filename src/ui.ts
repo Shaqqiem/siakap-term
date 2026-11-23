@@ -36,6 +36,8 @@ export function $(id: string): HTMLElement {
 }
 
 export function toast(msg: string, kind: "info" | "error" | "ok" = "info", ms = 4000) {
+  // The same message again replaces the old one instead of stacking.
+  for (const old of $("toasts").children) if ((old as HTMLElement).textContent === msg) old.remove();
   const t = h("div", { class: `toast ${kind}` }, msg);
   $("toasts").append(t);
   setTimeout(() => t.remove(), kind === "error" ? Math.max(ms, 7000) : ms);
@@ -269,3 +271,76 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeMenu();
 });
 window.addEventListener("blur", closeMenu);
+
+// ------------------------------------------------------------------ pointer drag
+// HTML drag and drop is unreliable in the Windows web view while file drops
+// are enabled, so rows are dragged with pointer events instead. Drop targets
+// carry `data-drop="<value>"`; `onDrop` gets that value.
+
+export interface DragOptions {
+  label: string;
+  /** Return false to refuse a target. */
+  accept?: (target: string) => boolean;
+  onDrop: (target: string) => void;
+  /** Called on every move with the hovered target (or null). */
+  onOver?: (target: HTMLElement | null, e: PointerEvent) => void;
+  /** Use a live callback instead of drop targets (tab reordering). */
+  ghost?: boolean;
+  onEnd?: () => void;
+}
+
+export function enableDrag(el: HTMLElement, opts: DragOptions) {
+  el.addEventListener("pointerdown", (down) => {
+    if (down.button !== 0 || (down.target as HTMLElement).closest("button,input,select,textarea")) return;
+    const sx = down.clientX;
+    const sy = down.clientY;
+    let active = false;
+    let ghost: HTMLElement | null = null;
+    let over: HTMLElement | null = null;
+    const setOver = (t: HTMLElement | null) => {
+      if (over === t) return;
+      over?.classList.remove("drop-target");
+      over = t;
+      over?.classList.add("drop-target");
+    };
+    const move = (e: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
+        active = true;
+        el.setPointerCapture(e.pointerId);
+        el.classList.add("dragging");
+        document.body.classList.add("is-dragging");
+        if (opts.ghost !== false) {
+          ghost = h("div", { class: "drag-ghost" }, opts.label);
+          document.body.append(ghost);
+        }
+      }
+      if (ghost) ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 8}px)`;
+      const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-drop]") ?? null;
+      setOver(hit && (!opts.accept || opts.accept(hit.dataset.drop ?? "")) ? hit : null);
+      opts.onOver?.(over, e);
+    };
+    const finish = (drop: boolean) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      if (!active) return;
+      el.classList.remove("dragging");
+      document.body.classList.remove("is-dragging");
+      ghost?.remove();
+      const target = over;
+      setOver(null);
+      // The click that ends a drag must not also activate the row.
+      const block = (c: Event) => (c.stopPropagation(), c.preventDefault());
+      window.addEventListener("click", block, true);
+      setTimeout(() => window.removeEventListener("click", block, true), 0);
+      if (drop && target) opts.onDrop(target.dataset.drop ?? "");
+      opts.onEnd?.();
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+  });
+}

@@ -1,11 +1,11 @@
 // Sessions and Macros panels.
 import { icon } from "./icons";
-import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type SerialPortInfo, type Session, type ShellInfo } from "./api";
+import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type Session, type ShellInfo } from "./api";
 import { MacroPanel } from "./macropanel";
 import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
 import type { MacroRunner } from "./runner";
 import type { TabManager } from "./tabs";
-import { $, fill, showMenu, buildTree, confirmDialog, field, h, modal, promptDialog, select, toast, type FolderNode } from "./ui";
+import { $, fill, showMenu, buildTree, confirmDialog, enableDrag, field, h, modal, promptDialog, select, toast, type FolderNode, type MenuEntry } from "./ui";
 
 export class Sidebar {
   sessions: RedactedSession[] = [];
@@ -16,30 +16,25 @@ export class Sidebar {
   private collapsed = new Set<string>();
   private sessionQuery = "";
 
-  serialPorts: SerialPortInfo[] = [];
-  private serialKey = "";
+  /** Folder for the next new session (set by a folder's menu). */
+  private newIn = "";
 
   readonly macroPanel: MacroPanel;
 
   constructor(public tabs: TabManager, runner: MacroRunner) {
     this.macroPanel = new MacroPanel(this, runner);
-    // Keep the "Serial ports" list current so a newly plugged-in cable shows up.
-    window.setInterval(() => {
-      const panel = document.getElementById("panel-sessions");
-      if (panel && !panel.classList.contains("hidden") && panel.offsetParent !== null) void this.pollSerial();
-    }, 3000);
+    try {
+      for (const k of JSON.parse(localStorage.getItem("siakap.sessions.collapsed") ?? "[]")) this.collapsed.add(String(k));
+    } catch {
+      /* per-viewer convenience only */
+    }
   }
 
-  private async pollSerial(render = true) {
+  private saveCollapsed() {
     try {
-      const { ports } = await api.serialPortsList();
-      const key = ports.map((p) => p.name + p.description).join("|");
-      if (key === this.serialKey) return;
-      this.serialKey = key;
-      this.serialPorts = ports;
-      if (render) this.renderSessions();
+      localStorage.setItem("siakap.sessions.collapsed", JSON.stringify([...this.collapsed]));
     } catch {
-      /* listing ports is best-effort */
+      /* ignore */
     }
   }
 
@@ -68,7 +63,6 @@ export class Sidebar {
     this.macroFolders = v.macroFolders;
     this.macros = m;
     if (!this.shells.length) this.shells = await api.shellsList().catch(() => []);
-    await this.pollSerial(false);
     this.renderSessions();
     this.renderMacros();
     this.onReload();
@@ -76,53 +70,6 @@ export class Sidebar {
 
   /** Called after sessions or macros change (main.ts refreshes the welcome screen). */
   onReload: () => void = () => {};
-
-  // ------------------------------------------------------------------ tree
-
-  private renderTree<T>(
-    root: FolderNode<T>,
-    kind: "s" | "m",
-    item: (t: T) => HTMLElement,
-    filtering: boolean,
-    onDeleteFolder: (path: string) => void,
-  ): HTMLElement {
-    const ul = h("ul", { class: "tree" });
-    const walk = (node: FolderNode<T>, into: HTMLElement) => {
-      const kids = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
-      for (const c of kids) {
-        const key = `${kind}:${c.path}`;
-        const open = filtering || !this.collapsed.has(key);
-        const empty = c.items.length === 0 && c.children.size === 0;
-        const sub = h("ul", { class: "tree" });
-        const li = h(
-          "li",
-          { class: "folder" },
-          h(
-            "div",
-            {
-              class: "row folder-row",
-              onclick: () => {
-                if (this.collapsed.has(key)) this.collapsed.delete(key);
-                else this.collapsed.add(key);
-                kind === "s" ? this.renderSessions() : this.renderMacros();
-              },
-            },
-            h("span", { class: "chev" }, icon(open ? "chevron-down" : "chevron-right", 14)),
-            h("span", { class: "name" }, c.name),
-            empty
-              ? h("button", { class: "icon", title: "Delete empty folder", onclick: (e: Event) => (e.stopPropagation(), onDeleteFolder(c.path)) }, icon("x", 14))
-              : null,
-          ),
-          open ? sub : null,
-        );
-        into.append(li);
-        if (open) walk(c, sub);
-      }
-      for (const it of node.items) into.append(item(it));
-    };
-    walk(root, ul);
-    return ul;
-  }
 
   // ------------------------------------------------------------------ sessions
 
@@ -140,27 +87,25 @@ export class Sidebar {
       s.focus();
       s.setSelectionRange(s.value.length, s.value.length);
     });
-    const tree = this.renderTree(
-      buildTree(list, (s) => s.folder, q ? [] : this.folders),
-      "s",
-      (s) => this.sessionItem(s),
-      !!q,
-      (path) => this.deleteFolder("sessions", path),
-    );
-    fill(panel, 
+    const root = buildTree(list, (s) => s.folder, q ? [] : this.folders);
+    const tree = h("div", { class: "session-tree session-root", "data-drop": "" });
+    this.drawFolder(tree, root, !!q);
+    fill(
+      panel,
       h("header", { class: "panel-head" }, h("h3", {}, "Sessions")),
       h(
         "div",
         { class: "toolbar" },
-        h("button", { title: "Add a remote server (SSH)", onclick: () => this.editSession(null, "ssh") }, "+ SSH"),
-        h("button", { title: "Save a terminal on this PC (PowerShell, WSL, cmd)", onclick: () => this.editSession(null, "local") }, "+ Local"),
-        h("button", { title: "Connect a console cable (COM port)", onclick: () => this.quickSerial() }, "+ Serial"),
+        h("button", { title: "Add a remote server (SSH)", onclick: () => this.newSessionIn("ssh", "") }, "+ SSH"),
+        h("button", { title: "Save a terminal on this PC (PowerShell, WSL, cmd)", onclick: () => this.newSessionIn("local", "") }, "+ Local"),
+        h("button", { title: "Connect a console cable (COM port)", onclick: () => this.newSessionIn("serial", "") }, "+ Serial"),
+        h("button", { class: "tool", title: "New folder", onclick: () => this.folderDialog("", null) }, icon("folder-plus", 15)),
         h("button", {
           class: "tool",
-          title: "More: new folder, import, export",
+          title: "More: import, export",
           onclick: (e: Event) =>
             showMenu(e as MouseEvent, [
-              { label: "New folder", action: () => this.newFolder("sessions") },
+              { label: "New folder", action: () => this.folderDialog("", null) },
               { label: "Import sessions and macros...", action: () => this.macroPanel.importBackup() },
               { label: "Export sessions and macros...", action: () => this.macroPanel.exportBackup("all") },
             ]),
@@ -168,45 +113,57 @@ export class Sidebar {
       ),
       search,
       tree,
-      list.length === 0 && !q ? h("p", { class: "muted small" }, "No saved sessions yet. Click + SSH to add a server, or + Serial for a console cable.") : null,
-      h("h4", {}, "Local shells"),
-      h(
-        "ul",
-        { class: "tree" },
-        ...this.shells.map((sh) =>
-          h(
-            "li",
-            {},
-            h(
-              "div",
-              { class: "row item", title: "Open (Shift+click: split)", onclick: (e: Event) => this.tabs.openLocal(sh.id, sh.label, (e as MouseEvent).shiftKey ? "h" : "tab") },
-              h("span", { class: "ico" }, icon("terminal", 15)),
-              h("span", { class: "name" }, sh.label),
-            ),
-          ),
-        ),
-      ),
-      h("h4", {}, "Serial ports"),
-      this.serialPorts.length
-        ? h(
-            "ul",
-            { class: "tree" },
-            ...this.serialPorts.map((p) =>
-              h(
-                "li",
-                {},
-                h(
-                  "div",
-                  { class: "row item", title: `Connect to ${p.name}`, onclick: () => this.quickSerial(p.name) },
-                  h("span", { class: "ico" }, icon("serial", 15)),
-                  h("span", { class: "name" }, p.name),
-                  h("span", { class: "sub" }, p.description),
-                ),
-              ),
-            ),
-          )
-        : h("p", { class: "muted small" }, "No serial ports detected. Plug in a console cable and it appears here."),
+      list.length === 0 && !q && !this.folders.length
+        ? h("p", { class: "muted small" }, "No saved sessions yet. Click + SSH to add a server, + Local for a terminal on this PC, or + Serial for a console cable. Use the folder button to group them.")
+        : null,
+      list.length && !q ? h("p", { class: "muted small hint" }, "Right-click a session or folder for more. Drag sessions onto a folder to move them.") : null,
     );
+  }
+
+  private drawFolder(into: HTMLElement, node: FolderNode<RedactedSession>, filtering: boolean) {
+    const kids = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+    for (const c of kids) {
+      const key = `s:${c.path}`;
+      const open = filtering || !this.collapsed.has(key);
+      const count = this.sessions.filter((s) => s.folder === c.path || s.folder.startsWith(c.path + "/")).length;
+      const empty = count === 0 && c.children.size === 0;
+      const entries: MenuEntry[] = [
+        { label: "New SSH session here", action: () => this.newSessionIn("ssh", c.path) },
+        { label: "New local terminal here", action: () => this.newSessionIn("local", c.path) },
+        { label: "New serial session here", action: () => this.newSessionIn("serial", c.path) },
+        { label: "New subfolder", action: () => this.folderDialog(c.path, null) },
+        { label: "Rename folder", action: () => this.folderDialog("", c.path) },
+        { label: empty ? "Delete folder" : "Delete folder (empty it first)", danger: true, disabled: !empty, action: () => this.deleteFolder("sessions", c.path) },
+      ];
+      const head = h(
+        "div",
+        { class: "row folder-row folder-head", title: c.path, "data-drop": c.path },
+        h("span", { class: "chev" }, icon(open ? "chevron-down" : "chevron-right", 14)),
+        h("span", { class: "ico dir" }, icon("folder", 15)),
+        h("span", { class: "name" }, c.name),
+        h("span", { class: "count muted" }, String(count)),
+        h(
+          "span",
+          { class: "row-actions" },
+          h("button", { class: "icon", title: "Folder actions", onclick: (e: Event) => (e.stopPropagation(), showMenu(e as MouseEvent, entries)) }, icon("more", 14)),
+        ),
+      );
+      head.addEventListener("click", () => {
+        if (this.collapsed.has(key)) this.collapsed.delete(key);
+        else this.collapsed.add(key);
+        this.saveCollapsed();
+        this.renderSessions();
+      });
+      head.addEventListener("contextmenu", (e) => showMenu(e, entries));
+      const box = h("div", { class: "folder" }, head);
+      into.append(box);
+      if (open) {
+        const inner = h("div", { class: "folder-content" });
+        box.append(inner);
+        this.drawFolder(inner, c, filtering);
+      }
+    }
+    for (const s of node.items) into.append(this.sessionItem(s));
   }
 
   connectSession(s: RedactedSession, where: "tab" | "h" | "v" = "tab") {
@@ -221,56 +178,129 @@ export class Sidebar {
 
   private sessionItem(s: RedactedSession): HTMLElement {
     const connect = (where: "tab" | "h" | "v" = "tab") => this.connectSession(s, where);
-    return h(
-      "li",
-      {},
+    const entries: MenuEntry[] = [
+      { label: "Connect", action: () => connect() },
+      { label: "Connect beside the current terminal", disabled: s.kind === "serial" || !this.tabs.focusedPane, action: () => connect("h") },
+      { label: "Edit...", action: () => this.editSession(s, s.kind) },
+      { label: "Duplicate", action: () => this.duplicateSession(s) },
+      { label: "Move to folder...", action: () => this.moveDialog(s) },
+      ...(s.folder ? [{ label: "Move out of folder", action: () => this.moveSession(s, "") }] : []),
+      { label: "Delete", danger: true, action: () => this.deleteSession(s) },
+    ];
+    const row = h(
+      "div",
+      {
+        class: "row item",
+        tabindex: 0,
+        title:
+          (s.kind === "ssh" ? `${s.user}@${s.host}:${s.port}` : s.kind === "serial" ? serialSummary(s.serial) : "Terminal on this PC") +
+          "\nDouble-click to connect. Right-click for more. Drag onto a folder to move it.",
+        ondblclick: () => connect(),
+        onkeydown: (e: Event) => (e as KeyboardEvent).key === "Enter" && connect(),
+      },
+      h("span", { class: "ico" }, icon(s.kind === "ssh" ? "remote" : s.kind === "serial" ? "serial" : "terminal", 15)),
+      h("span", { class: "name" }, s.name),
+      h("span", { class: "sub" }, s.kind === "ssh" ? `${s.user}@${s.host}` : s.kind === "serial" ? `${s.serial.port} ${s.serial.baud}` : ""),
       h(
-        "div",
-        {
-          class: "row item",
-          tabindex: 0,
-          title:
-            s.kind === "ssh"
-              ? `${s.user}@${s.host}:${s.port} (double-click to connect)`
-              : s.kind === "serial"
-                ? `${serialSummary(s.serial)} (double-click to connect)`
-                : "Local shell",
-          ondblclick: () => connect(),
-          onkeydown: (e: Event) => (e as KeyboardEvent).key === "Enter" && connect(),
-        },
-        h("span", { class: "ico" }, icon(s.kind === "ssh" ? "remote" : s.kind === "serial" ? "serial" : "terminal", 15)),
-        h("span", { class: "name" }, s.name),
-        h("span", { class: "sub" }, s.kind === "ssh" ? `${s.user}@${s.host}` : s.kind === "serial" ? `${s.serial.port} ${s.serial.baud}` : ""),
-        h(
-          "span",
-          { class: "row-actions" },
-          h("button", { class: "icon", title: "Connect", onclick: (e: Event) => (e.stopPropagation(), connect()) }, icon("play", 14)),
-          h("button", { class: "icon", title: "Connect in split", onclick: (e: Event) => (e.stopPropagation(), connect("h")) }, icon("split-h", 14)),
-          h("button", { class: "icon", title: "Edit", onclick: (e: Event) => (e.stopPropagation(), this.editSession(s, s.kind)) }, icon("edit", 14)),
-          h("button", { class: "icon", title: "Delete", onclick: (e: Event) => (e.stopPropagation(), this.deleteSession(s)) }, icon("trash", 14)),
-        ),
+        "span",
+        { class: "row-actions" },
+        h("button", { class: "icon", title: "Connect", onclick: (e: Event) => (e.stopPropagation(), connect()) }, icon("play", 14)),
+        h("button", { class: "icon", title: "More", onclick: (e: Event) => (e.stopPropagation(), showMenu(e as MouseEvent, entries)) }, icon("more", 14)),
       ),
     );
+    row.addEventListener("contextmenu", (e) => showMenu(e, entries));
+    enableDrag(row, {
+      label: s.name,
+      accept: (t) => t !== s.folder,
+      onDrop: (t) => void this.moveSession(s, t),
+    });
+    return h("div", { class: "session-item" }, row);
   }
 
-  private async deleteSession(s: RedactedSession) {
-    if (!(await confirmDialog("Delete session?", `Delete "${s.name}" and any saved password for it?`, "Delete", { danger: true }))) return;
+  private plain(s: RedactedSession): Session {
+    const { hasPassword: _h, ...rest } = s as RedactedSession & { hasPassword?: boolean };
+    void _h;
+    return rest as Session;
+  }
+
+  private async moveSession(s: RedactedSession, folder: string) {
+    if (s.folder === folder) return;
     try {
-      await api.sessionDelete(s.id);
+      await api.sessionSave({ ...this.plain(s), folder }, null, false);
+      if (folder) this.collapsed.delete(`s:${folder}`);
+      this.saveCollapsed();
+      toast(folder ? `Moved ${s.name} to ${folder}.` : `Moved ${s.name} out of its folder.`, "ok", 2000);
       await this.reload();
     } catch (e) {
       toast(messageOf(e), "error");
     }
   }
 
-  private async newFolder(kind: "sessions" | "macros") {
-    const name = await promptDialog("New folder", "Folder path (use / for sub-folders, up to 16 levels)", {
-      validate: (v) => (v.split(/[/\\]/).some((x) => x.trim() === "." || x.trim() === "..") ? "'.' and '..' are not allowed." : v.trim() ? null : "Required."),
+  private async moveDialog(s: RedactedSession) {
+    const folder = select([["", "(No folder)"], ...this.folders.map((f): [string, string] => [f, f])], s.folder);
+    const ok = await modal<boolean>("Move to folder", (close) => ({
+      body: h("div", { class: "form" }, field(`Move ${s.name} to`, folder), h("small", { class: "muted" }, "To make a new folder, use the folder button above the list.")),
+      actions: [h("button", { onclick: () => close(false) }, "Cancel"), h("button", { class: "primary", onclick: () => close(true) }, "Move")],
+      focus: folder,
+    }), { dismissValue: false });
+    if (ok) await this.moveSession(s, folder.value);
+  }
+
+  private async duplicateSession(s: RedactedSession) {
+    const base = s.name.replace(/ copy( \d+)?$/, "");
+    let name = `${base} copy`;
+    for (let i = 2; this.sessions.some((x) => x.name === name); i++) name = `${base} copy ${i}`;
+    try {
+      await api.sessionSave({ ...this.plain(s), id: "", name }, null, false);
+      toast(`Created ${name}.${s.hasPassword ? " The saved password was not copied." : ""}`, "ok");
+      await this.reload();
+    } catch (e) {
+      toast(messageOf(e), "error");
+    }
+  }
+
+  /** New folder inside `parent`, or rename `existing`. */
+  private async folderDialog(parent: string, existing: string | null) {
+    const leaf = existing ? existing.split("/").pop()! : "";
+    const name = await promptDialog(existing ? "Rename folder" : parent ? `New folder in ${parent}` : "New folder", "Folder name", {
+      value: leaf,
+      okLabel: existing ? "Rename" : "Create",
+      hint: "Use / to make sub-folders, e.g. Production/Web.",
+      validate: (v) =>
+        !v.trim() ? "Enter a name." : v.split(/[/\\]/).some((x) => x.trim() === "." || x.trim() === "..") ? "'.' and '..' are not allowed." : null,
     });
     if (!name) return;
-    const list = kind === "sessions" ? this.folders : this.macroFolders;
     try {
-      await api.foldersSave(kind, [...list, name]);
+      if (!existing) {
+        const path = parent ? `${parent}/${name.trim()}` : name.trim();
+        await api.foldersSave("sessions", [...this.folders, path]);
+        this.collapsed.delete(`s:${parent}`);
+      } else {
+        const base = existing.includes("/") ? existing.slice(0, existing.lastIndexOf("/") + 1) : "";
+        const to = base + name.trim();
+        if (to === existing) return;
+        const remap = (f: string) => (f === existing ? to : f.startsWith(existing + "/") ? to + f.slice(existing.length) : f);
+        await api.foldersSave("sessions", this.folders.map(remap));
+        for (const s of this.sessions.filter((x) => remap(x.folder) !== x.folder)) {
+          await api.sessionSave({ ...this.plain(s), folder: remap(s.folder) }, null, false);
+        }
+      }
+      this.saveCollapsed();
+      await this.reload();
+    } catch (e) {
+      toast(messageOf(e), "error");
+    }
+  }
+
+  private newSessionIn(kind: Session["kind"], folder: string) {
+    this.newIn = folder;
+    return kind === "serial" ? this.quickSerial() : this.editSession(null, kind);
+  }
+
+  private async deleteSession(s: RedactedSession) {
+    if (!(await confirmDialog("Delete session?", `Delete "${s.name}" and any saved password for it?`, "Delete", { danger: true }))) return;
+    try {
+      await api.sessionDelete(s.id);
       await this.reload();
     } catch (e) {
       toast(messageOf(e), "error");
@@ -285,8 +315,7 @@ export class Sidebar {
 
   /** Open the session editor for a new session of the given kind. */
   newSession(kind: Session["kind"]) {
-    if (kind === "serial") return this.quickSerial();
-    return this.editSession(null, kind);
+    return this.newSessionIn(kind, "");
   }
 
   private async editSession(existing: RedactedSession | null, kind: Session["kind"], serial?: SerialConfig) {
@@ -295,7 +324,7 @@ export class Sidebar {
       : {
           id: "",
           name: serial ? `${serial.port} (${serial.baud})` : "",
-          folder: "",
+          folder: this.newIn,
           kind,
           host: "",
           port: 22,
@@ -309,6 +338,7 @@ export class Sidebar {
           startupEnabled: true,
           startupDir: "",
         };
+    this.newIn = "";
     // data-f attributes give every field a stable name (used by tests too).
     const name = h("input", { "data-f": "name", value: s.name, spellcheck: "false", placeholder: "Optional, e.g. Web server" });
     const folder = h("input", { "data-f": "folder", value: s.folder, list: "dl-folders", spellcheck: "false", placeholder: "Optional, e.g. Production/Web" });

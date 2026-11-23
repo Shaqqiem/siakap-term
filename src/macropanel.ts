@@ -8,7 +8,7 @@ import { icon } from "./icons";
 import { check, explain, inputNames, MacroError, validateInputName } from "./macros";
 import { pasteButton, type MacroRunner } from "./runner";
 import type { Sidebar } from "./sidebar";
-import { $, confirmDialog, field, fill as fillEl, h, modal, select, showMenu, toast, type MenuEntry } from "./ui";
+import { $, confirmDialog, enableDrag, field, fill as fillEl, h, modal, select, showMenu, toast, type MenuEntry } from "./ui";
 
 const CLOSED_KEY = "siakap.closedMacroFolders";
 
@@ -30,7 +30,6 @@ interface FolderNode {
 export class MacroPanel {
   private query = "";
   private closed = loadClosed();
-  private dragged: string | null = null;
 
   constructor(private sb: Sidebar, private runner: MacroRunner) {}
 
@@ -178,23 +177,7 @@ export class MacroPanel {
   }
 
   private bindDrop(target: HTMLElement, folder: string) {
-    target.addEventListener("dragover", (e) => {
-      if (!this.dragged) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      target.classList.add("drop-target");
-    });
-    target.addEventListener("dragleave", () => target.classList.remove("drop-target"));
-    target.addEventListener("drop", (e) => {
-      if (!this.dragged) return;
-      e.preventDefault();
-      e.stopPropagation();
-      target.classList.remove("drop-target");
-      const id = this.dragged;
-      this.dragged = null;
-      void this.move(id, folder);
-    });
+    target.dataset.drop = folder;
   }
 
   private async move(id: string, folder: string) {
@@ -226,7 +209,6 @@ export class MacroPanel {
       "div",
       {
         class: "row item macro-row",
-        draggable: "true",
         tabindex: 0,
         title: `${activation === "single" ? "Click" : "Double-click"} to run in the selected terminal. Drag onto a folder to move it.`,
         onkeydown: (e: Event) => (e as KeyboardEvent).key === "Enter" && run(),
@@ -252,16 +234,7 @@ export class MacroPanel {
       run();
     });
     row.addEventListener("contextmenu", (e) => showMenu(e, entries));
-    row.addEventListener("dragstart", (e) => {
-      this.dragged = m.id;
-      e.dataTransfer?.setData("application/x-siakap-macro", m.id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-      row.classList.add("dragging");
-    });
-    row.addEventListener("dragend", () => {
-      this.dragged = null;
-      row.classList.remove("dragging");
-    });
+    enableDrag(row, { label: m.name, accept: (t) => t !== m.folder, onDrop: (t) => void this.move(m.id, t) });
     return row;
   }
 

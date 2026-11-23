@@ -984,6 +984,17 @@ pub fn sftp_cancel(st: State<'_, AppState>, transfer_id: u32) {
     }
 }
 
+// ---------------------------------------------------------------- fonts
+
+/// Font families installed on this PC (for the font picker).
+#[tauri::command]
+pub async fn fonts_list(st: State<'_, AppState>) -> Res<Vec<siakap_core::fonts::FontFamily>> {
+    st.ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(siakap_core::fonts::installed)
+        .await
+        .map_err(|e| CoreError::invalid(e.to_string()))
+}
+
 // ---------------------------------------------------------------- security key
 
 #[tauri::command]

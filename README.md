@@ -91,14 +91,16 @@ master password**.
 
 | What | How |
 | --- | --- |
-| New local shell | `Ctrl+Shift+T`, the + button, or pick one under *Local shells* |
-| Split the focused pane | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom |
-| Split into four panes | `Ctrl+Shift+G`, or the grid button in the tab bar |
-| Open a serial console | **+ Serial**, or click a port under *Serial ports* |
+| New tab | `Ctrl+Shift+T` or the + button (opens what *Settings → New tabs open* says). Right-click + for any terminal or saved session |
+| Split a tab | `Ctrl+Shift+D` side by side, `Ctrl+Shift+E` top and bottom, `Ctrl+Shift+G` four panes. A tab is split once; close a pane to change it (up to 4 panes) |
+| Open a serial console | **+ Serial** in the Sessions panel, or right-click + |
 | Send a break (serial) | `Ctrl+Shift+B` |
-| Close a pane | `Ctrl+Shift+W`, or press Enter once the session has ended |
+| Close a pane | The x in the pane's corner, right-click → *Close this pane*, `Ctrl+Shift+W`, or Enter once the session has ended |
+| Move a tab | Drag it left or right. Right-click a tab to rename, duplicate or close tabs |
 | Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
-| Copy and paste | `Ctrl+Shift+C` and `Ctrl+Shift+V`; copy on select is in Settings |
+| Copy and paste | Right-click in the terminal, or `Ctrl+Shift+C` and `Ctrl+Shift+V`; copy on select is in Settings |
+| Organise sessions | The folder button makes a folder; drag sessions onto it. Right-click a session or folder for more. Click a folder to collapse it |
+| Change the font | *Settings → Look → Font* lists the fonts installed on your PC, fixed-width ones first |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |
 | Hide the side panel | Click the active icon in the left rail, or double-click the panel edge |
 

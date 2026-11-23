@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
 import { serialSummary } from "./serial";
 import { aggregate, TabCommandStatus } from "./status";
-import { $, alertDialog, confirmDialog, h, modal, promptDialog, toast } from "./ui";
+import { $, alertDialog, confirmDialog, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
 
 export type PaneStatus = "connecting" | "connected" | "closed";
 
@@ -61,7 +61,12 @@ export interface Tab {
   focused: Pane;
   el: HTMLElement;
   tabEl: HTMLElement;
+  /** Name set with "Rename tab" (otherwise the focused pane's title). */
+  customTitle?: string;
 }
+
+/** Most panes one tab can hold. */
+export const MAX_PANES = 4;
 
 type Listener<T> = (v: T) => void;
 
@@ -210,11 +215,7 @@ export class TabManager {
       } else if (pane.status === "closed" && d === "\r") {
         this.closePane(pane);
       } else if (pane.status === "closed" && (d === "r" || d === "R") && pane.reconnect) {
-        pane.status = "connecting";
-        pane.termId = null;
-        pane.term.write("\r\n");
-        this.renderTabs();
-        pane.reconnect();
+        this.reconnectPane(pane);
       }
     });
     term.onSelectionChange(() => {
@@ -233,8 +234,49 @@ export class TabManager {
     );
     el.addEventListener("focusin", () => this.focus(pane));
     el.addEventListener("mousedown", () => this.focus(pane));
+    el.addEventListener("contextmenu", (e) => this.paneMenu(pane, e), true);
+    const closeBtn = h("button", { class: "pane-close", title: "Close this pane (Ctrl+Shift+W)" }, icon("x", 13));
+    closeBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.closePane(pane);
+    });
+    el.append(closeBtn);
     new ResizeObserver(() => this.refit(pane)).observe(el);
     return pane;
+  }
+
+  /** Right-click inside a terminal. */
+  private paneMenu(pane: Pane, e: MouseEvent) {
+    const sel = pane.term.hasSelection() ? pane.term.getSelection() : "";
+    const count = panesOf(pane.tab.root).length;
+    const canSplit = pane.kind !== "serial" && count < MAX_PANES;
+    const entries: MenuEntry[] = [
+      { label: "Copy", disabled: !sel, action: () => navigator.clipboard.writeText(sel) },
+      {
+        label: "Paste",
+        disabled: pane.status === "closed",
+        action: () => navigator.clipboard.readText().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error")),
+      },
+      { label: "Select all", action: () => pane.term.selectAll() },
+      { label: "Clear screen", action: () => pane.term.clear() },
+      { label: "Split side by side", disabled: !canSplit, action: () => (this.focus(pane), this.splitFocused("h")) },
+      { label: "Split top and bottom", disabled: !canSplit, action: () => (this.focus(pane), this.splitFocused("v")) },
+      ...(pane.status === "closed" && pane.reconnect ? [{ label: "Reconnect", action: () => this.reconnectPane(pane) }] : []),
+      count > 1
+        ? { label: "Close this pane", danger: true, action: () => this.closePane(pane) }
+        : { label: "Close tab", danger: true, action: () => this.closeTab(pane.tab) },
+    ];
+    showMenu(e, entries);
+  }
+
+  private reconnectPane(pane: Pane) {
+    if (pane.status !== "closed" || !pane.reconnect || pane.disposed) return;
+    pane.status = "connecting";
+    pane.termId = null;
+    pane.term.write("\r\n");
+    this.renderTabs();
+    pane.reconnect();
   }
 
   private keyHandler(pane: Pane, e: KeyboardEvent): boolean {
@@ -485,6 +527,10 @@ export class TabManager {
 
   private place(pane: Pane, where: "tab" | "h" | "v"): Pane {
     const target = this.focusedPane;
+    if (where !== "tab" && target && panesOf(target.tab.root).length >= MAX_PANES) {
+      toast(`A tab holds up to ${MAX_PANES} panes, so this opened in a new tab.`, "info");
+      where = "tab";
+    }
     if (where === "tab" || !target) {
       const tab: Tab = {
         uid: uidSeq++,
@@ -516,9 +562,38 @@ export class TabManager {
     return pane;
   }
 
+  /**
+   * The toolbar layouts (side by side, top and bottom, 4 panes): they only
+   * split a tab that has one pane, so clicking again does nothing.
+   */
+  layout(kind: "h" | "v" | "grid"): boolean {
+    const p = this.focusedPane;
+    if (!p) return false;
+    if (panesOf(p.tab.root).length > 1) {
+      toast("This tab is already split. To change it, close a pane (right-click it, or the x in its corner).", "info");
+      return true;
+    }
+    if (kind === "grid") this.splitGrid();
+    else this.splitFocused(kind);
+    return true;
+  }
+
+  /** Open the focused tab's shell or session again, in a new tab. */
+  duplicateTab(tab: Tab) {
+    const p = tab.focused;
+    if (p.kind === "serial") return toast("A serial port can only be open once.", "error");
+    this.activate(tab);
+    if (p.kind === "ssh" && p.session) void this.openSsh(p.session, "tab");
+    else void this.openLocal(p.shellId ?? "", p.title, "tab", p.session);
+  }
+
   splitFocused(dir: "h" | "v") {
     const p = this.focusedPane;
     if (!p) return;
+    if (panesOf(p.tab.root).length >= MAX_PANES) {
+      toast(`A tab holds up to ${MAX_PANES} panes.`, "info");
+      return;
+    }
     if (p.kind === "serial") {
       toast("A serial port can only be open in one pane at a time.", "error");
       return;
@@ -672,6 +747,84 @@ export class TabManager {
       return box;
     };
     tab.el.replaceChildren(build(tab.root));
+    tab.el.classList.toggle("multi", panesOf(tab.root).length > 1);
+  }
+
+  private tabMenu(t: Tab, e: MouseEvent) {
+    const i = this.tabs.indexOf(t);
+    const others = this.tabs.filter((x) => x !== t);
+    const right = this.tabs.slice(i + 1);
+    const closed = panesOf(t.root).filter((p) => p.status === "closed" && p.reconnect);
+    showMenu(e, [
+      { label: "Rename tab...", action: () => this.renameTab(t) },
+      { label: "Duplicate tab", disabled: t.focused.kind === "serial", action: () => this.duplicateTab(t) },
+      ...(closed.length ? [{ label: "Reconnect", action: () => closed.forEach((p) => this.reconnectPane(p)) }] : []),
+      { label: "Close tab", danger: true, action: () => this.closeTab(t) },
+      { label: "Close other tabs", disabled: !others.length, action: () => this.closeTabs(others) },
+      { label: "Close tabs to the right", disabled: !right.length, action: () => this.closeTabs(right) },
+    ]);
+  }
+
+  private async renameTab(t: Tab) {
+    const name = await promptDialog("Rename tab", "Tab name (leave empty to use the session name)", { value: t.customTitle ?? t.focused.title, okLabel: "Rename" });
+    if (name === null) return;
+    t.customTitle = name.trim().slice(0, 80) || undefined;
+    this.renderTabs();
+  }
+
+  private async closeTabs(list: Tab[]) {
+    const live = list.flatMap((t) => panesOf(t.root)).filter((p) => p.status === "connected").length;
+    if (live > 1 && !(await confirmDialog("Close tabs?", `${list.length} tabs with ${live} open sessions will close.`, "Close"))) return;
+    for (const t of list) for (const p of panesOf(t.root)) await this.closePane(p);
+  }
+
+  /** Drag a tab sideways to move it. */
+  private bindTabDrag(el: HTMLElement) {
+    el.addEventListener("pointerdown", (down) => {
+      if (down.button !== 0 || (down.target as HTMLElement).closest("button")) return;
+      const sx = down.clientX;
+      const els = [...this.tabbar.children] as HTMLElement[];
+      const rects = els.map((x) => x.getBoundingClientRect());
+      const from = els.indexOf(el);
+      let active = false;
+      let to = from;
+      const move = (e: PointerEvent) => {
+        const dx = e.clientX - sx;
+        if (!active) {
+          if (Math.abs(dx) < 6) return;
+          active = true;
+          el.setPointerCapture(e.pointerId);
+          el.classList.add("tab-dragging");
+          document.body.classList.add("is-dragging");
+        }
+        el.style.transform = `translateX(${dx}px)`;
+        to = rects.findIndex((r) => e.clientX < r.left + r.width / 2);
+        if (to === -1) to = rects.length - 1;
+        else if (to > from) to -= 1;
+        els.forEach((x, k) => {
+          x.classList.toggle("tab-drop-before", k === to && to < from);
+          x.classList.toggle("tab-drop-after", k === to && to > from);
+        });
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        if (!active) return;
+        document.body.classList.remove("is-dragging");
+        const block = (c: Event) => (c.stopPropagation(), c.preventDefault());
+        window.addEventListener("click", block, true);
+        setTimeout(() => window.removeEventListener("click", block, true), 0);
+        if (to !== from && to >= 0) {
+          const [moved] = this.tabs.splice(from, 1);
+          this.tabs.splice(to, 0, moved);
+        }
+        this.renderTabs();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    });
   }
 
   renderTabs() {
@@ -688,7 +841,7 @@ export class TabManager {
         const detail = panes.map((p) => p.cmd?.detail).find(Boolean);
         const dotTitle =
           shown === "cmd-running" ? "Command running" : shown === "cmd-success" ? `Success: ${detail ?? ""}` : shown === "cmd-error" ? `Failure: ${detail ?? ""}` : status === "connected" ? "Connected" : status === "connecting" ? "Connecting" : "Closed";
-        const label = t.focused.title + (panes.length > 1 ? ` (${panes.length})` : "");
+        const label = (t.customTitle ?? t.focused.title) + (panes.length > 1 ? ` (${panes.length})` : "");
         const el = h(
           "div",
           { class: `tab${t === this.active ? " active" : ""}`, title: label, onclick: () => this.activate(t) },
@@ -706,6 +859,8 @@ export class TabManager {
         el.addEventListener("auxclick", (e) => {
           if ((e as MouseEvent).button === 1) void this.closeTab(t);
         });
+        el.addEventListener("contextmenu", (e) => this.tabMenu(t, e));
+        this.bindTabDrag(el);
         t.tabEl = el;
         return el;
       }),

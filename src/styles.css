@@ -303,3 +303,27 @@ small.flash, .hint.flash { color: var(--ok) !important; }
 .key-name { display: flex; flex-direction: column; min-width: 0; }
 .key-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .key-name .badge { margin-left: 8px; }
+
+/* Pointer drag */
+.drag-ghost { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; padding: 4px 10px; border-radius: 6px; background: var(--bg3); border: 1px solid var(--accent); color: var(--fg); font-size: 12px; white-space: nowrap; box-shadow: 0 6px 20px #0008; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; }
+.row.dragging { opacity: 0.4; }
+.folder-head.drop-target, .session-root.drop-target, .macro-list.drop-target { background: color-mix(in srgb, var(--accent) 22%, transparent); outline: 1px dashed var(--accent); }
+
+/* Tab dragging */
+.tab.tab-dragging { position: relative; z-index: 5; opacity: 0.85; background: var(--bg3); transition: none; }
+.tab.tab-drop-before { box-shadow: inset 3px 0 0 var(--accent); }
+.tab.tab-drop-after { box-shadow: inset -3px 0 0 var(--accent); }
+
+/* Pane close button: only when a tab has more than one pane */
+.pane-close { position: absolute; top: 4px; right: 6px; z-index: 6; display: none; width: 22px; height: 22px; padding: 0; align-items: center; justify-content: center; border-radius: 5px; border: 1px solid var(--line); background: var(--bg2); color: var(--muted); opacity: 0; transition: opacity .12s; }
+.tab-content.multi .pane-close { display: flex; }
+.tab-content.multi .pane:hover .pane-close, .tab-content.multi .pane.focused .pane-close { opacity: 0.9; }
+.pane-close:hover { color: var(--fg); background: var(--err); border-color: var(--err); opacity: 1; }
+
+/* Sessions panel */
+.session-tree { display: flex; flex-direction: column; gap: 1px; min-height: 40px; border-radius: 6px; padding-bottom: 12px; }
+.folder-head .count { margin-left: auto; font-size: 11px; padding: 0 4px; }
+.folder-head .row-actions { margin-left: 4px; }
+.row.item { touch-action: none; }
+.font-preview { margin: -4px 0 6px; padding: 6px 8px; border-radius: 6px; background: var(--term-bg); border: 1px solid var(--line); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

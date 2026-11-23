@@ -214,6 +214,7 @@ export const api = {
 
   pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
   pickSave: (purpose: "download" | "export", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
+  fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>
     invoke<KeyOutcome>("security_key_action", {
