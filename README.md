@@ -59,6 +59,9 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   Siakap asks before replacing an existing file.
 - **Security keys in WSL.** The Key button lists your connected security keys, and lets you attach one to WSL or
   detach it back to Windows with `usbipd`. Siakap checks afterwards that the key really moved.
+- **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized
+  and more), a full colour editor, your own saved themes, and import/export as JSON, including Windows Terminal
+  colour schemes.
 - **No phoning home.** There is no telemetry, no update check and no analytics, and the app loads no remote fonts or
   scripts. The only network connections it makes are the SSH sessions you open.
 
@@ -119,11 +122,13 @@ master password**.
 | Close a pane | The x in the pane's corner, right-click → *Close this pane*, `Ctrl+Shift+W`, or Enter once the session has ended |
 | Move a tab | Drag it left or right. Right-click a tab to rename, duplicate or close tabs |
 | Switch tabs | `Ctrl+Tab` and `Ctrl+Shift+Tab` |
-| Copy and paste | Right-click pastes; with text selected, right-click copies it. Shift+right-click for the menu. Also `Ctrl+Shift+C` and `Ctrl+Shift+V`. Both are in *Settings → Look* |
+| Copy and paste | Right-click pastes; with text selected, right-click copies it. Shift+right-click for the menu. Also `Ctrl+Shift+C` and `Ctrl+Shift+V`. Both are in *Settings → Mouse and clipboard* |
 | Organise sessions | The folder button makes a folder; drag sessions onto it. Right-click a session or folder for more. Click a folder to collapse it |
 | Save what's on screen | Right-click a tab, or Shift+right-click in the terminal → *Save output to file...* (scrollback included, as plain text) |
 | Log a session | Same menus → *Log to file...*; a red REC badge shows while it records. *Settings → Session logs* can log every terminal automatically into a folder you choose |
-| Change the font | *Settings → Look → Font* lists the fonts installed on your PC, fixed-width ones first |
+| Settings | The gear in the left rail opens Settings as its own tab, with sections and a search box. Changes save as you make them |
+| Change the look | *Settings → Appearance*: pick a theme from the gallery, customise every colour (including the 16 terminal colours and the app's accent), save your own themes, and import or export them. Windows Terminal colour schemes can be imported directly |
+| Change the font | *Settings → Terminal → Font* lists the fonts installed on your PC, fixed-width ones first. Line spacing, cursor shape and blinking, history length and the terminal bell are there too |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |
 | Hide the side panel | Click the active icon in the left rail, or double-click the panel edge |
 
@@ -182,11 +187,11 @@ panel and pick both files at once.
 ### Guided tour
 
 The first time you start Siakap Terminal, a short tour points out each part of the app. After an update, it only
-shows what's new since the version you last used. Replay it any time from **Settings > Show the tour again**.
+shows what's new since the version you last used. Replay it any time from **Settings > About > Show the tour again**.
 
 ### Startup
 
-Under Settings > Startup you can choose what opens when Siakap starts:
+Under Settings > Startup and tabs you can choose what opens when Siakap starts:
 
 - **When Siakap starts:** nothing, a local shell, or one of your saved sessions.
 - **Layout:** one pane, two side by side, or a 2×2 grid of that shell or session.

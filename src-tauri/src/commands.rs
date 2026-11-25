@@ -544,6 +544,7 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
         "export" => d.set_title("Export Siakap backup").add_filter("Siakap backup", &["json"]),
         "log" => d.set_title("Log this session to a file").add_filter("Log file", &["log", "txt"]),
         "text" => d.set_title("Save terminal output").add_filter("Text file", &["txt", "log"]),
+        "theme" => d.set_title("Colour theme").add_filter("Theme (JSON)", &["json"]).add_filter("All files", &["*"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
 }
@@ -557,6 +558,13 @@ pub async fn pick_files(
     multiple: bool,
 ) -> Res<Vec<String>> {
     st.ensure_unlocked()?;
+    // Debug builds only: automated tests can't click a native dialog.
+    #[cfg(debug_assertions)]
+    if let Some(f) = std::env::var_os("SIAKAP_TEST_OPEN_FILE") {
+        let p = PathBuf::from(f);
+        st.grant([p.clone()]);
+        return Ok(vec![p.to_string_lossy().to_string()]);
+    }
     let dlg = dialog_for(&app, &purpose)?;
     let picked = tauri::async_runtime::spawn_blocking(move || {
         if multiple {
@@ -1127,6 +1135,20 @@ pub async fn log_folder_pick(app: tauri::AppHandle, st: State<'_, AppState>) -> 
         Ok(())
     })?;
     Ok(Some(shown))
+}
+
+/// Read a colour theme file picked in an open dialog (parsed in the web view;
+/// only colours that pass validation are ever stored).
+#[tauri::command]
+pub fn theme_read_file(st: State<'_, AppState>, path: String) -> Res<String> {
+    st.ensure_unlocked()?;
+    let path = granted_path(&st, &path)?;
+    if std::fs::metadata(&path)?.len() > 256 * 1024 {
+        return Err(CoreError::invalid("That file is too large to be a colour theme."));
+    }
+    let text =
+        std::fs::read_to_string(&path).map_err(|_| CoreError::invalid("That file isn't a text colour theme."))?;
+    Ok(text)
 }
 
 /// Save a snapshot of a terminal's text to a file picked in a save dialog.

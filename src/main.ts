@@ -60,7 +60,25 @@ function previousMinor(): string {
 
 function applySettings(s: Settings) {
   tabs.applySettings(s);
-  document.documentElement.style.setProperty("--term-bg", s.background);
+  const root = document.documentElement.style;
+  root.setProperty("--term-bg", s.background);
+  if (/^#[0-9a-fA-F]{3,6}$/.test(s.accent ?? "")) root.setProperty("--accent", s.accent);
+  else root.removeProperty("--accent");
+}
+
+// A full-page tab (Settings) hides the side panel while it's in front.
+tabs.onPageChange = (p) => {
+  $("app").classList.toggle("page-full", !!p);
+  document.querySelectorAll<HTMLElement>(".rail button[data-panel]").forEach((b) =>
+    b.classList.toggle("active", p ? b.dataset.panel === p.id : b.dataset.panel === currentPanel && !collapsed),
+  );
+};
+
+/** Settings opens as its own tab. */
+function openSettings(section = "") {
+  tabs.openPage("settings", "Settings", "settings", () => settingsPanel.el);
+  if (section) settingsPanel.show(section);
+  else void settingsPanel.render();
 }
 
 // ------------------------------------------------------------------ guided tour
@@ -81,8 +99,7 @@ const TOUR: TourStep[] = [
     since: "0.2.0",
     title: "Choose what opens at start",
     text: "In Settings, under When Siakap starts, pick a terminal (for example your WSL distro) or a saved session, in one, two or four panes.",
-    target: "#panel-settings form h4",
-    before: () => showPanel("settings"),
+    target: '.rail button[data-panel="settings"]',
   },
   {
     since: "0.3.0",
@@ -111,6 +128,12 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.6.0",
+    title: "A new Settings tab",
+    text: "Settings now opens as its own tab, with sections and a search box. Pick from a gallery of colour themes, customise every colour, and import or export themes, including Windows Terminal colour schemes. Changes save as you make them.",
+    target: '.rail button[data-panel="settings"]',
   },
   {
     since: "0.5.4",
@@ -281,7 +304,9 @@ function showLock(mode: "create" | "unlock" | "open", hint = "") {
   if (tabs.settings?.lockDisconnects) void tabs.closeAll();
   sidebar.clear();
   sftp.clear();
-  $("panel-settings").replaceChildren();
+  settingsPanel.el.replaceChildren();
+  const settingsTab = tabs.pages.find((p) => p.id === "settings");
+  if (settingsTab) tabs.closePage(settingsTab);
   closeAllModals();
   $("toasts").replaceChildren();
   closeMenu();
@@ -344,7 +369,6 @@ async function onUnlocked() {
     applySettings(await api.settingsGet());
     await sidebar.reload();
     renderWelcome();
-    if (currentPanel === "settings") await settingsPanel.render();
     if (currentPanel === "sftp") sftp.shown();
     void runStartup();
     maybeTour();
@@ -396,11 +420,10 @@ async function lockNow(reason = "") {
 function showPanel(name: PanelName) {
   currentPanel = name;
   setCollapsed(false);
-  for (const n of ["sessions", "macros", "sftp", "settings"] as PanelName[]) {
+  for (const n of ["sessions", "macros", "sftp"] as PanelName[]) {
     $(`panel-${n}`).classList.toggle("hidden", n !== name);
   }
   document.querySelectorAll<HTMLButtonElement>(".rail button[data-panel]").forEach((b) => b.classList.toggle("active", b.dataset.panel === name));
-  if (name === "settings") void settingsPanel.render();
   if (name === "sftp") sftp.shown();
   if (name === "sessions") sidebar.renderSessions();
   if (name === "macros") sidebar.renderMacros();
@@ -416,6 +439,13 @@ function setCollapsed(c: boolean) {
 document.querySelectorAll<HTMLButtonElement>(".rail button[data-panel]").forEach((b) =>
   b.addEventListener("click", () => {
     const name = b.dataset.panel as PanelName;
+    if (name === "settings") return openSettings();
+    if (tabs.activePage) {
+      // Leave Settings: back to the terminal, with this panel open.
+      if (tabs.active) tabs.activate(tabs.active);
+      else tabs.closePage(tabs.activePage);
+      return showPanel(name);
+    }
     if (name === currentPanel && !collapsed) setCollapsed(true);
     else showPanel(name);
   }),

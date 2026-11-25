@@ -167,6 +167,60 @@ pub enum StartupAction {
     Session,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CursorStyle {
+    #[default]
+    Block,
+    Underline,
+    Bar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Bell {
+    /// Ignore the terminal bell.
+    Off,
+    /// Flash the pane and mark its tab.
+    #[default]
+    Flash,
+}
+
+/// A colour theme for terminals (and the app's accent colour).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TerminalTheme {
+    pub name: String,
+    pub background: String,
+    pub foreground: String,
+    pub cursor: String,
+    pub selection: String,
+    /// 16 ANSI colours: black, red, green, yellow, blue, magenta, cyan, white,
+    /// then the bright versions. Empty = the terminal's built-in colours.
+    pub palette: Vec<String>,
+    /// Accent colour for the app (buttons, highlights). Empty = default.
+    pub accent: String,
+}
+
+impl TerminalTheme {
+    /// Drop invalid colours and limit sizes; `None` if unusable.
+    pub fn sanitized(mut self) -> Option<Self> {
+        self.name = self.name.chars().filter(|c| !c.is_control()).take(60).collect::<String>().trim().to_string();
+        if self.name.is_empty() || !is_hex_colour(&self.background) || !is_hex_colour(&self.foreground) {
+            return None;
+        }
+        for c in [&mut self.cursor, &mut self.selection, &mut self.accent] {
+            if !is_hex_colour(c) {
+                c.clear();
+            }
+        }
+        if self.palette.len() != 16 || !self.palette.iter().all(|c| is_hex_colour(c)) {
+            self.palette.clear();
+        }
+        Some(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -220,6 +274,26 @@ pub struct Settings {
     /// Folder for automatic session logs. Set only through the backend's folder
     /// dialog (settings_save keeps the stored value).
     pub log_dir: String,
+    // ---- appearance and terminal (0.6)
+    /// Name of the chosen theme (a built-in or one of `custom_themes`).
+    pub theme_name: String,
+    /// 16 ANSI colours (see TerminalTheme::palette). Empty = built-in.
+    pub palette: Vec<String>,
+    /// App accent colour. Empty = default blue.
+    pub accent: String,
+    /// Themes the user saved or imported.
+    pub custom_themes: Vec<TerminalTheme>,
+    pub cursor_style: CursorStyle,
+    pub cursor_blink: bool,
+    /// Line height in percent (100 = normal).
+    pub line_height: u16,
+    /// Raise the contrast of text that is hard to read on the background.
+    pub min_contrast: bool,
+    pub bell: Bell,
+    /// Characters that end a word when double-clicking to select.
+    pub word_separators: String,
+    /// Ask before closing a tab that has more than one open session.
+    pub confirm_close_tab: bool,
 }
 
 impl Default for Settings {
@@ -255,6 +329,17 @@ impl Default for Settings {
             right_click_paste: true,
             log_auto: false,
             log_dir: String::new(),
+            theme_name: "Siakap Dark".into(),
+            palette: Vec::new(),
+            accent: String::new(),
+            custom_themes: Vec::new(),
+            cursor_style: CursorStyle::Block,
+            cursor_blink: true,
+            line_height: 100,
+            min_contrast: false,
+            bell: Bell::Flash,
+            word_separators: " ()[]{}',\"`".into(),
+            confirm_close_tab: true,
         }
     }
 }
@@ -293,6 +378,22 @@ impl Settings {
         if self.selection.is_empty() {
             self.selection = d.selection;
         }
+        self.theme_name = self.theme_name.chars().filter(|c| !c.is_control()).take(60).collect();
+        if self.palette.len() != 16 || !self.palette.iter().all(|c| is_hex_colour(c)) {
+            self.palette.clear();
+        }
+        if !is_hex_colour(&self.accent) {
+            self.accent.clear();
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.custom_themes = std::mem::take(&mut self.custom_themes)
+            .into_iter()
+            .filter_map(TerminalTheme::sanitized)
+            .filter(|t| seen.insert(t.name.to_lowercase()))
+            .take(100)
+            .collect();
+        self.line_height = self.line_height.clamp(100, 200);
+        self.word_separators = self.word_separators.chars().filter(|c| !c.is_control()).take(64).collect();
         self.font_family.retain(|c| !c.is_control() && !matches!(c, ';' | '{' | '}' | '<' | '>'));
         self.font_family.truncate(200);
         if self.font_family.trim().is_empty() {
@@ -491,6 +592,42 @@ mod tests {
         assert_eq!(s.startup_shell, "wsl:Debian");
         assert_eq!(Settings { startup_panes: 3, ..Default::default() }.sanitized().startup_panes, 1);
         assert_eq!(Settings { startup_panes: 4, ..Default::default() }.sanitized().startup_panes, 4);
+    }
+
+    #[test]
+    fn themes_and_terminal_options_are_sanitized() {
+        let good = TerminalTheme {
+            name: "  Mine  ".into(),
+            background: "#000000".into(),
+            foreground: "#ffffff".into(),
+            cursor: "red".into(),
+            selection: "#333".into(),
+            palette: vec!["#111111".into(); 16],
+            accent: "#12345g".into(),
+        };
+        let t = good.clone().sanitized().unwrap();
+        assert_eq!(t.name, "Mine");
+        assert_eq!(t.cursor, "", "invalid colours are dropped");
+        assert_eq!(t.accent, "");
+        assert_eq!(t.palette.len(), 16);
+        let short = TerminalTheme { palette: vec!["#111111".into(); 15], ..good.clone() }.sanitized().unwrap();
+        assert!(short.palette.is_empty(), "a palette must have exactly 16 colours");
+        assert!(TerminalTheme { background: "javascript:".into(), ..good.clone() }.sanitized().is_none());
+        assert!(TerminalTheme { name: " ".into(), ..good.clone() }.sanitized().is_none());
+
+        let s = Settings {
+            palette: vec!["#fff".into(); 3],
+            accent: "url(x)".into(),
+            custom_themes: vec![good.clone(), TerminalTheme { name: "mine".into(), ..good.clone() }],
+            line_height: 900,
+            word_separators: "ab\ncd".into(),
+            ..Default::default()
+        }
+        .sanitized();
+        assert!(s.palette.is_empty() && s.accent.is_empty());
+        assert_eq!(s.custom_themes.len(), 1, "duplicate names (any case) are dropped");
+        assert_eq!(s.line_height, 200);
+        assert_eq!(s.word_separators, "abcd");
     }
 
     #[test]

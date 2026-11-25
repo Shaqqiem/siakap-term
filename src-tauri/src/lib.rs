@@ -116,6 +116,7 @@ pub fn run() {
             commands::term_log_stop,
             commands::log_folder_pick,
             commands::save_text_file,
+            commands::theme_read_file,
             commands::clipboard_read,
             commands::clipboard_write,
             commands::security_key_state,

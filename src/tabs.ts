@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
 import { serialSummary } from "./serial";
+import { xtermTheme } from "./themes";
 import { aggregate, TabCommandStatus } from "./status";
 import { $, alertDialog, confirmDialog, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
 
@@ -74,6 +75,16 @@ export interface Tab {
   tabEl: HTMLElement;
   /** Name set with "Rename tab" (otherwise the focused pane's title). */
   customTitle?: string;
+  /** A bell rang while the tab was in the background. */
+  bell?: boolean;
+}
+
+/** A non-terminal tab, such as Settings. */
+export interface Page {
+  id: string;
+  title: string;
+  icon: string;
+  el: HTMLElement;
 }
 
 /** Where a new pane goes: "tab" fills an empty pane of the active tab, else a new tab. */
@@ -136,6 +147,50 @@ export class TabManager {
 
   constructor(private workspace = $("workspace"), private tabbar = $("tabs")) {}
 
+  // ------------------------------------------------------------ page tabs (Settings)
+
+  /** Non-terminal tabs, such as Settings. */
+  pages: Page[] = [];
+  activePage: Page | null = null;
+  /** Called when the page in front changes (null: a terminal tab is in front). */
+  onPageChange: (p: Page | null) => void = () => {};
+
+  /** Open (or switch to) a page tab. `build` runs only when it's created. */
+  openPage(id: string, title: string, iconName: string, build: () => HTMLElement): Page {
+    let p = this.pages.find((x) => x.id === id);
+    if (!p) {
+      p = { id, title, icon: iconName, el: h("div", { class: "page-content", "data-page": id }) };
+      p.el.append(build());
+      this.pages.push(p);
+      this.workspace.append(p.el);
+    }
+    this.activatePage(p);
+    return p;
+  }
+
+  activatePage(p: Page) {
+    this.activePage = p;
+    for (const t of this.tabs) t.el.classList.add("hidden");
+    for (const x of this.pages) x.el.classList.toggle("hidden", x !== p);
+    $("empty").classList.add("hidden");
+    this.renderTabs();
+    this.onPageChange(p);
+  }
+
+  closePage(p: Page) {
+    p.el.remove();
+    this.pages = this.pages.filter((x) => x !== p);
+    if (this.activePage !== p) return this.renderTabs();
+    this.activePage = null;
+    if (this.active) this.activate(this.active);
+    else if (this.pages.length) this.activatePage(this.pages[this.pages.length - 1]);
+    else {
+      $("empty").classList.toggle("hidden", this.tabs.length > 0);
+      this.renderTabs();
+      this.onPageChange(null);
+    }
+  }
+
   onFocus(l: Listener<Pane | null>) {
     this.focusListeners.push(l);
   }
@@ -160,8 +215,22 @@ export class TabManager {
   }
 
   theme(): ITheme {
-    const s = this.settings;
-    return { background: s.background, foreground: s.foreground, cursor: s.cursor, cursorAccent: s.background, selectionBackground: s.selection };
+    return xtermTheme(this.settings);
+  }
+
+  /** xterm options that come from Settings. */
+  private termOptions(s: Settings) {
+    return {
+      fontFamily: s.fontFamily,
+      fontSize: s.fontSize,
+      scrollback: s.scrollback,
+      theme: this.theme(),
+      cursorStyle: s.cursorStyle ?? "block",
+      cursorBlink: s.cursorBlink ?? true,
+      lineHeight: Math.min(2, Math.max(1, (s.lineHeight || 100) / 100)),
+      minimumContrastRatio: s.minContrast ? 4.5 : 1,
+      wordSeparator: s.wordSeparators ?? " ()[]{}',\"`",
+    } as const;
   }
 
   applySettings(s: Settings) {
@@ -170,10 +239,7 @@ export class TabManager {
       if (!s.tabStatus) p.cmd = null;
       else if (!p.cmd) this.attachStatus(p);
       else p.cmd.fallback = s.tabStatusFallback;
-      p.term.options.fontFamily = s.fontFamily;
-      p.term.options.fontSize = s.fontSize;
-      p.term.options.scrollback = s.scrollback;
-      p.term.options.theme = this.theme();
+      Object.assign(p.term.options, this.termOptions(s));
       this.refit(p);
     }
   }
@@ -240,11 +306,7 @@ export class TabManager {
   private makePane(kind: Pane["kind"], title: string, tab: Tab | null): Pane {
     const s = this.settings;
     const term = new Terminal({
-      fontFamily: s.fontFamily,
-      fontSize: s.fontSize,
-      scrollback: s.scrollback,
-      theme: this.theme(),
-      cursorBlink: true,
+      ...this.termOptions(s),
       allowProposedApi: false,
       macOptionIsMeta: true,
       rightClickSelectsWord: false,
@@ -273,6 +335,7 @@ export class TabManager {
         this.reconnectPane(pane);
       }
     });
+    term.onBell(() => this.bell(pane));
     term.onSelectionChange(() => {
       if (this.settings.copyOnSelect && term.hasSelection()) api.clipboardWrite(term.getSelection()).catch(() => {});
     });
@@ -299,6 +362,19 @@ export class TabManager {
     el.append(closeBtn);
     new ResizeObserver(() => this.refit(pane)).observe(el);
     return pane;
+  }
+
+  /** Terminal bell: flash the pane; mark the tab if it isn't in front. */
+  private bell(pane: Pane) {
+    if (this.settings?.bell === "off") return;
+    pane.el.classList.remove("bell");
+    void pane.el.offsetWidth; // restart the animation
+    pane.el.classList.add("bell");
+    window.setTimeout(() => pane.el.classList.remove("bell"), 400);
+    if (pane.tab !== this.active || this.activePage) {
+      pane.tab.tabEl.classList.add("tab-bell");
+      pane.tab.bell = true;
+    }
   }
 
   /** Right-click inside a terminal. */
@@ -931,6 +1007,11 @@ export class TabManager {
       }
     }
     this.active = tab;
+    tab.bell = false;
+    const hadPage = !!this.activePage;
+    this.activePage = null;
+    if (hadPage) this.onPageChange(null);
+    for (const x of this.pages) x.el.classList.add("hidden");
     for (const t of this.tabs) t.el.classList.toggle("hidden", t !== tab);
     $("empty").classList.toggle("hidden", this.tabs.length > 0);
     this.renderTab(tab);
@@ -962,7 +1043,11 @@ export class TabManager {
       tab.el.remove();
       if (this.active === tab) {
         this.active = null;
-        if (this.tabs.length) this.activate(this.tabs[this.tabs.length - 1]);
+        if (this.activePage) {
+          // A page (Settings) is in front: keep it there.
+          if (this.tabs.length) this.active = this.tabs[this.tabs.length - 1];
+          this.emitFocus();
+        } else if (this.tabs.length) this.activate(this.tabs[this.tabs.length - 1]);
         else {
           $("empty").classList.remove("hidden");
           this.emitFocus();
@@ -984,7 +1069,7 @@ export class TabManager {
   async closeTab(tab: Tab) {
     const panes = panesOf(tab.root);
     const live = panes.filter((p) => p.status === "connected").length;
-    if (live > 1 && !(await confirmDialog("Close tab?", `This tab has ${live} open sessions.`, "Close all"))) return;
+    if (live > 1 && this.settings?.confirmCloseTab !== false && !(await confirmDialog("Close tab?", `This tab has ${live} open sessions.`, "Close all"))) return;
     for (const p of panes) await this.closePane(p);
   }
 
@@ -1071,7 +1156,7 @@ export class TabManager {
     el.addEventListener("pointerdown", (down) => {
       if (down.button !== 0 || (down.target as HTMLElement).closest("button")) return;
       const sx = down.clientX;
-      const els = [...this.tabbar.children] as HTMLElement[];
+      const els = ([...this.tabbar.children] as HTMLElement[]).filter((x) => !x.classList.contains("page-tab"));
       const rects = els.map((x) => x.getBoundingClientRect());
       const from = els.indexOf(el);
       let active = false;
@@ -1132,7 +1217,7 @@ export class TabManager {
         const label = (t.customTitle ?? t.focused.title) + (panes.length > 1 ? ` (${panes.length})` : "");
         const el = h(
           "div",
-          { class: `tab${t === this.active ? " active" : ""}`, title: label, onclick: () => this.activate(t) },
+          { class: `tab${t === this.active && !this.activePage ? " active" : ""}${t.bell ? " tab-bell" : ""}`, title: label, onclick: () => this.activate(t) },
           h("span", { class: `dot ${shown}`, title: dotTitle }),
           h("span", { class: "tab-title" }, label),
           panes.some((p) => p.logPath) ? h("span", { class: "tab-rec", title: "Logging to a file" }, "REC") : null,
@@ -1151,6 +1236,18 @@ export class TabManager {
         el.addEventListener("contextmenu", (e) => this.tabMenu(t, e));
         this.bindTabDrag(el);
         t.tabEl = el;
+        return el;
+      }),
+      ...this.pages.map((p) => {
+        const el = h(
+          "div",
+          { class: `tab page-tab${p === this.activePage ? " active" : ""}`, title: p.title, "data-page-tab": p.id, onclick: () => this.activatePage(p) },
+          icon(p.icon, 14),
+          h("span", { class: "tab-title" }, p.title),
+          h("button", { class: "tab-close", title: `Close ${p.title}`, onclick: (e: Event) => (e.stopPropagation(), this.closePage(p)) }, icon("x", 13)),
+        );
+        el.addEventListener("auxclick", (e) => (e as MouseEvent).button === 1 && this.closePage(p));
+        el.addEventListener("contextmenu", (e) => showMenu(e, [{ label: `Close ${p.title}`, action: () => this.closePage(p) }]));
         return el;
       }),
     );

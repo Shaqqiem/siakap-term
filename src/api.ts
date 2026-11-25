@@ -85,6 +85,27 @@ export interface Settings {
   rightClickPaste: boolean;
   logAuto: boolean;
   logDir: string;
+  themeName: string;
+  palette: string[];
+  accent: string;
+  customThemes: TerminalTheme[];
+  cursorStyle: "block" | "underline" | "bar";
+  cursorBlink: boolean;
+  lineHeight: number;
+  minContrast: boolean;
+  bell: "off" | "flash";
+  wordSeparators: string;
+  confirmCloseTab: boolean;
+}
+export interface TerminalTheme {
+  name: string;
+  background: string;
+  foreground: string;
+  cursor: string;
+  selection: string;
+  /** 16 colours (black..white, then bright), or empty for the built-in ones. */
+  palette: string[];
+  accent: string;
 }
 export interface KnownHost {
   host: string;
@@ -215,8 +236,8 @@ export const api = {
     invoke<string>("sftp_upload", { id, transferId, local, remoteDir, overwrite, progress }),
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
-  pickFiles: (purpose: "upload" | "key" | "import", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
-  pickSave: (purpose: "download" | "export" | "log" | "text", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
+  pickFiles: (purpose: "upload" | "key" | "import" | "theme", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
+  pickSave: (purpose: "download" | "export" | "log" | "text" | "theme", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   clipboardRead: () => invoke<string>("clipboard_read"),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
   termLogStart: (id: number, path: string, title: string) => invoke<string>("term_log_start", { id, path, title }),
@@ -224,6 +245,7 @@ export const api = {
   termLogStop: (id: number) => invoke<void>("term_log_stop", { id }),
   logFolderPick: () => invoke<string | null>("log_folder_pick"),
   saveTextFile: (path: string, text: string) => invoke<void>("save_text_file", { path, text }),
+  themeReadFile: (path: string) => invoke<string>("theme_read_file", { path }),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>
