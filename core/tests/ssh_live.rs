@@ -41,6 +41,8 @@ fn params(t: &Target, known: Vec<KnownHost>, password: Option<&str>) -> ConnectP
         password: password.map(|p| Zeroizing::new(p.to_string())),
         passphrase: None,
         known_hosts: known,
+        keepalive_secs: 30,
+        connect_timeout_secs: 20,
     }
 }
 

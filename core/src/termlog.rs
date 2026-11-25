@@ -87,6 +87,9 @@ pub struct SessionLog {
     strip: Stripper,
     buf: Vec<u8>,
     pub path: PathBuf,
+    /// Prefix each line with `[HH:MM:SS]`, local time at this UTC offset (minutes).
+    stamp_offset: Option<i32>,
+    at_line_start: bool,
 }
 
 fn create_new(path: &Path) -> std::io::Result<File> {
@@ -102,14 +105,14 @@ fn create_new(path: &Path) -> std::io::Result<File> {
 
 impl SessionLog {
     /// Start a log at exactly `path` (chosen in a save dialog; replaced if it exists).
-    pub fn create(path: &Path, title: &str) -> Result<Self> {
+    pub fn create(path: &Path, title: &str, stamp_offset: Option<i32>) -> Result<Self> {
         let _ = std::fs::remove_file(path);
         let f = create_new(path)?;
-        Self::with_file(f, path.to_path_buf(), title)
+        Self::with_file(f, path.to_path_buf(), title, stamp_offset)
     }
 
     /// Start a log in `dir` named `<stamp>_<title>.log`, never overwriting.
-    pub fn in_folder(dir: &Path, stamp: &str, title: &str) -> Result<Self> {
+    pub fn in_folder(dir: &Path, stamp: &str, title: &str, stamp_offset: Option<i32>) -> Result<Self> {
         if !dir.is_dir() {
             return Err(CoreError::invalid("The log folder no longer exists. Choose it again in Settings."));
         }
@@ -118,7 +121,7 @@ impl SessionLog {
             let name = if n == 0 { format!("{base}.log") } else { format!("{base} ({n}).log") };
             let p = dir.join(name);
             match create_new(&p) {
-                Ok(f) => return Self::with_file(f, p, title),
+                Ok(f) => return Self::with_file(f, p, title, stamp_offset),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(e.into()),
             }
@@ -126,8 +129,16 @@ impl SessionLog {
         Err(CoreError::invalid("Couldn't find a free log file name."))
     }
 
-    fn with_file(f: File, path: PathBuf, title: &str) -> Result<Self> {
-        let mut log = Self { file: BufWriter::new(f), strip: Stripper::default(), buf: Vec::new(), path };
+    fn with_file(f: File, path: PathBuf, title: &str, stamp_offset: Option<i32>) -> Result<Self> {
+        let stamp_offset = stamp_offset.map(|m| m.clamp(-14 * 60, 14 * 60));
+        let mut log = Self {
+            file: BufWriter::new(f),
+            strip: Stripper::default(),
+            buf: Vec::new(),
+            path,
+            stamp_offset,
+            at_line_start: true,
+        };
         let title: String = title.chars().filter(|c| !c.is_control()).take(120).collect();
         log.file.write_all(format!("# Siakap Terminal session log: {title}").as_bytes())?;
         log.file.write_all(NL)?;
@@ -141,9 +152,34 @@ impl SessionLog {
         if self.buf.is_empty() {
             return Ok(());
         }
-        self.file.write_all(&self.buf)?;
+        match self.stamp_offset {
+            None => self.file.write_all(&self.buf)?,
+            Some(off) => {
+                let prefix = format!("[{}] ", clock(off));
+                let mut out = Vec::with_capacity(self.buf.len() + 16);
+                for &b in &self.buf {
+                    if self.at_line_start && b != b'\r' && b != b'\n' {
+                        out.extend_from_slice(prefix.as_bytes());
+                        self.at_line_start = false;
+                    }
+                    out.push(b);
+                    if b == b'\n' {
+                        self.at_line_start = true;
+                    }
+                }
+                self.file.write_all(&out)?;
+            }
+        }
         self.file.flush()
     }
+}
+
+/// Local wall-clock time `HH:MM:SS` at `offset_min` minutes from UTC.
+fn clock(offset_min: i32) -> String {
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let secs = (now + i64::from(offset_min) * 60).rem_euclid(86_400);
+    format!("{:02}:{:02}:{:02}", secs / 3600, secs % 3600 / 60, secs % 60)
 }
 
 /// File-name part: letters, digits, `_`, `.`, `@` and `-`; anything else
@@ -201,19 +237,37 @@ mod tests {
     #[test]
     fn logs_into_a_folder_without_overwriting() {
         let dir = tempfile::tempdir().unwrap();
-        let mut a = SessionLog::in_folder(dir.path(), "2026-11-24_10-00-00", "web/01:prod").unwrap();
+        let mut a = SessionLog::in_folder(dir.path(), "2026-11-24_10-00-00", "web/01:prod", None).unwrap();
         a.write(b"\x1b[32mhello\x1b[0m\r\n").unwrap();
-        let b = SessionLog::in_folder(dir.path(), "2026-11-24_10-00-00", "web/01:prod").unwrap();
+        let b = SessionLog::in_folder(dir.path(), "2026-11-24_10-00-00", "web/01:prod", None).unwrap();
         assert_ne!(a.path, b.path);
         assert!(a.path.file_name().unwrap().to_str().unwrap().starts_with("2026-11-24_10-00-00_web-01-prod"));
         let text = std::fs::read_to_string(&a.path).unwrap();
         assert!(text.starts_with("# Siakap Terminal session log: web/01:prod"));
         assert!(text.contains("hello") && !text.contains('\x1b'));
-        assert!(SessionLog::in_folder(&dir.path().join("missing"), "s", "t").is_err());
+        assert!(SessionLog::in_folder(&dir.path().join("missing"), "s", "t", None).is_err());
         assert_eq!(safe_part("../..", 10), "session");
         assert_eq!(safe_part("bash (login shell)", 40), "bash-login-shell");
         assert!(!safe_part("a/b\\c:d", 10).contains(['/', '\\', ':']));
         assert_eq!(safe_part("", 10), "session");
+    }
+
+    #[test]
+    fn timestamps_each_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut l = SessionLog::in_folder(dir.path(), "s", "t", Some(0)).unwrap();
+        l.write(b"one\r\ntw").unwrap();
+        l.write(b"o\r\n").unwrap();
+        let text = std::fs::read_to_string(&l.path).unwrap().replace("\r\n", "\n");
+        let lines: Vec<&str> = text.lines().skip(1).collect();
+        assert_eq!(lines.len(), 2, "{text:?}");
+        for (line, want) in lines.iter().zip(["one", "two"]) {
+            assert!(
+                line.len() == 11 + want.len() && line.starts_with('[') && &line[9..11] == "] " && line.ends_with(want),
+                "{line:?}"
+            );
+        }
+        assert_eq!(clock(0).len(), 8);
     }
 
     #[test]

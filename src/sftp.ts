@@ -25,7 +25,7 @@ export class SftpPanel {
   private error = "";
   private transfers = h("div", { class: "transfers" });
 
-  constructor(tabs: TabManager, private isVisible: () => boolean) {
+  constructor(private tabs: TabManager, private isVisible: () => boolean) {
     tabs.onFocus((p) => this.follow(p));
     // The followed pane finished connecting (e.g. the panel was open first).
     tabs.onPaneConnected((p) => {
@@ -45,6 +45,10 @@ export class SftpPanel {
       if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) return;
       void this.uploadMany(ev.payload.paths);
     });
+  }
+
+  private showHidden() {
+    return this.tabs.settings?.sftpShowHidden !== false;
   }
 
   private get termId(): number | null {
@@ -87,7 +91,8 @@ export class SftpPanel {
       const r = await api.sftpList(id, target);
       if (this.pane !== pane) return;
       this.cwd.set(pane.uid, r.path);
-      this.entries = r.entries;
+      // Names starting with "." are hidden unless Settings > Files shows them.
+      this.entries = this.showHidden() ? r.entries : r.entries.filter((e) => !e.name.startsWith("."));
       this.selected = null;
       this.error = "";
     } catch (e) {

@@ -73,8 +73,9 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px;
 .logo { display: inline-flex; color: var(--accent); }
 
 /* ---------------------------------------------------------------- layout */
-.app { display: grid; grid-template-columns: 56px var(--panel-width) 4px 1fr; height: 100vh; }
-.app.panel-collapsed { grid-template-columns: 56px 0 0 1fr; }
+.app { --rail-w: calc(56px * var(--ui-zoom, 1)); display: grid; grid-template-columns: var(--rail-w) calc(var(--panel-width) * var(--ui-zoom, 1)) 4px 1fr; height: 100vh; }
+.app.no-rail-labels { --rail-w: calc(44px * var(--ui-zoom, 1)); }
+.app.panel-collapsed { grid-template-columns: var(--rail-w) 0 0 1fr; }
 .app.panel-collapsed .panel, .app.panel-collapsed .resizer { visibility: hidden; }
 .rail { display: flex; flex-direction: column; gap: 2px; padding: 6px 4px; background: var(--bg2); border-right: 1px solid var(--line); }
 .rail button { display: flex; flex-direction: column; align-items: center; gap: 4px; background: transparent; border: 0; border-radius: 8px; padding: 8px 0 6px; color: var(--muted); }
@@ -162,7 +163,7 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px;
 .divider.h { width: 4px; cursor: col-resize; }
 .divider.v { height: 4px; cursor: row-resize; }
 .divider:hover { background: var(--accent); }
-.pane { position: relative; padding: 4px 0 0 6px; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
+.pane { position: relative; padding: var(--term-pad, 6px); min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
 .split .pane.focused { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .pane .xterm { height: 100%; }
 /* xterm paints its viewport black by default; match the terminal theme instead. */
@@ -422,6 +423,18 @@ input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
   .set-row { grid-template-columns: 1fr; }
   .set-control { justify-content: flex-start; }
 }
-.app.page-full { grid-template-columns: 56px 0 0 1fr; }
+.app.page-full { grid-template-columns: var(--rail-w) 0 0 1fr; }
 .app.page-full .panel, .app.page-full .resizer { visibility: hidden; }
 .set-control button { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* Interface options (Settings > Appearance > Interface) */
+.rail, .panel, .tabbar, .page-content, .modal-backdrop, .menu, .toasts, .empty, .macro-bar, .drag-ghost { zoom: var(--ui-zoom, 1); }
+.app.no-rail-labels .rail button span { display: none; }
+.app.no-rail-labels .rail button { padding: 9px 0; }
+.app.tabs-compact .tab { max-width: 150px; padding: 0 6px 0 9px; gap: 4px; }
+.app.tabs-wide .tab { max-width: 320px; }
+.app.tab-close-hover .tab .tab-close { opacity: 0; }
+.app.tab-close-hover .tab:hover .tab-close, .app.tab-close-hover .tab.active .tab-close { opacity: 1; }
+.welcome-version { margin-top: 18px; text-align: center; }
+.settings-version { margin: -6px 8px 2px; }
+.set-section .set-subhead.set-group { margin: 0; padding: 14px 16px 4px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }

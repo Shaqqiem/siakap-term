@@ -27,6 +27,10 @@ pub struct ConnectParams {
     pub password: Option<Zeroizing<String>>,
     pub passphrase: Option<Zeroizing<String>>,
     pub known_hosts: Vec<KnownHost>,
+    /// Seconds between keep-alive messages (0 = off).
+    pub keepalive_secs: u32,
+    /// Give up connecting after this many seconds.
+    pub connect_timeout_secs: u32,
 }
 
 /// The host key the server presented, ready to be stored on approval.
@@ -143,7 +147,7 @@ impl SshConnection {
     pub async fn connect(p: ConnectParams) -> Result<Arc<Self>> {
         let config = Arc::new(client::Config {
             inactivity_timeout: None,
-            keepalive_interval: Some(Duration::from_secs(30)),
+            keepalive_interval: (p.keepalive_secs > 0).then(|| Duration::from_secs(u64::from(p.keepalive_secs))),
             keepalive_max: 4,
             nodelay: true,
             ..Default::default()
@@ -152,7 +156,7 @@ impl SshConnection {
         let handler =
             Client { host: p.host.clone(), port: p.port, known: p.known_hosts.clone(), rejection: rejection.clone() };
         let connect = client::connect(config, (p.host.as_str(), p.port), handler);
-        let res = tokio::time::timeout(Duration::from_secs(20), connect)
+        let res = tokio::time::timeout(Duration::from_secs(u64::from(p.connect_timeout_secs.clamp(3, 120))), connect)
             .await
             .map_err(|_| CoreError::ssh(format!("Timed out connecting to {}:{}.", p.host, p.port)))?;
         let mut handle = match res {

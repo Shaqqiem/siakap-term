@@ -119,6 +119,16 @@ export class SettingsPanel {
     return this.row(label, desc, h("div", { class: "inline num" }, input, unit ? h("span", { class: "muted small" }, unit) : null));
   }
 
+  private sub(title: string) {
+    return h("div", { class: "set-subhead set-group", "data-search": title.toLowerCase() }, title);
+  }
+
+  private textSetting<K extends keyof Settings>(key: K, label: string, desc: string, placeholder = "") {
+    const input = h("input", { value: String(this.s[key] ?? ""), spellcheck: "false", placeholder }) as HTMLInputElement;
+    input.addEventListener("change", () => this.set({ [key]: input.value.trim() } as Partial<Settings>));
+    return this.row(label, desc, input);
+  }
+
   // ------------------------------------------------------------ render
 
   async render(keepScroll = false) {
@@ -142,10 +152,11 @@ export class SettingsPanel {
     const sections: Section[] = [
       { id: "appearance", title: "Appearance", icon: "palette", build: () => this.appearance() },
       { id: "terminal", title: "Terminal", icon: "terminal", build: () => this.terminal() },
-      { id: "startup", title: "Startup and tabs", icon: "play", build: () => this.startup(shells, sessions) },
+      { id: "startup", title: "Startup, tabs and window", icon: "play", build: () => this.startup(shells, sessions) },
+      { id: "connections", title: "Connections", icon: "remote", build: () => this.connections() },
       { id: "mouse", title: "Mouse and clipboard", icon: "paste", build: () => this.mouse() },
       { id: "macros", title: "Macros", icon: "macros", build: () => this.macros() },
-      { id: "logs", title: "Session logs", icon: "file", build: () => this.logs() },
+      { id: "logs", title: "Files and session logs", icon: "file", build: () => this.logs() },
       { id: "security", title: "Security", icon: "lock", build: () => this.security(vs) },
       { id: "hosts", title: `Trusted servers (${hosts.length})`, icon: "shield", build: () => this.hosts(hosts) },
       { id: "keys", title: "Keyboard shortcuts", icon: "keyboard", build: () => this.shortcuts() },
@@ -197,7 +208,7 @@ export class SettingsPanel {
     });
 
     el.replaceChildren(
-      h("aside", { class: "settings-side" }, h("h1", {}, "Settings"), search, nav, this.status),
+      h("aside", { class: "settings-side" }, h("h1", {}, "Settings"), h("div", { class: "settings-version muted small" }, `Siakap Terminal ${APP_VERSION}`), search, nav, this.status),
       body,
     );
     if (this.query) filter();
@@ -324,6 +335,11 @@ export class SettingsPanel {
         ),
       ),
       editor,
+      this.sub("Interface"),
+      this.choice("uiScale", "Interface size", "Makes menus, panels and tabs bigger or smaller. Terminal text has its own size under Terminal.", [["90", "Small (90%)"], ["100", "Normal"], ["110", "Large (110%)"], ["125", "Larger (125%)"], ["150", "Largest (150%)"]], (v) => Number(v)),
+      this.toggle("railLabels", "Show labels under the left-hand buttons"),
+      this.choice("tabWidth", "Tab width", "", [["compact", "Compact"], ["normal", "Normal"], ["wide", "Wide"]], (v) => v as Settings["tabWidth"]),
+      this.toggle("tabCloseOnHover", "Show a tab's close button only when pointing at it"),
     ];
   }
 
@@ -348,9 +364,17 @@ export class SettingsPanel {
       this.row("Font", fontCache?.length ? "Fonts installed on this PC. Fixed-width fonts line up columns properly." : "Couldn't list the fonts on this PC. Type a font name below.", fontPick),
       this.row("Font with fallbacks", "Tried in order, e.g. Cascadia Mono, Consolas, monospace.", fallback),
       this.choice("fontSize", "Text size", "", sizes, (v) => Number(v), true),
+      this.choice("fontWeight", "Text weight", "", [["300", "Light"], ["normal", "Normal"], ["500", "Medium"], ["bold", "Bold"]], (v) => v as Settings["fontWeight"]),
       this.choice("lineHeight", "Line spacing", "", [["100", "Normal"], ["110", "Relaxed (110%)"], ["120", "Loose (120%)"], ["135", "Extra loose (135%)"]], (v) => Number(v), true),
+      this.choice("letterSpacing", "Letter spacing", "", [["0", "Normal"], ["1", "+1 px"], ["2", "+2 px"], ["3", "+3 px"]], (v) => Number(v)),
+      this.toggle("boldIsBright", "Show bold text in bright colours", "How many older programs highlight text."),
+      this.choice("termPadding", "Space around the text", "", [["0", "None"], ["4", "Small"], ["6", "Normal"], ["10", "Large"], ["16", "Extra large"]], (v) => Number(v)),
       this.choice("cursorStyle", "Cursor shape", "", [["block", "Block"], ["bar", "Bar"], ["underline", "Underline"]], (v) => v as Settings["cursorStyle"]),
       this.toggle("cursorBlink", "Blinking cursor"),
+      this.choice("cursorInactive", "Cursor in terminals you're not typing in", "", [["outline", "Outline"], ["block", "Block"], ["bar", "Bar"], ["underline", "Underline"], ["none", "Hidden"]], (v) => v as Settings["cursorInactive"]),
+      this.choice("scrollSpeed", "Mouse wheel speed", "", [["1", "Normal"], ["2", "Fast (2×)"], ["3", "Faster (3×)"], ["5", "Fastest (5×)"]], (v) => Number(v)),
+      this.toggle("scrollOnInput", "Jump to the bottom when you type"),
+      this.choice("tabStopWidth", "Tab stop width", "How far the Tab character moves the cursor.", [["2", "2 columns"], ["4", "4 columns"], ["8", "8 columns (standard)"]], (v) => Number(v)),
       this.number("scrollback", "Lines of history", "How far back you can scroll. More uses more memory.", 0, 200000, 1000, "lines"),
       this.toggle("minContrast", "Improve hard-to-read colours", "Raises the contrast of text whose colour is too close to the background."),
       this.choice("bell", "Terminal bell", "What happens when a program rings the bell.", [["flash", "Flash the pane and mark its tab"], ["off", "Nothing"]], (v) => v as Settings["bell"]),
@@ -379,11 +403,30 @@ export class SettingsPanel {
         : null,
       s.startupAction !== "nothing" ? this.choice("startupPanes", "Layout at start", "", [["1", "One pane"], ["2", "Two panes side by side"], ["4", "Four panes (2×2)"]], (v) => Number(v) as Settings["startupPanes"]) : null,
       this.choice("defaultShell", "New tabs open", "What + and Ctrl+Shift+T open. Right-click + to pick something else.", defaults.some(([v]) => v === s.defaultShell) ? defaults : [...defaults, [s.defaultShell, s.defaultShell]]),
+      this.sub("Tabs"),
+      this.choice("newTabPosition", "Open new tabs", "", [["end", "At the end"], ["next", "Next to the current tab"]], (v) => v as Settings["newTabPosition"]),
+      this.toggle("programTitles", "Show the title a program sets on its tab", "For example the current folder or host, when your shell or server sets one. Renamed tabs keep your name."),
+      this.toggle("middleClickClose", "Close a tab with a middle click"),
       this.toggle("confirmCloseTab", "Ask before closing a tab with several sessions"),
+      this.toggle("notifyBackground", "Tell me when a command finishes in another tab", "Needs command status on tabs (below)."),
       this.toggle("tabStatus", "Command status on tabs", "Blue while a command runs, then green for success or red for failure."),
       this.toggle("tabStatusFallback", "Guess status from prompts and errors", "For devices and shells that don't report command results. Results are estimates."),
+      this.sub("Window"),
+      this.toggle("startMaximized", "Start maximised"),
+      this.toggle("confirmQuit", "Ask before closing the window while sessions are open"),
     ];
     return rows.filter((x): x is HTMLElement => !!x);
+  }
+
+  private connections(): HTMLElement[] {
+    return [
+      this.choice("sshKeepaliveSecs", "Keep SSH connections alive", "Sends a small message now and then so firewalls don't drop idle sessions. Applies to new connections.", [["0", "Off"], ["15", "Every 15 seconds"], ["30", "Every 30 seconds"], ["60", "Every minute"], ["120", "Every 2 minutes"]], (v) => Number(v)),
+      this.choice("sshConnectTimeoutSecs", "Give up connecting after", "", [["10", "10 seconds"], ["20", "20 seconds"], ["30", "30 seconds"], ["60", "1 minute"]], (v) => Number(v)),
+      this.toggle("autoReconnect", "Reconnect automatically if a connection drops", "Tries up to 3 times, 3 seconds apart. Typing exit doesn't count as a drop."),
+      this.sub("New SSH sessions"),
+      this.textSetting("defaultSshUser", "Default username", "Filled in when you add a server.", "e.g. admin"),
+      this.number("defaultSshPort", "Default port", "", 1, 65535, 1),
+    ];
   }
 
   private mouse(): HTMLElement[] {
@@ -391,6 +434,8 @@ export class SettingsPanel {
       this.toggle("rightClickPaste", "Right-click pastes", "With text selected, right-click copies it instead. Shift+right-click shows the menu."),
       this.toggle("copyOnSelect", "Copy as soon as text is selected"),
       this.toggle("confirmMultilinePaste", "Ask before pasting more than one line", "Each line break can run a command, so Siakap shows the text first."),
+      this.toggle("trimPasteNewline", "Don't run a single pasted line by itself", "Removes the line break at the end of one copied line, so you can check it before pressing Enter."),
+      this.toggle("trimCopyWhitespace", "Remove spaces at the ends of copied lines"),
     ];
   }
 
@@ -429,7 +474,11 @@ export class SettingsPanel {
     const input = auto.querySelector("input") as HTMLInputElement;
     input.disabled = !s.logDir;
     return [
+      this.sub("SFTP"),
+      this.toggle("sftpShowHidden", "Show hidden files (names starting with a dot)"),
+      this.sub("Session logs"),
       auto,
+      this.toggle("logTimestamps", "Start each logged line with the time", "Applies to logs started from now on."),
       this.row("Log folder", "Logs are plain text and contain everything the terminal shows, so keep this folder private. To log just one terminal, right-click its tab.", h("div", { class: "inline log-dir-row" }, dir, pick)),
     ];
   }
@@ -486,6 +535,7 @@ export class SettingsPanel {
     rows.push(
       this.choice("autoLockMinutes", "Lock the app", "When nobody has used Siakap for this long.", lockChoices, (v) => Number(v)),
       this.toggle("lockDisconnects", "Disconnect all sessions when Siakap locks", "Off: terminals keep running but stay hidden until you unlock."),
+      this.toggle("lockOnMinimize", "Lock when the window is minimised"),
     );
     return rows;
   }

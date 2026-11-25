@@ -33,7 +33,7 @@ $("win-min").addEventListener("click", () => void appWindow.minimize());
 $("win-max").addEventListener("click", () => void appWindow.toggleMaximize());
 $("win-close").addEventListener("click", async () => {
   const live = tabs.allPanes().filter((p) => p.status === "connected").length;
-  if (live && !$("app").classList.contains("hidden")) {
+  if (live && !$("app").classList.contains("hidden") && tabs.settings?.confirmQuit !== false) {
     const ok = await confirmDialog("Close Siakap Terminal?", `${live} session${live === 1 ? " is" : "s are"} still open and will be disconnected.`, "Close", { danger: true });
     if (!ok) return;
   }
@@ -58,10 +58,23 @@ function previousMinor(): string {
   return min > 0 ? `${maj}.${min - 1}.999` : `${maj - 1}.999.999`;
 }
 
+let shownHidden: boolean | undefined;
 function applySettings(s: Settings) {
   tabs.applySettings(s);
   const root = document.documentElement.style;
   root.setProperty("--term-bg", s.background);
+  // Interface zoom applies to the app's own controls, never inside terminals.
+  root.setProperty("--ui-zoom", String((s.uiScale || 100) / 100));
+  root.setProperty("--term-pad", `${Math.min(32, s.termPadding ?? 6)}px`);
+  const app = $("app").classList;
+  app.toggle("no-rail-labels", s.railLabels === false);
+  app.toggle("tabs-compact", s.tabWidth === "compact");
+  app.toggle("tabs-wide", s.tabWidth === "wide");
+  app.toggle("tab-close-hover", !!s.tabCloseOnHover);
+  if (shownHidden !== s.sftpShowHidden) {
+    shownHidden = s.sftpShowHidden;
+    void sftp.refresh();
+  }
   if (/^#[0-9a-fA-F]{3,6}$/.test(s.accent ?? "")) root.setProperty("--accent", s.accent);
   else root.removeProperty("--accent");
 }
@@ -128,6 +141,12 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.6.1",
+    title: "Many more settings",
+    text: "Settings now covers the interface size, tab behaviour, the window, SSH keep-alive and automatic reconnect, paste and copy, hidden SFTP files and timestamps in session logs. The version is shown at the top of Settings.",
+    target: '.rail button[data-panel="settings"]',
   },
   {
     since: "0.6.0",
@@ -260,6 +279,7 @@ function renderWelcome() {
         card("serial", "Serial console", "Use a console cable (COM port)", () => void sidebar.newSession("serial")),
         card("grid", "Four terminals", "A 2×2 grid of your default terminal", () => void layout("grid")),
       ),
+      h("p", { class: "welcome-version muted small" }, `Siakap Terminal ${APP_VERSION}`),
       recent.length
         ? h(
             "div",
@@ -658,8 +678,9 @@ let startupDone = false;
 async function runStartup() {
   if (startupDone) return;
   startupDone = true;
-  if (tabs.tabs.length) return;
   const s = tabs.settings;
+  if (s.startMaximized && !(await appWindow.isMaximized().catch(() => true))) void appWindow.toggleMaximize();
+  if (tabs.tabs.length) return;
   if (s.startupAction === "shell") {
     const sh = pickShell(s.startupShell);
     if (!sh) return;
@@ -721,6 +742,11 @@ const activity = () => {
   }
 };
 for (const ev of ["keydown", "mousedown", "wheel"]) window.addEventListener(ev, activity, { capture: true, passive: true });
+
+// Lock when the window is minimised (Settings > Security).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && tabs.settings?.lockOnMinimize && $("lock").classList.contains("hidden")) void lockNow("Locked when minimised.");
+});
 
 // Block the webview's own context menu / reload shortcuts in release builds.
 window.addEventListener("contextmenu", (e) => {

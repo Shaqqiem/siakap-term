@@ -294,6 +294,59 @@ pub struct Settings {
     pub word_separators: String,
     /// Ask before closing a tab that has more than one open session.
     pub confirm_close_tab: bool,
+    // ---- interface (0.6.1)
+    /// Interface zoom in percent (90..=150).
+    pub ui_scale: u16,
+    pub rail_labels: bool,
+    /// "compact", "normal" or "wide".
+    pub tab_width: String,
+    /// Show a tab's close button only when hovering it.
+    pub tab_close_on_hover: bool,
+    /// Space around the text inside a terminal, in pixels.
+    pub term_padding: u16,
+    // ---- terminal text
+    /// "300" light, "normal", "500" medium, "bold".
+    pub font_weight: String,
+    /// Extra pixels between characters.
+    pub letter_spacing: u16,
+    pub bold_is_bright: bool,
+    /// Cursor when the terminal isn't focused: outline, block, bar, underline, none.
+    pub cursor_inactive: String,
+    /// Mouse-wheel speed multiplier (1..=10).
+    pub scroll_speed: u16,
+    pub scroll_on_input: bool,
+    pub tab_stop_width: u16,
+    // ---- tabs and window
+    /// "end" or "next" (right after the current tab).
+    pub new_tab_position: String,
+    /// Show the title a program sets (e.g. the current folder) on its tab.
+    pub program_titles: bool,
+    pub middle_click_close: bool,
+    /// Ask before closing the window while sessions are open.
+    pub confirm_quit: bool,
+    /// Show a message when a command finishes in a tab you're not looking at.
+    pub notify_background: bool,
+    pub start_maximized: bool,
+    // ---- connections
+    /// SSH keep-alive interval in seconds (0 = off).
+    pub ssh_keepalive_secs: u32,
+    pub ssh_connect_timeout_secs: u32,
+    /// Reconnect a dropped SSH session automatically (up to 3 tries).
+    pub auto_reconnect: bool,
+    /// Pre-filled in the editor for new SSH sessions.
+    pub default_ssh_user: String,
+    pub default_ssh_port: u16,
+    // ---- clipboard
+    /// Drop the trailing line break when pasting a single line, so it isn't run.
+    pub trim_paste_newline: bool,
+    /// Remove spaces at the ends of copied lines.
+    pub trim_copy_whitespace: bool,
+    // ---- files and logs
+    pub sftp_show_hidden: bool,
+    pub log_timestamps: bool,
+    // ---- security
+    /// Lock when the window is minimised.
+    pub lock_on_minimize: bool,
 }
 
 impl Default for Settings {
@@ -340,6 +393,34 @@ impl Default for Settings {
             bell: Bell::Flash,
             word_separators: " ()[]{}',\"`".into(),
             confirm_close_tab: true,
+            ui_scale: 100,
+            rail_labels: true,
+            tab_width: "normal".into(),
+            tab_close_on_hover: false,
+            term_padding: 6,
+            font_weight: "normal".into(),
+            letter_spacing: 0,
+            bold_is_bright: true,
+            cursor_inactive: "outline".into(),
+            scroll_speed: 1,
+            scroll_on_input: true,
+            tab_stop_width: 8,
+            new_tab_position: "end".into(),
+            program_titles: false,
+            middle_click_close: true,
+            confirm_quit: true,
+            notify_background: true,
+            start_maximized: false,
+            ssh_keepalive_secs: 30,
+            ssh_connect_timeout_secs: 20,
+            auto_reconnect: false,
+            default_ssh_user: String::new(),
+            default_ssh_port: 22,
+            trim_paste_newline: true,
+            trim_copy_whitespace: true,
+            sftp_show_hidden: true,
+            log_timestamps: false,
+            lock_on_minimize: false,
         }
     }
 }
@@ -393,6 +474,26 @@ impl Settings {
             .take(100)
             .collect();
         self.line_height = self.line_height.clamp(100, 200);
+        self.ui_scale = self.ui_scale.clamp(80, 150);
+        self.term_padding = self.term_padding.min(32);
+        self.letter_spacing = self.letter_spacing.min(8);
+        self.scroll_speed = self.scroll_speed.clamp(1, 10);
+        self.tab_stop_width = self.tab_stop_width.clamp(1, 16);
+        self.ssh_keepalive_secs = self.ssh_keepalive_secs.min(3600);
+        self.ssh_connect_timeout_secs = self.ssh_connect_timeout_secs.clamp(3, 120);
+        if self.default_ssh_port == 0 {
+            self.default_ssh_port = 22;
+        }
+        self.default_ssh_user = self.default_ssh_user.chars().filter(|c| !c.is_control()).take(64).collect();
+        let pick = |v: &mut String, allowed: &[&str], default: &str| {
+            if !allowed.contains(&v.as_str()) {
+                *v = default.into();
+            }
+        };
+        pick(&mut self.tab_width, &["compact", "normal", "wide"], "normal");
+        pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
+        pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
+        pick(&mut self.new_tab_position, &["end", "next"], "end");
         self.word_separators = self.word_separators.chars().filter(|c| !c.is_control()).take(64).collect();
         self.font_family.retain(|c| !c.is_control() && !matches!(c, ';' | '{' | '}' | '<' | '>'));
         self.font_family.truncate(200);

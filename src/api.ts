@@ -96,6 +96,34 @@ export interface Settings {
   bell: "off" | "flash";
   wordSeparators: string;
   confirmCloseTab: boolean;
+  uiScale: number;
+  railLabels: boolean;
+  tabWidth: "compact" | "normal" | "wide";
+  tabCloseOnHover: boolean;
+  termPadding: number;
+  fontWeight: "300" | "normal" | "500" | "bold";
+  letterSpacing: number;
+  boldIsBright: boolean;
+  cursorInactive: "outline" | "block" | "bar" | "underline" | "none";
+  scrollSpeed: number;
+  scrollOnInput: boolean;
+  tabStopWidth: number;
+  newTabPosition: "end" | "next";
+  programTitles: boolean;
+  middleClickClose: boolean;
+  confirmQuit: boolean;
+  notifyBackground: boolean;
+  startMaximized: boolean;
+  sshKeepaliveSecs: number;
+  sshConnectTimeoutSecs: number;
+  autoReconnect: boolean;
+  defaultSshUser: string;
+  defaultSshPort: number;
+  trimPasteNewline: boolean;
+  trimCopyWhitespace: boolean;
+  sftpShowHidden: boolean;
+  logTimestamps: boolean;
+  lockOnMinimize: boolean;
 }
 export interface TerminalTheme {
   name: string;
@@ -240,8 +268,10 @@ export const api = {
   pickSave: (purpose: "download" | "export" | "log" | "text" | "theme", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   clipboardRead: () => invoke<string>("clipboard_read"),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
-  termLogStart: (id: number, path: string, title: string) => invoke<string>("term_log_start", { id, path, title }),
-  termLogAuto: (id: number, title: string, stamp: string) => invoke<string>("term_log_auto", { id, title, stamp }),
+  termLogStart: (id: number, path: string, title: string) =>
+    invoke<string>("term_log_start", { id, path, title, tzOffset: -new Date().getTimezoneOffset() }),
+  termLogAuto: (id: number, title: string, stamp: string) =>
+    invoke<string>("term_log_auto", { id, title, stamp, tzOffset: -new Date().getTimezoneOffset() }),
   termLogStop: (id: number) => invoke<void>("term_log_stop", { id }),
   logFolderPick: () => invoke<string | null>("log_folder_pick"),
   saveTextFile: (path: string, text: string) => invoke<void>("save_text_file", { path, text }),

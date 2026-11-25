@@ -801,6 +801,8 @@ pub async fn term_open_ssh(
             password: password.filter(|p| !p.is_empty()).or(saved).map(Zeroizing::new),
             passphrase: passphrase.filter(|p| !p.is_empty()).map(Zeroizing::new),
             known_hosts: d.known_hosts.clone(),
+            keepalive_secs: d.settings.ssh_keepalive_secs,
+            connect_timeout_secs: d.settings.ssh_connect_timeout_secs,
         }
     };
     let conn = match SshConnection::connect(params).await {
@@ -1070,11 +1072,12 @@ pub async fn clipboard_write(st: State<'_, AppState>, text: String) -> Res<()> {
 
 /// Start logging a terminal to a file the user picked in a save dialog.
 #[tauri::command]
-pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String) -> Res<String> {
+pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String, tz_offset: i32) -> Res<String> {
     st.ensure_unlocked()?;
     let path = granted_path(&st, &path)?;
     let slot = st.log_slot(id)?;
-    let log = termlog::SessionLog::create(&path, &title)?;
+    let stamps = st.vault().data()?.settings.log_timestamps.then_some(tz_offset);
+    let log = termlog::SessionLog::create(&path, &title, stamps)?;
     let shown = log.path.to_string_lossy().to_string();
     *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
     Ok(shown)
@@ -1082,18 +1085,18 @@ pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: Str
 
 /// Start logging into the log folder chosen in Settings (automatic logging).
 #[tauri::command]
-pub fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String) -> Res<String> {
+pub fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String, tz_offset: i32) -> Res<String> {
     st.ensure_unlocked()?;
-    let dir = {
+    let (dir, stamps) = {
         let v = st.vault();
         let s = &v.data()?.settings;
         if !s.log_auto || s.log_dir.is_empty() {
             return Err(CoreError::invalid("Automatic session logs are turned off."));
         }
-        PathBuf::from(&s.log_dir)
+        (PathBuf::from(&s.log_dir), s.log_timestamps.then_some(tz_offset))
     };
     let slot = st.log_slot(id)?;
-    let log = termlog::SessionLog::in_folder(&dir, &stamp, &title)?;
+    let log = termlog::SessionLog::in_folder(&dir, &stamp, &title, stamps)?;
     let shown = log.path.to_string_lossy().to_string();
     *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
     Ok(shown)

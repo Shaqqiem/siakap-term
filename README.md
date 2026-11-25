@@ -126,7 +126,7 @@ master password**.
 | Organise sessions | The folder button makes a folder; drag sessions onto it. Right-click a session or folder for more. Click a folder to collapse it |
 | Save what's on screen | Right-click a tab, or Shift+right-click in the terminal → *Save output to file...* (scrollback included, as plain text) |
 | Log a session | Same menus → *Log to file...*; a red REC badge shows while it records. *Settings → Session logs* can log every terminal automatically into a folder you choose |
-| Settings | The gear in the left rail opens Settings as its own tab, with sections and a search box. Changes save as you make them |
+| Settings | The gear in the left rail opens Settings as its own tab: Appearance, Terminal, Startup/tabs/window, Connections, Mouse and clipboard, Macros, Files and logs, Security, Trusted servers, Keyboard shortcuts and About, with a search box. Changes save as you make them. The version is shown at the top |
 | Change the look | *Settings → Appearance*: pick a theme from the gallery, customise every colour (including the 16 terminal colours and the app's accent), save your own themes, and import or export them. Windows Terminal colour schemes can be imported directly |
 | Change the font | *Settings → Terminal → Font* lists the fonts installed on your PC, fixed-width ones first. Line spacing, cursor shape and blinking, history length and the terminal bell are there too |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |

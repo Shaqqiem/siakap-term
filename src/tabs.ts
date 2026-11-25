@@ -1,6 +1,6 @@
 // Tabs, each holding a binary split tree of terminal panes.
 import { icon } from "./icons";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { Terminal, type FontWeight, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
@@ -35,6 +35,10 @@ export interface Pane {
   pending: string[];
   /** Reconnect in place after the connection ended (R key). */
   reconnect?: () => void;
+  /** Automatic reconnect attempts since the last successful connection. */
+  retries?: number;
+  /** Title set by the program running in the pane (OSC 0/2). */
+  programTitle?: string;
   /** File this pane's output is being logged to. */
   logPath?: string;
   /** Size last given to the shell or server ("cols x rows"). */
@@ -230,6 +234,14 @@ export class TabManager {
       lineHeight: Math.min(2, Math.max(1, (s.lineHeight || 100) / 100)),
       minimumContrastRatio: s.minContrast ? 4.5 : 1,
       wordSeparator: s.wordSeparators ?? " ()[]{}',\"`",
+      fontWeight: (s.fontWeight === "300" || s.fontWeight === "500" ? Number(s.fontWeight) : (s.fontWeight ?? "normal")) as FontWeight,
+      fontWeightBold: "bold" as FontWeight,
+      letterSpacing: s.letterSpacing ?? 0,
+      drawBoldTextInBrightColors: s.boldIsBright ?? true,
+      cursorInactiveStyle: s.cursorInactive ?? "outline",
+      scrollSensitivity: s.scrollSpeed ?? 1,
+      scrollOnUserInput: s.scrollOnInput ?? true,
+      tabStopWidth: s.tabStopWidth ?? 8,
     } as const;
   }
 
@@ -252,6 +264,11 @@ export class TabManager {
   private attachStatus(pane: Pane) {
     if (!this.settings?.tabStatus) return;
     pane.cmd = new TabCommandStatus((state) => {
+      // A command finished in a tab you're not looking at.
+      if ((state === "success" || state === "error") && this.settings?.notifyBackground && (pane.tab !== this.active || this.activePage)) {
+        const name = pane.tab.customTitle ?? pane.title;
+        toast(state === "success" ? `Command finished in "${name}".` : `Command failed in "${name}".`, state === "success" ? "ok" : "error", 5000);
+      }
       // On the tab you're looking at, show the result briefly; background tabs keep it until opened.
       if ((state === "success" || state === "error") && this.active === pane.tab) {
         window.clearTimeout(this.clearTimers.get(pane));
@@ -336,8 +353,12 @@ export class TabManager {
       }
     });
     term.onBell(() => this.bell(pane));
+    term.onTitleChange((t) => {
+      pane.programTitle = t.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) || undefined;
+      if (this.settings?.programTitles) this.scheduleTabs();
+    });
     term.onSelectionChange(() => {
-      if (this.settings.copyOnSelect && term.hasSelection()) api.clipboardWrite(term.getSelection()).catch(() => {});
+      if (this.settings.copyOnSelect && term.hasSelection()) api.clipboardWrite(this.copyText(term.getSelection())).catch(() => {});
     });
     // Paste protection: intercept the browser paste before xterm sees it.
     el.addEventListener(
@@ -386,7 +407,7 @@ export class TabManager {
       e.stopPropagation();
       this.focus(pane);
       if (sel) {
-        void api.clipboardWrite(sel).then(() => toast("Copied.", "ok", 1200), () => toast("Clipboard is not available.", "error"));
+        void api.clipboardWrite(this.copyText(sel)).then(() => toast("Copied.", "ok", 1200), () => toast("Clipboard is not available.", "error"));
         pane.term.clearSelection();
       } else if (pane.status !== "closed") {
         api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error"));
@@ -396,7 +417,7 @@ export class TabManager {
     const count = cellsOf(pane.tab.root);
     const canSplit = count < MAX_PANES;
     const entries: MenuEntry[] = [
-      { label: "Copy", disabled: !sel, action: () => api.clipboardWrite(sel) },
+      { label: "Copy", disabled: !sel, action: () => api.clipboardWrite(this.copyText(sel)) },
       {
         label: "Paste",
         disabled: pane.status === "closed",
@@ -504,7 +525,7 @@ export class TabManager {
     if (e.type !== "keydown") return true;
     const ctrlShift = e.ctrlKey && e.shiftKey && !e.altKey;
     if (ctrlShift && e.code === "KeyC") {
-      if (pane.term.hasSelection()) api.clipboardWrite(pane.term.getSelection()).catch(() => {});
+      if (pane.term.hasSelection()) api.clipboardWrite(this.copyText(pane.term.getSelection())).catch(() => {});
       e.preventDefault();
       return false;
     }
@@ -524,8 +545,15 @@ export class TabManager {
     return true;
   }
 
+  /** Selected text as copied: optionally without spaces at line ends. */
+  copyText(sel: string): string {
+    return this.settings?.trimCopyWhitespace === false ? sel : sel.replace(/[ \t]+$/gm, "");
+  }
+
   async guardedPaste(pane: Pane, text: string) {
     if (!text || pane.status === "closed") return;
+    // A single line copied with its line break would run at once: drop the break.
+    if (this.settings?.trimPasteNewline !== false && /^[^\r\n]*(\r?\n)+$/.test(text)) text = text.replace(/(\r?\n)+$/, "");
     if (this.settings.confirmMultilinePaste && /[\r\n]/.test(text)) {
       const lines = text.split(/\r\n|\r|\n/);
       const preview = h("pre", { class: "paste-preview" }, lines.slice(0, 30).join("\n") + (lines.length > 30 ? `\n... and ${lines.length - 30} more lines` : ""));
@@ -582,6 +610,14 @@ export class TabManager {
         pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : pane.kind === "serial" ? "port closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press R to reconnect or Enter to close.]\x1b[0m\r\n`);
         this.renderTabs();
         this.closeListeners.forEach((l) => l(pane));
+        // A dropped SSH connection (no exit code, so not a normal "exit"): try again.
+        if (pane.kind === "ssh" && m.code === null && this.settings?.autoReconnect && pane.reconnect && (pane.retries ?? 0) < 3) {
+          pane.retries = (pane.retries ?? 0) + 1;
+          pane.term.write(`\x1b[2m[Reconnecting in 3 seconds (try ${pane.retries} of 3)...]\x1b[0m\r\n`);
+          window.setTimeout(() => {
+            if (!pane.disposed && pane.status === "closed") this.reconnectPane(pane);
+          }, 3000);
+        }
       }
     };
     return ch;
@@ -739,6 +775,7 @@ export class TabManager {
 
   private markConnected(pane: Pane) {
     pane.status = "connected";
+    pane.retries = 0;
     const queued = pane.pending.join("");
     pane.pending = [];
     if (queued && pane.termId !== null) api.termWrite(pane.termId, queued).catch(() => {});
@@ -791,7 +828,8 @@ export class TabManager {
         tabEl: h("div", { class: "tab" }),
       };
       pane.tab = tab;
-      this.tabs.push(tab);
+      const at = this.settings?.newTabPosition === "next" && this.active ? this.tabs.indexOf(this.active) + 1 : this.tabs.length;
+      this.tabs.splice(at, 0, tab);
       this.workspace.append(tab.el);
       this.activate(tab);
     } else {
@@ -1214,7 +1252,8 @@ export class TabManager {
         const detail = panes.map((p) => p.cmd?.detail).find(Boolean);
         const dotTitle =
           shown === "cmd-running" ? "Command running" : shown === "cmd-success" ? `Success: ${detail ?? ""}` : shown === "cmd-error" ? `Failure: ${detail ?? ""}` : status === "connected" ? "Connected" : status === "connecting" ? "Connecting" : "Closed";
-        const label = (t.customTitle ?? t.focused.title) + (panes.length > 1 ? ` (${panes.length})` : "");
+        const base = t.customTitle ?? ((this.settings?.programTitles && t.focused.programTitle) || t.focused.title);
+        const label = base + (panes.length > 1 ? ` (${panes.length})` : "");
         const el = h(
           "div",
           { class: `tab${t === this.active && !this.activePage ? " active" : ""}${t.bell ? " tab-bell" : ""}`, title: label, onclick: () => this.activate(t) },
@@ -1231,7 +1270,7 @@ export class TabManager {
           }, icon("x", 13)),
         );
         el.addEventListener("auxclick", (e) => {
-          if ((e as MouseEvent).button === 1) void this.closeTab(t);
+          if ((e as MouseEvent).button === 1 && this.settings?.middleClickClose !== false) void this.closeTab(t);
         });
         el.addEventListener("contextmenu", (e) => this.tabMenu(t, e));
         this.bindTabDrag(el);
