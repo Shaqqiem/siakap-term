@@ -79,8 +79,12 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
    **Run anyway**. The installer isn't code-signed yet, which is why Windows asks.
 4. Open **Siakap Terminal** from the Start menu.
 
-**Updating:** download the newer `setup.exe` from the same page and run it. Your sessions, macros and settings are
-kept. After an update, Siakap shows a short tour of what's new.
+**Updating:** click **Check for updates** in Settings → About (or open the Releases page), download the newer
+`setup.exe` and run it. It installs over the old version without uninstalling it first, and your sessions, macros and
+settings are kept. After an update, Siakap shows a short tour of what's new.
+
+> Installers up to 0.6.2 asked "Uninstall before installing?" when updating. If you see that, choose **Do not
+> uninstall**, or if you do uninstall, leave **Delete the application data** unticked: that box deletes your vault.
 
 You need Windows 10 or 11 (x64). The app uses WebView2, which Windows 11 already has; on Windows 10 the installer
 adds it if it's missing. If you want agent authentication, turn on the OpenSSH agent service or run Pageant. The
