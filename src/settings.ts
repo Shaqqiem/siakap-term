@@ -576,14 +576,42 @@ export class SettingsPanel {
   }
 
   private about(): HTMLElement[] {
+    const result = h("div", { class: "update-result hidden" });
+    const btn = h("button", { type: "button" }, icon("refresh", 14), " Check for updates") as HTMLButtonElement;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.lastChild!.textContent = " Checking...";
+      result.classList.add("hidden");
+      try {
+        const u = await api.updateCheck();
+        const open = h("button", { type: "button", class: "primary", onclick: () => api.openReleasePage(u.url).catch((e) => toast(messageOf(e), "error")) }, "Open download page");
+        const copy = h("button", { type: "button", onclick: () => api.clipboardWrite(u.url).then(() => toast("Link copied.", "ok", 1500)) }, "Copy link");
+        result.replaceChildren(
+          u.newer
+            ? h("div", { class: "update-new" }, h("strong", {}, `Version ${u.latest} is available`), u.published ? h("span", { class: "muted small" }, ` (released ${u.published})`) : null, h("div", { class: "muted small" }, `You have ${u.current}. Download the new setup.exe and run it; your sessions and settings are kept.`))
+            : h("div", { class: "update-ok" }, h("strong", {}, "You have the latest version"), h("span", { class: "muted small" }, ` (${u.current})`)),
+          ...(u.newer && u.notes.trim() ? [h("details", {}, h("summary", { class: "small" }, "What's in it"), h("pre", { class: "update-notes" }, u.notes))] : []),
+          h("div", { class: "inline" }, ...(u.newer ? [open, copy] : [])),
+        );
+        result.classList.remove("hidden");
+      } catch (e) {
+        result.replaceChildren(h("div", { class: "error" }, messageOf(e)));
+        result.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+        btn.lastChild!.textContent = " Check for updates";
+      }
+    });
     return [
       this.row("Version", "", h("span", { class: "mono" }, APP_VERSION)),
+      this.row("Updates", "Asks GitHub for the newest release, only when you click. Siakap never checks on its own.", btn),
+      h("div", { class: "set-block update-block", "data-search": "update check version download" }, result),
       this.row(
         "Guided tour",
         "",
         h("div", { class: "inline" }, h("button", { type: "button", onclick: () => this.onTour("whatsNew") }, "What's new"), h("button", { type: "button", onclick: () => this.onTour("full") }, "Show the tour again")),
       ),
-      h("p", { class: "muted small set-block" }, "Siakap only connects to the servers and devices you open. It sends no usage data and checks for nothing online."),
+      h("p", { class: "muted small set-block" }, "Siakap only connects to the servers and devices you open, and to GitHub when you click Check for updates. It sends no usage data and never checks for anything on its own."),
     ];
   }
 

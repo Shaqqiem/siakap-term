@@ -124,9 +124,15 @@ folder, host, user and serial setting is checked). Duplicate macros are skipped,
 Imported macros must be reviewed before their first run, and imported startup commands stay switched off until you
 enable them. Exports never contain passwords.
 
-**Privacy.** The app has no telemetry, analytics, crash reporting or update check, and loads no remote fonts or
-scripts. It doesn't log terminal output, passwords or keys on its own; session logs are only written when you turn
-them on. The only network traffic is the SSH sessions you start.
+**Privacy.** The app has no telemetry, analytics, crash reporting or automatic update check, and loads no remote
+fonts or scripts. It doesn't log terminal output, passwords or keys on its own; session logs are only written when you
+turn them on. The only network traffic is the SSH sessions you start, and one request you trigger yourself:
+
+**Check for updates (manual).** Clicking *Check for updates* in Settings → About sends one HTTPS request from the Rust
+backend to `api.github.com` for this repository's latest release. It carries a fixed user agent and no identifiers,
+and runs only when you click; it never runs in the background. GitHub sees your IP address, as with any visit to the
+Releases page. Siakap shows the result; it never downloads or installs anything. *Open download page* only opens
+addresses under this repository's Releases page, which the backend checks before handing the address to the browser.
 
 ## What is not protected
 
@@ -163,9 +169,9 @@ them on. The only network traffic is the SSH sessions you start.
 - Every GitHub Action in the workflow is pinned to a full commit hash, not a movable tag.
 - The clipboard uses `arboard`; on Windows the vault key protection uses `windows-sys` (DPAPI). Both are widely
   used crates and are covered by the audit below.
-- CI runs `cargo audit` (RustSec) and `npm audit` on every push. At version 0.5.2, neither reported a known
-  vulnerability. `cargo audit` lists three advisories that are not vulnerabilities: `chrono` and `proc-macro-error`
-  are unmaintained, and `glib` has an unsoundness advisory, but `glib` is only used by the Linux build (GTK), not on
+- CI runs `cargo audit` (RustSec) and `npm audit` on every push. At version 0.6.2, neither reported a known
+  vulnerability. `cargo audit` lists four advisories that are not vulnerabilities: `chrono`, `proc-macro-error` and
+  `rustls-pemfile` (used to read the system's certificates for the update check) are unmaintained, and `glib` has an unsoundness advisory, but `glib` is only used by the Linux build (GTK), not on
   Windows.
 
 ## Implementation details

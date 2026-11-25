@@ -1165,6 +1165,25 @@ pub fn save_text_file(st: State<'_, AppState>, path: String, text: String) -> Re
     termlog::save_text(&path, &text)
 }
 
+// ---------------------------------------------------------------- updates
+
+/// Ask GitHub for the latest release. Only ever runs when the user clicks
+/// "Check for updates"; Siakap never checks on its own.
+#[tauri::command]
+pub async fn update_check(st: State<'_, AppState>) -> Res<siakap_core::update::UpdateInfo> {
+    st.ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(|| siakap_core::update::check(env!("CARGO_PKG_VERSION")))
+        .await
+        .map_err(|e| CoreError::invalid(e.to_string()))?
+}
+
+/// Open Siakap's release page in the browser (no other address is accepted).
+#[tauri::command]
+pub fn open_release_page(st: State<'_, AppState>, url: String) -> Res<()> {
+    st.ensure_unlocked()?;
+    siakap_core::update::open_page(&url)
+}
+
 // ---------------------------------------------------------------- fonts
 
 /// Font families installed on this PC (for the font picker).

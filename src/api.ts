@@ -276,6 +276,9 @@ export const api = {
   logFolderPick: () => invoke<string | null>("log_folder_pick"),
   saveTextFile: (path: string, text: string) => invoke<void>("save_text_file", { path, text }),
   themeReadFile: (path: string) => invoke<string>("theme_read_file", { path }),
+  updateCheck: () =>
+    invoke<{ current: string; latest: string; newer: boolean; url: string; published: string; notes: string }>("update_check"),
+  openReleasePage: (url: string) => invoke<void>("open_release_page", { url }),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>

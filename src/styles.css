@@ -438,3 +438,7 @@ input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 .welcome-version { margin-top: 18px; text-align: center; }
 .settings-version { margin: -6px 8px 2px; }
 .set-section .set-subhead.set-group { margin: 0; padding: 14px 16px 4px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.update-block:has(.update-result.hidden) { display: none; }
+.update-result { display: flex; flex-direction: column; gap: 8px; }
+.update-new strong { color: var(--ok); }
+.update-notes { max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 8px; border-radius: 6px; background: var(--bg); white-space: pre-wrap; font-size: 12px; }

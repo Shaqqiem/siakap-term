@@ -143,6 +143,12 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.6.2",
+    title: "Check for updates",
+    text: "Settings, under About, has a Check for updates button. It asks GitHub for the newest version only when you click it, and offers the download page if there's a newer one.",
+    target: '.rail button[data-panel="settings"]',
+  },
+  {
     since: "0.6.1",
     title: "Many more settings",
     text: "Settings now covers the interface size, tab behaviour, the window, SSH keep-alive and automatic reconnect, paste and copy, hidden SFTP files and timestamps in session logs. The version is shown at the top of Settings.",

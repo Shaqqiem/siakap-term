@@ -26,6 +26,7 @@ pub mod serial;
 pub mod sftp;
 pub mod ssh;
 pub mod termlog;
+pub mod update;
 pub mod vault;
 
 pub use error::{CoreError, Result};

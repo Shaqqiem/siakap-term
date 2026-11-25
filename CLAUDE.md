@@ -30,7 +30,7 @@ README.md, SECURITY.md
 The `core/Cargo.toml` already present lists the intended crates; check the versions against crates.io. russh is at 0.65 and its API has changed across versions, so let the compiler guide you.
 
 ## Security & privacy requirements (non-negotiable)
-- **No telemetry, no update checks, no analytics, no remote fonts/CDNs.** The only network traffic is SSH connections the user starts.
+- **No telemetry, no automatic update checks, no analytics, no remote fonts/CDNs.** The only network traffic is SSH connections the user starts, plus one exception the owner approved: a manual **Check for updates** button (Settings → About) that asks GitHub's releases API for the latest version only when clicked. It never runs on its own, sends no identifiers, and never downloads or installs anything.
 - **Strict CSP:** `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`. Load no remote content.
 - **Minimal Tauri capabilities:** core defaults plus `dialog:allow-open` and `dialog:allow-save` only. **No shell plugin and no fs plugin**; all file and process access goes through the app's own validated commands.
 - **Vault:** a single file in the app data directory, holding `{version, kdf:{alg:"argon2id", m:65536, t:3, p:1, salt}, nonce, ciphertext}`.

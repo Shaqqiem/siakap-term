@@ -62,8 +62,9 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized
   and more), a full colour editor, your own saved themes, and import/export as JSON, including Windows Terminal
   colour schemes.
-- **No phoning home.** There is no telemetry, no update check and no analytics, and the app loads no remote fonts or
-  scripts. The only network connections it makes are the SSH sessions you open.
+- **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
+  fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
+  you click **Check for updates** in Settings → About.
 
 ## Installing
 
