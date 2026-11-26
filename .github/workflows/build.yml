@@ -121,5 +121,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
+          # Written notes from CHANGELOG.md (fails if the version has no section).
+          python3 scripts/release-notes.py "${TAG#v}" dist-installers/SHA256SUMS.txt > release-notes.md
           gh release create "$TAG" dist-installers/* --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "Siakap Terminal ${TAG#v}" --generate-notes
+            --target "$GITHUB_SHA" --title "Siakap Terminal ${TAG#v}" --notes-file release-notes.md
+
+  notes:
+    # Keep every release's notes in step with CHANGELOG.md (safe to repeat).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Refresh release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p notes
+          for tag in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName'); do
+            v="${tag#v}"
+            sums=""
+            if gh release download "$tag" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D "notes/$v" --clobber 2>/dev/null; then
+              sums="notes/$v/SHA256SUMS.txt"
+            fi
+            if python3 scripts/release-notes.py "$v" $sums > "notes/$v.md"; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "notes/$v.md" >/dev/null
+              echo "updated $tag"
+            else
+              echo "skipped $tag (no CHANGELOG section)"
+            fi
+          done

@@ -80,14 +80,10 @@ pub fn parse_release(json: &str, current: &str) -> Result<UpdateInfo> {
     let url =
         v.get("html_url").and_then(|x| x.as_str()).filter(|u| is_release_page(u)).unwrap_or(RELEASES_PAGE).to_string();
     let published = v.get("published_at").and_then(|x| x.as_str()).unwrap_or("").chars().take(10).collect();
-    let notes: String = v
-        .get("body")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .chars()
-        .filter(|c| *c == '\n' || !c.is_control())
-        .take(1500)
-        .collect();
+    // The changelog part only (release notes continue with install steps and checksums).
+    let body = v.get("body").and_then(|x| x.as_str()).unwrap_or("");
+    let body = body.split("### Install or update").next().unwrap_or("").trim();
+    let notes: String = body.chars().filter(|c| *c == '\n' || !c.is_control()).take(2000).collect();
     let latest = tag.trim_start_matches(['v', 'V']).to_string();
     let assets = v.get("assets").and_then(|a| a.as_array()).cloned().unwrap_or_default();
     let asset = |pred: &dyn Fn(&str) -> bool| {
@@ -265,6 +261,10 @@ mod tests {
         assert_eq!(u.latest, "0.7.0");
         assert_eq!(u.published, "2026-12-01");
         assert_eq!(u.notes, "Fixes\nand more");
+        let with_table =
+            serde_json::json!({"tag_name": "v0.8.0", "body": "### New\n- A thing\n\n### Install or update\n| a | b |"})
+                .to_string();
+        assert_eq!(parse_release(&with_table, "0.7.0").unwrap().notes, "### New\n- A thing", "only the changelog part");
         // A link anywhere else is replaced by the Releases page.
         let evil = r#"{"tag_name":"v9.9.9","html_url":"https://evil.example/x"}"#;
         assert_eq!(parse_release(evil, "0.6.1").unwrap().url, RELEASES_PAGE);

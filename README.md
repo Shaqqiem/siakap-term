@@ -6,7 +6,7 @@ Siakap. It also had to keep everything encrypted on disk and stay quiet on the n
 
 It runs on Linux too. macOS will probably work, but I haven't tried it.
 
-**[⬇ Download the latest version](https://github.com/Shaqqiem/siakap-term/releases/latest)** · [How to install](#installing)
+**[⬇ Download the latest version](https://github.com/Shaqqiem/siakap-term/releases/latest)** · [How to install](#installing) · [What's new](CHANGELOG.md)
 
 ![Siakap Terminal with saved sessions and an SSH tab](docs/screenshots/sessions.png)
 
