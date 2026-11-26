@@ -167,6 +167,13 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.7.2",
+    title: "Touchscreen",
+    text: "On a touchscreen, swipe a terminal to scroll (flick for speed), tap it to type, and pinch to make its text bigger or smaller. In the side lists, swipe to scroll and press and hold to drag.",
+    target: "#workspace",
+    before: leavePage,
+  },
+  {
     since: "0.7.1",
     title: "Update with one click",
     text: "Check for updates, then Download and install: Siakap downloads the new version, checks it, and after a short countdown closes, updates itself and opens again.",

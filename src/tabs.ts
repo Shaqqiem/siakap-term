@@ -8,6 +8,7 @@ import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, typ
 import { serialSummary } from "./serial";
 import { xtermTheme } from "./themes";
 import { play } from "./sound";
+import { attachTouch } from "./touch";
 import { aggregate, TabCommandStatus } from "./status";
 import { $, alertDialog, confirmDialog, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
 
@@ -348,6 +349,18 @@ export class TabManager {
     this.attachStatus(pane);
 
     term.open(el);
+    attachTouch({
+      element: term.element!,
+      focus: () => term.focus(),
+      getFontSize: () => term.options.fontSize ?? 14,
+      rowHeight: () => ((term.element?.querySelector(".xterm-screen") as HTMLElement | null)?.clientHeight ?? 0) / Math.max(1, term.rows),
+      scrollLines: (n) => term.scrollLines(n),
+      programScrolls: () => term.buffer.active.type === "alternate" || term.modes.mouseTrackingMode !== "none",
+      setFontSize: (px) => {
+        term.options.fontSize = px;
+        this.refit(pane);
+      },
+    });
     term.attachCustomKeyEventHandler((e) => this.keyHandler(pane, e));
     term.onData((d) => {
       if (pane.termId !== null && pane.status === "connected") {

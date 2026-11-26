@@ -138,6 +138,7 @@ master password**.
 | Log a session | Same menus → *Log to file...*; a red REC badge shows while it records. *Settings → Session logs* can log every terminal automatically into a folder you choose |
 | Settings | The gear in the left rail opens Settings as its own tab: Appearance, Terminal, Startup/tabs/window, Connections, Mouse and clipboard, Macros, Files and logs, Security, Trusted servers, Keyboard shortcuts and About, with a search box. Changes save as you make them. The version is shown at the top |
 | Change the look | *Settings → Appearance*: pick a theme from the gallery, customise every colour (including the 16 terminal colours and the app's accent), save your own themes, and import or export them. Windows Terminal colour schemes can be imported directly |
+| Touchscreen | Swipe a terminal to scroll (flick to go faster; works in `less` and `vim` too), tap to type, pinch to zoom its text. In the Sessions and Macros lists, swipe to scroll and press and hold to drag |
 | Sounds and effects | *Settings → Sound and effects*: a chime when a tab finishes a long command (adjustable threshold), soft interface sounds, volume, the pixel-siakap screensaver and the welcome splash |
 | Undo a setting | **Undo** (or `Ctrl+Z`) and **Revert all** at the bottom left of Settings |
 | Change the font | *Settings → Terminal → Font* lists the fonts installed on your PC, fixed-width ones first. Line spacing, cursor shape and blinking, history length and the terminal bell are there too |

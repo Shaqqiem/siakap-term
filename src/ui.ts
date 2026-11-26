@@ -297,6 +297,19 @@ export function enableDrag(el: HTMLElement, opts: DragOptions) {
     const sx = down.clientX;
     const sy = down.clientY;
     let active = false;
+    // Touch: a swipe scrolls the list; press and hold (~0.45 s) to pick a row up.
+    const touch = down.pointerType === "touch";
+    let held = !touch;
+    let holdTimer = 0;
+    const noScroll = (e: TouchEvent) => active && e.preventDefault();
+    if (touch) {
+      holdTimer = window.setTimeout(() => {
+        held = true;
+        el.classList.add("drag-ready");
+        navigator.vibrate?.(15);
+      }, 450);
+      el.addEventListener("touchmove", noScroll, { passive: false });
+    }
     let ghost: HTMLElement | null = null;
     let over: HTMLElement | null = null;
     const setOver = (t: HTMLElement | null) => {
@@ -308,6 +321,11 @@ export function enableDrag(el: HTMLElement, opts: DragOptions) {
     const move = (e: PointerEvent) => {
       if (!active) {
         if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
+        if (!held) {
+          // Moved before the hold: it's a scroll, not a drag.
+          window.clearTimeout(holdTimer);
+          return finish(false);
+        }
         active = true;
         el.setPointerCapture(e.pointerId);
         el.classList.add("dragging");
@@ -323,6 +341,9 @@ export function enableDrag(el: HTMLElement, opts: DragOptions) {
       opts.onOver?.(over, e);
     };
     const finish = (drop: boolean) => {
+      window.clearTimeout(holdTimer);
+      el.classList.remove("drag-ready");
+      el.removeEventListener("touchmove", noScroll);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
