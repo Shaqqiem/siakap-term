@@ -4,9 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { installDiag } from "./diag";
-import { applyIcon, applySkin } from "./skin";
+import { accentOf, applyIcon, applySkin } from "./skin";
 import { configure as configureSound, play } from "./sound";
-import { Screensaver } from "./screensaver";
+import { Screensaver, fishIcon, swimBy } from "./screensaver";
 import { preloadLook, showSplash } from "./splash";
 import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
@@ -19,6 +19,7 @@ import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, step
 
 // Note unexpected errors for "Report a problem" (kept in memory only).
 let lastCrashNotice = 0;
+let siakapAccent = "#5aa9e6";
 installDiag(() => {
   if (Date.now() - lastCrashNotice < 60_000) return;
   lastCrashNotice = Date.now();
@@ -98,6 +99,8 @@ function applySettings(s: Settings) {
   }
   applySkin(s);
   void applyIcon(s);
+  siakapAccent = accentOf(s);
+  $("btn-siakap").replaceChildren(fishIcon(siakapAccent), h("span", {}, "Siakap"));
   configureSound({ ui: s.soundUi !== false, chime: s.soundChime !== false, volume: s.soundVolume ?? 40 });
   screensaver.configure(s.screensaverMinutes ?? 0, s);
   // Needed before the vault is unlocked, so kept on this PC (not secret).
@@ -108,6 +111,13 @@ function applySettings(s: Settings) {
     /* per-PC convenience only */
   }
 }
+
+// The siakap at the top of the rail: a school swims across the app.
+$("btn-siakap").replaceChildren(fishIcon(siakapAccent), h("span", {}, "Siakap"));
+$("btn-siakap").addEventListener("click", () => {
+  play("splash");
+  swimBy(siakapAccent);
+});
 
 // A full-page tab (Settings) hides the side panel while it's in front.
 tabs.onPageChange = (p) => {
@@ -174,6 +184,20 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.7.4",
+    title: "Say hello to the siakap",
+    text: "Click the siakap at the top of this bar and a school of them swims across the screen. Just for fun.",
+    target: "#btn-siakap",
+    before: leavePage,
+  },
+  {
+    since: "0.7.4",
+    title: "Theme editor with a live preview",
+    text: "Edit colours opens the theme editor. A small Siakap window shows every change as you pick it; click any part of it to change that colour. Save uses the colours, and Save as... keeps them as a new theme you can reuse.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
   },
   {
     since: "0.7.3",

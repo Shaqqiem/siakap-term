@@ -2,10 +2,11 @@
 // compact rows on the right. Every change is saved straight away.
 import { icon } from "./icons";
 import { api, Channel, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
-import { ANSI_NAMES, BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, hex6, parseThemes, uniqueName, withTheme } from "./themes";
+import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
 import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
 import { play } from "./sound";
 import { openReport } from "./report";
+import { openThemeEditor } from "./themeeditor";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -312,6 +313,7 @@ export class SettingsPanel {
         card.addEventListener("contextmenu", (e) =>
           showMenu(e, [
             { label: "Use this theme", action: () => this.set(withTheme(this.s, t), true) },
+            { label: isCustom(t) ? "Edit..." : "Edit a copy...", action: () => void this.editTheme(t) },
             { label: "Export...", action: () => this.exportTheme(t) },
             ...(isCustom(t)
               ? [
@@ -325,50 +327,18 @@ export class SettingsPanel {
       }),
     );
 
-    // Colour editor.
-    const colour = (label: string, value: string, onChange: (v: string) => void) => {
-      const input = h("input", { type: "color", value: hex6(value) }) as HTMLInputElement;
-      input.addEventListener("change", () => onChange(input.value));
-      return h("label", { class: "colour-field", "data-search": label.toLowerCase() }, input, h("span", {}, label));
-    };
-    const edit = (patch: Partial<Settings>) => {
-      const named = this.s.themeName.endsWith(" (edited)") || this.s.themeName === "Custom" ? this.s.themeName : `${this.s.themeName || "Custom"} (edited)`;
-      this.set({ ...patch, themeName: named }, true);
-    };
     const pal = s.palette.length === 16 ? s.palette : DEFAULT_PALETTE;
-    const editor = h(
-      "details",
-      { class: "set-block theme-editor", open: s.themeName.endsWith("(edited)") || s.themeName === "Custom" },
-      h("summary", {}, "Customise colours"),
-      h(
-        "div",
-        { class: "colour-grid" },
-        colour("Background", s.background, (v) => edit({ background: v })),
-        colour("Text", s.foreground, (v) => edit({ foreground: v })),
-        colour("Cursor", s.cursor, (v) => edit({ cursor: v })),
-        colour("Selection", s.selection, (v) => edit({ selection: v })),
-        colour("App accent", s.accent || "#5aa9e6", (v) => edit({ accent: v })),
-      ),
-      h("div", { class: "set-subhead" }, "Terminal colours (ANSI)"),
-      h(
-        "div",
-        { class: "colour-grid ansi" },
-        ...ANSI_NAMES.map((name, i) =>
-          colour(name, pal[i], (v) => {
-            const next = [...pal];
-            next[i] = v;
-            edit({ palette: next });
-          }),
-        ),
-      ),
+    const editor = this.row(
+      "Theme editor",
+      "Change any colour with a live preview of the whole app. Save uses the colours; Save as... keeps them as a new theme to reuse.",
       h(
         "div",
         { class: "inline" },
-        h("button", { type: "button", onclick: () => this.saveAsTheme() }, "Save as a new theme..."),
-        s.palette.length ? h("button", { type: "button", onclick: () => edit({ palette: [] }) }, "Use built-in terminal colours") : null,
-        s.accent ? h("button", { type: "button", onclick: () => edit({ accent: "" }) }, "Default accent") : null,
+        h("button", { type: "button", class: "primary", onclick: () => void this.editTheme(currentTheme(this.s)) }, icon("palette", 14), " Edit colours..."),
+        h("button", { type: "button", onclick: () => void this.saveAsTheme() }, "Save current as..."),
       ),
     );
+    editor.dataset.search = (editor.dataset.search ?? "") + " customise colours editor background text cursor selection accent ansi";
 
     // Live preview using the current colours.
     const c = (i: number, text: string) => h("span", { style: `color:${pal[i]}` }, text);
@@ -802,6 +772,30 @@ export class SettingsPanel {
       toast(`Exported "${t.name}" to ${path}`, "ok");
     } catch (e) {
       toast(messageOf(e), "error");
+    }
+  }
+
+  private async editTheme(start: TerminalTheme) {
+    const mine = (n: string) => this.s.customThemes.some((x) => x.name === n);
+    const all = [...BUILTIN_THEMES, ...this.s.customThemes];
+    const r = await openThemeEditor({
+      start,
+      settings: this.s,
+      themes: all,
+      isMine: mine,
+      taken: all.map((t) => t.name.toLowerCase()),
+      suggest: (b) => uniqueName(b, all.map((t) => t.name)),
+    });
+    if (!r) return;
+    if (r.mode === "saveAs") {
+      this.set({ ...withTheme(this.s, r.theme), customThemes: [...this.s.customThemes, r.theme].slice(0, 100) }, true);
+      toast(`Saved "${r.theme.name}" to your themes and switched to it.`, "ok");
+    } else if (mine(r.theme.name)) {
+      this.set({ ...withTheme(this.s, r.theme), customThemes: this.s.customThemes.map((x) => (x.name === r.theme.name ? r.theme : x)) }, true);
+      toast(`Saved "${r.theme.name}".`, "ok");
+    } else {
+      this.set(withTheme(this.s, r.theme), true);
+      toast("Saved. To keep these colours as a theme of their own, use Save as...", "ok");
     }
   }
 

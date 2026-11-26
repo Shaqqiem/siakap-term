@@ -4,6 +4,20 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.7.4] - 2026-11-27
+
+**A theme editor with a live preview, and a siakap to say hello.**
+
+### New
+- **Theme editor** (Settings → Appearance → *Edit colours...*, or right-click a theme → *Edit...*). A live preview
+  window shows a small Siakap (tabs, side panel, terminal output, a dialog and messages) and changes the moment you
+  pick a colour. Click any part of the preview to jump to its colour. Every colour has a hex box too.
+  - **Save** uses the colours. On one of your own themes it updates that theme; on a built-in theme it keeps the
+    original as it is.
+  - **Save as...** keeps the colours as a new theme of your own, ready to reuse or to start other themes from.
+  - *Start from another theme*, *Reset* and *Cancel*. Nothing in the app changes until you save.
+- **The siakap button** at the top of the left-hand bar: click it and a school of pixel siakap swims across the screen.
+
 ## [0.7.3] - 2026-11-26
 
 **A pink and gold theme, problem reports, and a sturdier update check.**
@@ -237,6 +251,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.7.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.0...v0.7.1

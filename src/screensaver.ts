@@ -28,6 +28,95 @@ const COLOURS: Record<string, string> = {
   P: "#1b1b1b",
 };
 
+/** Draw one siakap with its top-left corner at (x, y). */
+export function paintFish(g: CanvasRenderingContext2D, x: number, y: number, px: number, dir: 1 | -1, tint: string | null, wag = 0) {
+  FISH.forEach((row, ry) => {
+    for (let rx = 0; rx < row.length; rx++) {
+      const k = row[rx];
+      if (k === ".") continue;
+      let col = COLOURS[k];
+      if (tint && (k === "B" || k === "F")) col = tint;
+      const tail = k === "T" ? wag : 0;
+      const sx = dir === 1 ? rx : row.length - 1 - rx;
+      g.fillStyle = col;
+      g.fillRect(Math.round(x + sx * px), Math.round(y + ry * px + tail * px * 0.5), px, px);
+    }
+  });
+}
+
+/** The rail button's icon: a little pixel siakap in the accent colour. */
+export function fishIcon(accent: string): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  const px = Math.max(1, Math.round(devicePixelRatio));
+  c.width = FISH[0].length * px;
+  c.height = FISH.length * px;
+  c.className = "fish-icon";
+  paintFish(c.getContext("2d")!, 0, 0, px, 1, accent);
+  return c;
+}
+
+/**
+ * A school of siakap swims across the app once (the rail's siakap button).
+ * Purely decorative: it doesn't take clicks or keys, and each click adds a
+ * new school on top while one is still going.
+ */
+export function swimBy(accent: string) {
+  const c = document.createElement("canvas");
+  c.className = "swim-by";
+  document.body.append(c);
+  const dpr = devicePixelRatio;
+  c.width = Math.floor(window.innerWidth * dpr);
+  c.height = Math.floor(window.innerHeight * dpr);
+  const g = c.getContext("2d")!;
+  const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+  const midY = c.height * (0.25 + Math.random() * 0.5);
+  const school = Array.from({ length: 7 + Math.floor(Math.random() * 6) }, (_, i) => {
+    const px = Math.round((2 + Math.random() * 5) * dpr);
+    const w = FISH[0].length * px;
+    return {
+      px,
+      lead: i * 0.13 * c.width * Math.random(), // spread out behind the leader
+      y: midY + (Math.random() - 0.5) * c.height * 0.45,
+      speed: (260 + px * 40) * (0.85 + Math.random() * 0.3),
+      phase: Math.random() * Math.PI * 2,
+      tint: i % 3 === 0 ? accent : null,
+      w,
+      x: 0,
+    };
+  });
+  for (const f of school) f.x = dir === 1 ? -f.w - f.lead : c.width + f.lead;
+  const bubbles: { x: number; y: number; r: number; v: number }[] = [];
+  let last = performance.now();
+  const start = last;
+  const frame = (now: number) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const t = now / 1000;
+    g.clearRect(0, 0, c.width, c.height);
+    let visible = false;
+    for (const f of school) {
+      f.x += dir * f.speed * dt;
+      if ((dir === 1 && f.x < c.width) || (dir === -1 && f.x > -f.w)) visible = true;
+      const y = f.y + Math.sin(t * 3 + f.phase) * f.px * 3;
+      g.globalAlpha = 0.95;
+      paintFish(g, f.x, y, f.px, dir, f.tint, Math.sin(t * 14 + f.phase) > 0 ? 1 : 0);
+      if (Math.random() < dt * 2.5) bubbles.push({ x: dir === 1 ? f.x + f.w : f.x, y: y + 4 * f.px, r: Math.max(2, f.px * 0.6), v: (30 + Math.random() * 40) * dpr });
+    }
+    g.globalAlpha = 0.6;
+    g.strokeStyle = "#cfe8ff";
+    g.lineWidth = Math.max(1, dpr);
+    for (const b of bubbles) {
+      b.y -= b.v * dt;
+      g.beginPath();
+      g.arc(b.x + Math.sin(b.y / 15) * 3 * dpr, b.y, b.r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    if (visible && now - start < 15000) requestAnimationFrame(frame);
+    else c.remove();
+  };
+  requestAnimationFrame(frame);
+}
+
 interface Fish {
   x: number;
   y: number;
@@ -179,18 +268,7 @@ export class Screensaver {
       const y = f.y + Math.sin(t * 1.6 + f.phase) * f.px * 2;
       const wag = Math.sin(t * 8 + f.phase) > 0 ? 1 : 0;
       g.globalAlpha = 0.55 + Math.min(0.45, f.px / (16 * devicePixelRatio));
-      FISH.forEach((row, ry) => {
-        for (let rx = 0; rx < row.length; rx++) {
-          const k = row[rx];
-          if (k === ".") continue;
-          let col = COLOURS[k];
-          if (f.tint && (k === "B" || k === "F")) col = f.tint;
-          const tail = k === "T" ? wag : 0;
-          const sx = f.dir === 1 ? rx : row.length - 1 - rx;
-          g.fillStyle = col;
-          g.fillRect(Math.round(f.x + sx * f.px), Math.round(y + ry * f.px + tail * f.px * 0.5), f.px, f.px);
-        }
-      });
+      paintFish(g, f.x, y, f.px, f.dir, f.tint, wag);
       // Now and then a bubble from the mouth.
       if (Math.random() < dt * 0.6) {
         const mouthX = f.dir === 1 ? f.x + w : f.x;

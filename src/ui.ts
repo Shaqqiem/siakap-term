@@ -64,7 +64,7 @@ export function closeAllModals() {
 export function modal<T>(
   title: string,
   build: (close: (v: T) => void) => { body: Node; actions?: Node[]; focus?: HTMLElement },
-  opts: { wide?: boolean; danger?: boolean; dismissValue?: T } = {},
+  opts: { wide?: boolean; danger?: boolean; dismissValue?: T; className?: string } = {},
 ): Promise<T> {
   return new Promise((resolve) => {
     const prev = document.activeElement as HTMLElement | null;
@@ -81,7 +81,7 @@ export function modal<T>(
     const { body, actions = [], focus } = build(close);
     const box = h(
       "div",
-      { class: `modal${opts.wide ? " wide" : ""}${opts.danger ? " danger" : ""}`, role: "dialog", "aria-modal": "true" },
+      { class: `modal${opts.wide ? " wide" : ""}${opts.danger ? " danger" : ""}${opts.className ? ` ${opts.className}` : ""}`, role: "dialog", "aria-modal": "true" },
       h("h2", {}, title),
       body,
       actions.length ? h("div", { class: "modal-actions" }, ...actions) : null,

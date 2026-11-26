@@ -63,9 +63,9 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   the app icon.
 - **Sound and fun.** A chime when long commands finish, soft interface sounds, a pixel-siakap screensaver and a
   welcome splash, all optional.
-- **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized
-  and more), a full colour editor, your own saved themes, and import/export as JSON, including Windows Terminal
-  colour schemes.
+- **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized,
+  Orchid and more), a theme editor with a live preview of the whole app (Save, or Save as a new theme to reuse), and
+  import/export as JSON, including Windows Terminal colour schemes.
 - **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
   fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
   you click **Check for updates** in Settings → About.
