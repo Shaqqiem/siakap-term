@@ -57,6 +57,12 @@ const sftp = new SftpPanel(tabs, () => !collapsed && currentPanel === "sftp" && 
 const settingsPanel = new SettingsPanel((s) => applySettings(s), (kind) => void startTour(kind, kind === "whatsNew" ? previousMinor() : undefined));
 settingsPanel.onPasswordModeChanged = () => void refreshVaultStatus().catch(() => {});
 settingsPanel.onPreviewScreensaver = () => screensaver.start();
+settingsPanel.prepareInstall = async () => {
+  const live = tabs.allPanes().filter((p) => p.status === "connected").length;
+  if (live && !(await confirmDialog("Install the update now?", `Siakap will close to install the update and then open again. ${live} open session${live === 1 ? "" : "s"} will be disconnected.`, "Install now"))) return false;
+  await tabs.closeAll();
+  return true;
+};
 
 /** For "What's new" from Settings: show what this version added. */
 function previousMinor(): string {
@@ -159,6 +165,13 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.7.1",
+    title: "Update with one click",
+    text: "Check for updates, then Download and install: Siakap downloads the new version, checks it, and after a short countdown closes, updates itself and opens again.",
+    target: "#set-about",
+    before: () => openSettings("about"),
   },
   {
     since: "0.7.0",

@@ -1,7 +1,7 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
 import { icon } from "./icons";
-import { api, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
+import { api, Channel, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { ANSI_NAMES, BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, hex6, parseThemes, uniqueName, withTheme } from "./themes";
 import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
 import { play } from "./sound";
@@ -670,14 +670,18 @@ export class SettingsPanel {
       result.classList.add("hidden");
       try {
         const u = await api.updateCheck();
-        const open = h("button", { type: "button", class: "primary", onclick: () => api.openReleasePage(u.url).catch((e) => toast(messageOf(e), "error")) }, "Open download page");
+        const open = h("button", { type: "button", onclick: () => api.openReleasePage(u.url).catch((e) => toast(messageOf(e), "error")) }, "Open download page");
+        const install = h("button", { type: "button", class: "primary" }, icon("download", 14), " Download and install") as HTMLButtonElement;
+        const bar = h("div", { class: "update-progress hidden" }, h("div", { class: "update-bar" }), h("span", { class: "muted small update-status" }));
+        install.addEventListener("click", () => void this.downloadAndInstall(install, bar));
         const copy = h("button", { type: "button", onclick: () => api.clipboardWrite(u.url).then(() => toast("Link copied.", "ok", 1500)) }, "Copy link");
         result.replaceChildren(
           u.newer
-            ? h("div", { class: "update-new" }, h("strong", {}, `Version ${u.latest} is available`), u.published ? h("span", { class: "muted small" }, ` (released ${u.published})`) : null, h("div", { class: "muted small" }, `You have ${u.current}. Download the new setup.exe and run it; your sessions and settings are kept.`))
+            ? h("div", { class: "update-new" }, h("strong", {}, `Version ${u.latest} is available`), u.published ? h("span", { class: "muted small" }, ` (released ${u.published})`) : null, h("div", { class: "muted small" }, `You have ${u.current}. Download and install updates Siakap and opens it again; your sessions and settings are kept.`))
             : h("div", { class: "update-ok" }, h("strong", {}, "You have the latest version"), h("span", { class: "muted small" }, ` (${u.current})`)),
           ...(u.newer && u.notes.trim() ? [h("details", {}, h("summary", { class: "small" }, "What's in it"), h("pre", { class: "update-notes" }, u.notes))] : []),
-          h("div", { class: "inline" }, ...(u.newer ? [open, copy] : [])),
+          h("div", { class: "inline" }, ...(u.newer ? (u.installerUrl ? [install, open, copy] : [open, copy]) : [])),
+          ...(u.newer ? [bar] : []),
         );
         result.classList.remove("hidden");
       } catch (e) {
@@ -697,8 +701,69 @@ export class SettingsPanel {
         "",
         h("div", { class: "inline" }, h("button", { type: "button", onclick: () => this.onTour("whatsNew") }, "What's new"), h("button", { type: "button", onclick: () => this.onTour("full") }, "Show the tour again")),
       ),
-      h("p", { class: "muted small set-block" }, "Siakap only connects to the servers and devices you open, and to GitHub when you click Check for updates. It sends no usage data and never checks for anything on its own."),
+      h("p", { class: "muted small set-block" }, "Siakap only connects to the servers and devices you open, and to GitHub when you click Check for updates or Download and install. It sends no usage data and never checks for anything on its own."),
     ];
+  }
+
+  /** Set by main.ts: confirm closing sessions and close them; false = not now. */
+  prepareInstall?: () => Promise<boolean>;
+
+  private async downloadAndInstall(btn: HTMLButtonElement, bar: HTMLElement) {
+    const fill = bar.querySelector(".update-bar") as HTMLElement;
+    const status = bar.querySelector(".update-status") as HTMLElement;
+    const mb = (n: number) => (n / 1048576).toFixed(1);
+    btn.disabled = true;
+    bar.classList.remove("hidden");
+    status.textContent = "Starting the download...";
+    try {
+      const ch = new Channel<{ done: number; total: number }>();
+      ch.onmessage = ({ done, total }) => {
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        fill.style.width = `${pct}%`;
+        status.textContent = total ? `Downloading... ${mb(done)} of ${mb(total)} MB (${pct}%)` : `Downloading... ${mb(done)} MB`;
+      };
+      await api.updateDownload(ch);
+      fill.style.width = "100%";
+      status.textContent = "Downloaded and checked against the release's checksum.";
+      play("chime");
+      // Count down, so there's a moment to cancel.
+      let left = 3;
+      const cancel = h("button", { type: "button", class: "small-btn" }, "Not now") as HTMLButtonElement;
+      const later = new Promise<boolean>((res) => {
+        cancel.onclick = () => res(false);
+        const tick = () => {
+          if (left <= 0) return res(true);
+          status.replaceChildren(`Installing in ${left}... Siakap will close, update, and open again.  `, cancel);
+          left--;
+          window.setTimeout(tick, 1000);
+        };
+        tick();
+      });
+      if (!(await later)) {
+        status.replaceChildren("Downloaded. ", h("button", { type: "button", class: "small-btn", onclick: () => void this.installNow(status) }, "Install now"));
+        return;
+      }
+      await this.installNow(status);
+    } catch (e) {
+      status.textContent = messageOf(e);
+      status.classList.add("error");
+      btn.disabled = false;
+    }
+  }
+
+  private async installNow(status: HTMLElement) {
+    status.textContent = "Ready to install.";
+    if (this.prepareInstall && !(await this.prepareInstall())) {
+      status.replaceChildren("Downloaded. ", h("button", { type: "button", class: "small-btn", onclick: () => void this.installNow(status) }, "Install now"));
+      return;
+    }
+    status.textContent = "Starting the installer...";
+    try {
+      await api.updateInstall();
+    } catch (e) {
+      status.textContent = messageOf(e);
+      status.classList.add("error");
+    }
   }
 
   // ------------------------------------------------------------ themes

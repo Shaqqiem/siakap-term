@@ -1172,9 +1172,70 @@ pub fn save_text_file(st: State<'_, AppState>, path: String, text: String) -> Re
 #[tauri::command]
 pub async fn update_check(st: State<'_, AppState>) -> Res<siakap_core::update::UpdateInfo> {
     st.ensure_unlocked()?;
-    tauri::async_runtime::spawn_blocking(|| siakap_core::update::check(env!("CARGO_PKG_VERSION")))
+    // Debug builds only: tests can pretend to be an older version.
+    #[cfg(debug_assertions)]
+    let current = std::env::var("SIAKAP_TEST_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+    #[cfg(not(debug_assertions))]
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let info = tauri::async_runtime::spawn_blocking(move || siakap_core::update::check(&current))
         .await
-        .map_err(|e| CoreError::invalid(e.to_string()))?
+        .map_err(|e| CoreError::invalid(e.to_string()))??;
+    *st.update.lock().unwrap_or_else(|e| e.into_inner()) = (Some(info.clone()), None);
+    Ok(info)
+}
+
+/// Download the installer of the release found by the last check, and verify
+/// it against the release's SHA256SUMS.txt. Progress is `{done, total}` bytes.
+#[tauri::command]
+pub async fn update_download(st: State<'_, AppState>, progress: Channel<serde_json::Value>) -> Res<String> {
+    st.ensure_unlocked()?;
+    let info = st
+        .update
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .0
+        .clone()
+        .ok_or_else(|| CoreError::invalid("Check for updates first."))?;
+    if !info.newer {
+        return Err(CoreError::invalid("You already have the latest version."));
+    }
+    let dir = std::env::temp_dir().join("siakap-update");
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        let mut last = 0u64;
+        siakap_core::update::download_installer(&info, &dir, &mut |done, total| {
+            // About one message per percent.
+            if total == 0 || done == total || done - last >= (total / 100).max(65_536) {
+                last = done;
+                let _ = progress.send(serde_json::json!({ "done": done, "total": total }));
+            }
+        })
+    })
+    .await
+    .map_err(|e| CoreError::invalid(e.to_string()))??;
+    let shown = path.to_string_lossy().to_string();
+    st.update.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(path);
+    Ok(shown)
+}
+
+/// Run the downloaded, verified installer (passive, then it starts Siakap
+/// again) and close Siakap so it can be replaced.
+#[tauri::command]
+pub fn update_install(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<()> {
+    st.ensure_unlocked()?;
+    let path = st
+        .update
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .1
+        .clone()
+        .ok_or_else(|| CoreError::invalid("Download the update first."))?;
+    siakap_core::update::run_installer(&path)?;
+    st.lock_vault();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.exit(0);
+    });
+    Ok(())
 }
 
 /// Open Siakap's release page in the browser (no other address is accepted).

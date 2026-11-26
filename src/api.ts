@@ -285,7 +285,9 @@ export const api = {
   saveTextFile: (path: string, text: string) => invoke<void>("save_text_file", { path, text }),
   themeReadFile: (path: string) => invoke<string>("theme_read_file", { path }),
   updateCheck: () =>
-    invoke<{ current: string; latest: string; newer: boolean; url: string; published: string; notes: string }>("update_check"),
+    invoke<{ current: string; latest: string; newer: boolean; url: string; published: string; notes: string; installerUrl: string | null; installerSize: number }>("update_check"),
+  updateDownload: (progress: Channel<{ done: number; total: number }>) => invoke<string>("update_download", { progress }),
+  updateInstall: () => invoke<void>("update_install"),
   openReleasePage: (url: string) => invoke<void>("open_release_page", { url }),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),

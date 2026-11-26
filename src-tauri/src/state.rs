@@ -26,6 +26,8 @@ pub struct AppState {
     terms: Mutex<HashMap<u32, Arc<Term>>>,
     /// Session-log slot per terminal (filled while logging).
     logs: Mutex<HashMap<u32, LogSlot>>,
+    /// The last update check, and the installer downloaded for it (never from the web view).
+    pub update: Mutex<(Option<siakap_core::update::UpdateInfo>, Option<PathBuf>)>,
     next_id: AtomicU32,
     last_activity: Mutex<Instant>,
     pub transfers: Mutex<HashMap<u32, Arc<AtomicBool>>>,
@@ -46,6 +48,7 @@ impl AppState {
             vault: Mutex::new(Vault::new(vault_path)),
             terms: Mutex::new(HashMap::new()),
             logs: Mutex::new(HashMap::new()),
+            update: Mutex::new((None, None)),
             next_id: AtomicU32::new(1),
             last_activity: Mutex::new(Instant::now()),
             transfers: Mutex::new(HashMap::new()),

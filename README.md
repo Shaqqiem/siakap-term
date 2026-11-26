@@ -83,8 +83,9 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
    **Run anyway**. The installer isn't code-signed yet, which is why Windows asks.
 4. Open **Siakap Terminal** from the Start menu.
 
-**Updating:** click **Check for updates** in Settings → About (or open the Releases page), download the newer
-`setup.exe` and run it. It installs over the old version without uninstalling it first, and your sessions, macros and
+**Updating:** click **Check for updates** in Settings → About, then **Download and install**: Siakap downloads the
+new version, checks it against the release's checksum, and after a 3-second countdown closes, updates itself and opens
+again. (Or download the newer `setup.exe` from the Releases page and run it.) It installs over the old version without uninstalling it first, and your sessions, macros and
 settings are kept. After an update, Siakap shows a short tour of what's new.
 
 > Installers up to 0.6.2 asked "Uninstall before installing?" when updating. If you see that, choose **Do not

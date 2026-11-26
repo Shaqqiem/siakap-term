@@ -138,8 +138,23 @@ turn them on. The only network traffic is the SSH sessions you start, and one re
 **Check for updates (manual).** Clicking *Check for updates* in Settings → About sends one HTTPS request from the Rust
 backend to `api.github.com` for this repository's latest release. It carries a fixed user agent and no identifiers,
 and runs only when you click; it never runs in the background. GitHub sees your IP address, as with any visit to the
-Releases page. Siakap shows the result; it never downloads or installs anything. *Open download page* only opens
-addresses under this repository's Releases page, which the backend checks before handing the address to the browser.
+Releases page. *Open download page* only opens addresses under this repository's Releases page, which the backend
+checks before handing the address to the browser.
+
+**Download and install (manual).** If you then click *Download and install*:
+
+- The backend downloads the release's `setup.exe` and `SHA256SUMS.txt`, and only from this repository's release
+  files (`github.com/Shaqqiem/siakap-term/releases/download/...`); addresses come from GitHub's answer and are checked,
+  never from the web view. The download is streamed to a new file in your temp folder, limited to 300 MB.
+- Its SHA-256 must match the `setup.exe` line in `SHA256SUMS.txt`. If not, the file is deleted and nothing runs.
+- Only that exact file is run (its path stays in the backend), with `/P /R`: the installer shows a progress window,
+  asks nothing, installs over the old version, and starts Siakap again. Siakap first asks before disconnecting open
+  sessions, locks the vault and closes.
+
+What this does and doesn't protect against: HTTPS and the checksum catch a damaged or swapped download in transit.
+They don't protect against someone who controls this GitHub repository publishing a bad release, because the
+installer and its checksum come from the same place, and the installer isn't code-signed. That is the same trust you
+place in the Releases page when you download by hand.
 
 ## What is not protected
 
