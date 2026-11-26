@@ -1,4 +1,5 @@
 import { play } from "./sound";
+import { record } from "./diag";
 // Tiny DOM + modal helpers. All text goes through textContent (never
 // innerHTML with data), so names from the vault can't inject markup.
 
@@ -37,7 +38,10 @@ export function $(id: string): HTMLElement {
 }
 
 export function toast(msg: string, kind: "info" | "error" | "ok" = "info", ms = 4000) {
-  if (kind === "error") play("error");
+  if (kind === "error") {
+    play("error");
+    record("error", `Message shown: ${msg}`);
+  }
   // The same message again replaces the old one instead of stacking.
   for (const old of $("toasts").children) if ((old as HTMLElement).textContent === msg) old.remove();
   const t = h("div", { class: `toast ${kind}` }, msg);

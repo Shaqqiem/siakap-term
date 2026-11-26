@@ -69,6 +69,8 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
   fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
   you click **Check for updates** in Settings → About.
+- **Report a problem** (Settings → About) makes a report you can read, then save or copy and send yourself: versions,
+  settings and the app's recent errors, with server names, user names and IP addresses hidden. The app never sends it.
 
 ## Installing
 

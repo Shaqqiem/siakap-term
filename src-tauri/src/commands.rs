@@ -544,6 +544,7 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
         "export" => d.set_title("Export Siakap backup").add_filter("Siakap backup", &["json"]),
         "log" => d.set_title("Log this session to a file").add_filter("Log file", &["log", "txt"]),
         "text" => d.set_title("Save terminal output").add_filter("Text file", &["txt", "log"]),
+        "report" => d.set_title("Save problem report").add_filter("Text file", &["txt"]),
         "theme" => d.set_title("Colour theme").add_filter("Theme (JSON)", &["json"]).add_filter("All files", &["*"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
@@ -1243,6 +1244,61 @@ pub fn update_install(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<()>
 pub fn open_release_page(st: State<'_, AppState>, url: String) -> Res<()> {
     st.ensure_unlocked()?;
     siakap_core::update::open_page(&url)
+}
+
+// ---------------------------------------------------------------- bug reports
+
+/// Facts about this installation for "Report a problem": versions, counts and
+/// settings. No passwords, keys, terminal contents or session details.
+#[tauri::command]
+pub async fn diag_info(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<serde_json::Value> {
+    st.ensure_unlocked()?;
+    let os = tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(windows)]
+        {
+            let cmd = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
+            siakap_core::process::run_capture_timeout(&cmd, &["/c", "ver"], std::time::Duration::from_secs(3))
+                .map(|o| o.stdout.trim().to_string())
+                .unwrap_or_default()
+        }
+        #[cfg(not(windows))]
+        {
+            std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| format!("Linux {}", s.trim())).unwrap_or_default()
+        }
+    })
+    .await
+    .unwrap_or_default();
+    let data_dir = tauri::Manager::path(&app).app_data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let (vault, settings) = {
+        let v = st.vault();
+        let d = v.data()?;
+        let kinds = |k: SessionKind| d.sessions.iter().filter(|s| s.kind == k).count();
+        let counts = serde_json::json!({
+            "sessions": { "ssh": kinds(SessionKind::Ssh), "local": kinds(SessionKind::Local), "serial": kinds(SessionKind::Serial) },
+            "sessionFolders": d.folders.len(),
+            "macros": d.macros.len(),
+            "macroFolders": d.macro_folders.len(),
+            "trustedServers": d.known_hosts.len(),
+            "savedPasswords": d.secrets.values().filter(|s| s.password.as_deref().is_some_and(|p| !p.is_empty())).count(),
+            "passwordless": d.passwordless,
+        });
+        (counts, serde_json::to_value(&d.settings).unwrap_or_default())
+    };
+    let shells: Vec<String> = pty::detect_shells().into_iter().map(|s| s.label).collect();
+    Ok(serde_json::json!({
+        "app": env!("CARGO_PKG_VERSION"),
+        "os": os,
+        "platform": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "webview": tauri::webview_version().unwrap_or_default(),
+        "tauri": tauri::VERSION,
+        "dataDir": data_dir,
+        "openTerminals": st.term_count(),
+        "shells": shells,
+        "usbipd": siakap_core::process::which("usbipd").is_some() || cfg!(windows) && std::path::Path::new("C:\\Program Files\\usbipd-win\\usbipd.exe").exists(),
+        "vault": vault,
+        "settings": settings,
+        "crashes": crate::PANICS.lock().map(|p| p.clone()).unwrap_or_default(),
+    }))
 }
 
 // ---------------------------------------------------------------- fonts

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
+import { installDiag } from "./diag";
 import { applyIcon, applySkin } from "./skin";
 import { configure as configureSound, play } from "./sound";
 import { Screensaver } from "./screensaver";
@@ -15,6 +16,14 @@ import { TabManager, chooseShell, type Pane, type Slot, type Where } from "./tab
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, tourRunning, type TourStep } from "./tour";
+
+// Note unexpected errors for "Report a problem" (kept in memory only).
+let lastCrashNotice = 0;
+installDiag(() => {
+  if (Date.now() - lastCrashNotice < 60_000) return;
+  lastCrashNotice = Date.now();
+  toast("Something went wrong inside Siakap. To tell the developer, use Settings → About → Report a problem.", "error", 8000);
+});
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
@@ -165,6 +174,13 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.7.3",
+    title: "Orchid themes and Report a problem",
+    text: "Two new themes, Orchid and Orchid Light, in pink, purple, green and gold. If something goes wrong, Report a problem here makes a report you can read, save or copy and send to the developer. Nothing is sent by the app.",
+    target: "#set-about",
+    before: () => openSettings("about"),
   },
   {
     since: "0.7.2",

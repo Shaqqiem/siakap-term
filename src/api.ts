@@ -1,6 +1,15 @@
 // Typed wrappers over the backend commands. Nothing here touches the network:
 // every call is Tauri IPC to the local Rust process.
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke as rawInvoke, Channel } from "@tauri-apps/api/core";
+import { record } from "./diag";
+
+/** Every backend call; a failure is noted for "Report a problem" (command name and error only, never arguments). */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return rawInvoke<T>(cmd, args).catch((e: unknown) => {
+    record("error", `${cmd} failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e)}`);
+    throw e;
+  });
+}
 
 export type SessionKind = "ssh" | "local" | "serial";
 export type AuthMethod = "auto" | "agent" | "key" | "password";
@@ -273,7 +282,7 @@ export const api = {
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
   pickFiles: (purpose: "upload" | "key" | "import" | "theme", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
-  pickSave: (purpose: "download" | "export" | "log" | "text" | "theme", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
+  pickSave: (purpose: "download" | "export" | "log" | "text" | "theme" | "report", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   clipboardRead: () => invoke<string>("clipboard_read"),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
   termLogStart: (id: number, path: string, title: string) =>
@@ -289,6 +298,7 @@ export const api = {
   updateDownload: (progress: Channel<{ done: number; total: number }>) => invoke<string>("update_download", { progress }),
   updateInstall: () => invoke<void>("update_install"),
   openReleasePage: (url: string) => invoke<void>("open_release_page", { url }),
+  diagInfo: () => invoke<Record<string, unknown>>("diag_info"),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),
   securityKeyAction: (action: "attach" | "detach", d: KeyDevice) =>

@@ -5,6 +5,7 @@ import { api, Channel, messageOf, type KnownHost, type RedactedSession, type Set
 import { ANSI_NAMES, BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, hex6, parseThemes, uniqueName, withTheme } from "./themes";
 import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
 import { play } from "./sound";
+import { openReport } from "./report";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -696,6 +697,11 @@ export class SettingsPanel {
       this.row("Version", "", h("span", { class: "mono" }, APP_VERSION)),
       this.row("Updates", "Asks GitHub for the newest release, only when you click. Siakap never checks on its own.", btn),
       h("div", { class: "set-block update-block", "data-search": "update check version download" }, result),
+      this.row(
+        "Report a problem",
+        "Makes a report of what went wrong (versions, settings and recent errors) for you to save or copy and send to the developer. Nothing is sent by the app.",
+        h("button", { type: "button", onclick: () => void openReport() }, icon("bug", 14), " Report a problem"),
+      ),
       this.row(
         "Guided tour",
         "",

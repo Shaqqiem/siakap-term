@@ -158,6 +158,10 @@ impl AppState {
         id
     }
 
+    pub fn term_count(&self) -> usize {
+        self.terms.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
     pub fn log_slot(&self, id: u32) -> Result<LogSlot> {
         self.logs
             .lock()

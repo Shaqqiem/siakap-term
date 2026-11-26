@@ -61,6 +61,15 @@ export const BUILTIN_THEMES: TerminalTheme[] = [
     "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
     "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3",
   ], "#268bd2"),
+  // Pink, purple, green and gold.
+  t("Orchid", "#1a1025", "#f4e9ff", "#f5c542", "#4b2a66", [
+    "#24152f", "#ff4f8b", "#4ade80", "#f5c542", "#a78bfa", "#f472b6", "#5eead4", "#e9d5ff",
+    "#5b3a78", "#ff7aa8", "#86efac", "#ffd866", "#c4b5fd", "#f9a8d4", "#99f6e4", "#ffffff",
+  ], "#ec4899"),
+  t("Orchid Light", "#fdf4ff", "#3b0764", "#c026d3", "#f5d0fe", [
+    "#3b0764", "#be185d", "#15803d", "#a16207", "#7c3aed", "#c026d3", "#0f766e", "#6b21a8",
+    "#581c87", "#db2777", "#16a34a", "#ca8a04", "#8b5cf6", "#d946ef", "#0d9488", "#86198f",
+  ], "#db2777"),
   t("Black", "#000000", "#e6e6e6", "#ffffff", "#444444", []),
   t("Classic green", "#0a0f0a", "#33ff66", "#33ff66", "#1e4d2b", [], "#33cc66"),
   t("Light", "#fafafa", "#1f2328", "#0969da", "#c8ddf5", [

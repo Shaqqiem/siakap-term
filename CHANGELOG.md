@@ -4,6 +4,23 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.7.3] - 2026-11-26
+
+**A pink and gold theme, problem reports, and a sturdier update check.**
+
+### New
+- **Orchid** and **Orchid Light** themes: pink, purple, green and gold.
+- **Report a problem** in Settings → About. It makes a plain-text report of the app and Windows versions, your
+  settings, counts of sessions and macros, and the errors the app ran into since it started. Read it, then save it to
+  a file or copy it and send it to the developer. Server names, user names and IP addresses are hidden by default.
+  Nothing is sent by the app, and terminal output, passwords and keys are never included.
+- If something unexpected goes wrong inside Siakap, a message points you to *Report a problem*.
+
+### Fixed
+- **Check for updates** could fail with *GitHub answered with an error (403)* on networks where many people share one
+  address, because GitHub limits how often its update service can be asked. Siakap now falls back to reading the
+  Releases page, so the check and *Download and install* still work.
+
 ## [0.7.2] - 2026-11-26
 
 **Touchscreen support.** Use Siakap with your fingers on a touch laptop or tablet.
@@ -220,6 +237,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.7.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.6.3...v0.7.0

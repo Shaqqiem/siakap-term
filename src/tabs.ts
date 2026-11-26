@@ -1,5 +1,6 @@
 // Tabs, each holding a binary split tree of terminal panes.
 import { icon } from "./icons";
+import { record } from "./diag";
 import { Terminal, type FontWeight, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -630,6 +631,7 @@ export class TabManager {
         this.observeOutput(pane, pane.decoder.decode(bytes, { stream: true }));
       } else {
         pane.status = "closed";
+        record("info", `Terminal ${pane.uid} (${pane.kind}) ended${m.code !== null ? ` with code ${m.code}` : " (connection dropped)"}`);
         pane.cmd?.closed();
         pane.term.write(`\r\n\x1b[2m[${pane.kind === "ssh" ? "connection closed" : pane.kind === "serial" ? "port closed" : "process exited"}${m.code !== null ? ` with code ${m.code}` : ""}. Press R to reconnect or Enter to close.]\x1b[0m\r\n`);
         this.renderTabs();
@@ -799,6 +801,7 @@ export class TabManager {
 
   private markConnected(pane: Pane) {
     pane.status = "connected";
+    record("info", `Terminal ${pane.uid} (${pane.kind}) connected`);
     pane.retries = 0;
     const queued = pane.pending.join("");
     pane.pending = [];
@@ -817,6 +820,7 @@ export class TabManager {
 
   private failPane(pane: Pane, msg: string, danger = false) {
     pane.status = "closed";
+    record("error", `Terminal ${pane.uid} (${pane.kind}) failed to open: ${msg}`);
     pane.pending = [];
     const [main, details] = msg.split("\n(Details: ");
     const hint = pane.reconnect && !danger ? "Press R to try again or Enter to close." : "Press Enter to close.";

@@ -131,13 +131,15 @@ folder, host, user and serial setting is checked). Duplicate macros are skipped,
 Imported macros must be reviewed before their first run, and imported startup commands stay switched off until you
 enable them. Exports never contain passwords.
 
-**Privacy.** The app has no telemetry, analytics, crash reporting or automatic update check, and loads no remote
+**Privacy.** The app has no telemetry, analytics, automatic crash reporting or automatic update check, and loads no remote
 fonts or scripts. It doesn't log terminal output, passwords or keys on its own; session logs are only written when you
 turn them on. The only network traffic is the SSH sessions you start, and one request you trigger yourself:
 
 **Check for updates (manual).** Clicking *Check for updates* in Settings → About sends one HTTPS request from the Rust
 backend to `api.github.com` for this repository's latest release. It carries a fixed user agent and no identifiers,
-and runs only when you click; it never runs in the background. GitHub sees your IP address, as with any visit to the
+and runs only when you click; it never runs in the background. If GitHub's API refuses (for example its rate limit
+for shared networks), the same click instead reads where `github.com/Shaqqiem/siakap-term/releases/latest` points and
+fetches that version's `CHANGELOG.md` from `raw.githubusercontent.com` for the notes; nothing else changes. GitHub sees your IP address, as with any visit to the
 Releases page. *Open download page* only opens addresses under this repository's Releases page, which the backend
 checks before handing the address to the browser.
 
@@ -155,6 +157,16 @@ What this does and doesn't protect against: HTTPS and the checksum catch a damag
 They don't protect against someone who controls this GitHub repository publishing a bad release, because the
 installer and its checksum come from the same place, and the installer isn't code-signed. That is the same trust you
 place in the Releases page when you download by hand.
+
+**Report a problem (local only).** Settings → About → *Report a problem* builds a text report in the app and shows it
+to you; it is only saved or copied when you click *Save report* or *Copy*, and the app never sends it. It holds the app,
+Windows and WebView2 versions, your settings, counts of sessions, folders, macros, trusted servers and saved passwords
+(numbers only), and a list of up to 500 recent events kept in memory since the app started: failed backend commands
+with their error messages (never their arguments), messages shown, uncaught errors and terminals opening and closing.
+It never holds terminal output, typed text, passwords, keys, macro contents or session details. *Hide server names,
+user names and IP addresses* (on by default) replaces your sessions' and trusted servers' host and user names, IP and
+e-mail addresses, and the user folder in paths with placeholders. The hiding works on names Siakap knows about, so read
+the preview before you share it.
 
 ## What is not protected
 

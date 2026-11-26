@@ -24,7 +24,23 @@ fn allowed_url(url: &tauri::Url) -> bool {
     }
 }
 
+/// The last few internal crash messages (for "Report a problem"; memory only).
+pub static PANICS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 pub fn run() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let at = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
+        let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        if let Ok(mut p) = PANICS.lock() {
+            p.push(format!("{msg}{at}").chars().take(500).collect());
+            let n = p.len();
+            if n > 20 {
+                p.drain(..n - 20);
+            }
+        }
+        default_hook(info);
+    }));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // The web view may only show the app's own bundled pages: no
@@ -112,6 +128,7 @@ pub fn run() {
             commands::sftp_cancel,
             commands::fonts_list,
             commands::update_check,
+            commands::diag_info,
             commands::update_download,
             commands::update_install,
             commands::open_release_page,

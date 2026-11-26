@@ -111,18 +111,86 @@ pub fn parse_release(json: &str, current: &str) -> Result<UpdateInfo> {
 
 /// Ask GitHub for the latest release. Uses the system's certificates and proxy.
 pub fn check(current: &str) -> Result<UpdateInfo> {
-    let resp =
-        agent(10).get(RELEASES_API).set("Accept", "application/vnd.github+json").call().map_err(|e| match e {
-            ureq::Error::Status(404, _) => CoreError::invalid("No published release was found."),
-            ureq::Error::Status(code, _) => {
-                CoreError::invalid(format!("GitHub answered with an error ({code}). Try again later."))
-            }
-            ureq::Error::Transport(_) => CoreError::invalid(
-                "Couldn't reach GitHub. Check your internet connection or proxy, or open the Releases page yourself.",
-            ),
-        })?;
-    let body = resp.into_string().map_err(|_| CoreError::invalid("Couldn't read GitHub's answer."))?;
-    parse_release(&body, current)
+    match agent(10).get(RELEASES_API).set("Accept", "application/vnd.github+json").call() {
+        Ok(resp) => {
+            let body = resp.into_string().map_err(|_| CoreError::invalid("Couldn't read GitHub's answer."))?;
+            parse_release(&body, current)
+        }
+        Err(ureq::Error::Status(404, _)) => Err(CoreError::invalid("No published release was found.")),
+        // 403/429: GitHub's API allows only 60 anonymous requests an hour per
+        // internet address, which a company network shares. The Releases page
+        // isn't limited that way, so ask it instead.
+        Err(ureq::Error::Status(code, _)) => check_via_web(current).map_err(|e| {
+            CoreError::invalid(format!("GitHub's update service answered {code}, and the Releases page couldn't be read either ({e}). Try again later, or open the Releases page yourself."))
+        }),
+        Err(ureq::Error::Transport(_)) => check_via_web(current).map_err(|_| {
+            CoreError::invalid("Couldn't reach GitHub. Check your internet connection or proxy, or open the Releases page yourself.")
+        }),
+    }
+}
+
+/// The tag `…/releases/latest` redirects to, e.g. ".../releases/tag/v0.7.3" -> "v0.7.3".
+pub fn tag_from_location(location: &str) -> Option<String> {
+    let tag = location.strip_prefix(&format!("{RELEASES_PAGE}/tag/"))?;
+    let tag = tag.split(['?', '#']).next()?;
+    (parts(tag).is_some() && tag.len() < 32 && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')).then(|| tag.to_string())
+}
+
+/// Version notes from a CHANGELOG.md (the section for `version`).
+pub fn changelog_section(text: &str, version: &str) -> String {
+    let head = format!("## [{version}]");
+    let Some(start) = text.find(&head) else { return String::new() };
+    let rest = &text[start..];
+    let body = rest.split_once('\n').map(|x| x.1).unwrap_or("");
+    let end = body.find("\n## [").or_else(|| body.find("\n[0")).unwrap_or(body.len());
+    body[..end].trim().chars().take(2000).collect()
+}
+
+/// Without the API: follow the "latest release" redirect for the version, and
+/// build the release-file addresses from it (always under RELEASE_FILES).
+pub fn check_via_web(current: &str) -> Result<UpdateInfo> {
+    let no_redirects = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(10))
+        .try_proxy_from_env(true)
+        .redirects(0)
+        .user_agent("Siakap-Terminal-update-check")
+        .build();
+    let resp = no_redirects.get(&format!("{RELEASES_PAGE}/latest")).call().map_err(|e| match e {
+        ureq::Error::Status(code, _) => CoreError::invalid(format!("the Releases page answered {code}")),
+        ureq::Error::Transport(_) => CoreError::invalid("the Releases page couldn't be reached"),
+    })?;
+    let tag = resp
+        .header("Location")
+        .and_then(tag_from_location)
+        .ok_or_else(|| CoreError::invalid("the latest release couldn't be found"))?;
+    let latest = tag.trim_start_matches(['v', 'V']).to_string();
+    // Notes from that release's CHANGELOG.md (best effort).
+    let notes_from = |rev: &str| {
+        agent(10)
+            .get(&format!("https://raw.githubusercontent.com/Shaqqiem/siakap-term/{rev}/CHANGELOG.md"))
+            .call()
+            .ok()
+            .and_then(|r| r.into_string().ok())
+            .map(|t| changelog_section(&t, &latest))
+            .unwrap_or_default()
+    };
+    let mut notes = notes_from(&tag);
+    if notes.is_empty() {
+        notes = notes_from("main"); // releases from before the changelog existed
+    }
+    let files = format!("{RELEASE_FILES}{tag}/");
+    Ok(UpdateInfo {
+        newer: is_newer(&latest, current),
+        current: current.into(),
+        url: format!("{RELEASES_PAGE}/tag/{tag}"),
+        published: String::new(),
+        notes,
+        installer_url: Some(format!("{files}Siakap.Terminal_{latest}_x64-setup.exe")),
+        installer_size: 0,
+        sums_url: Some(format!("{files}SHA256SUMS.txt")),
+        latest,
+    })
 }
 
 fn agent(timeout_secs: u64) -> ureq::Agent {
@@ -304,6 +372,27 @@ mod tests {
         eprintln!("{} bytes -> {}", last, p.display());
         assert!(p.exists() && last > 1_000_000);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn web_fallback_parsing() {
+        assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/v0.7.3").as_deref(), Some("v0.7.3"));
+        assert_eq!(tag_from_location("https://github.com/evil/repo/releases/tag/v9.9.9"), None);
+        assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/v1/../x"), None);
+        assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/nightly"), None);
+        let cl = "# Changelog\n\n## [0.7.3] - 2026-11-27\n\n**Big.**\n\n### New\n- A\n\n## [0.7.2] - x\n- old\n\n[0.7.3]: link\n";
+        assert_eq!(changelog_section(cl, "0.7.3"), "**Big.**\n\n### New\n- A");
+        assert_eq!(changelog_section(cl, "0.7.2"), "- old");
+        assert_eq!(changelog_section(cl, "1.0.0"), "");
+    }
+
+    /// The fallback against the real Releases page: `-- --ignored`.
+    #[test]
+    #[ignore]
+    fn live_web_fallback() {
+        let u = check_via_web("0.0.1").unwrap();
+        eprintln!("{u:?}");
+        assert!(u.newer && u.installer_url.is_some() && !u.notes.is_empty());
     }
 
     /// Real request to GitHub: `cargo test -p siakap-core --lib update -- --ignored`.
