@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core defaults plus the window controls of the custom title bar (minimize, maximize, close, drag). File dialogs are opened by the backend (each chosen path becomes a one-time grant), so the web view needs no dialog, shell or fs permission.",
+  "description": "Core defaults plus the window controls of the custom title bar (minimize, maximize, close, drag), and setting the window icon to match the theme. File dialogs are opened by the backend (each chosen path becomes a one-time grant), so the web view needs no dialog, shell or fs permission.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "core:window:allow-is-maximized"
+    "core:window:allow-is-maximized",
+    "core:window:allow-set-icon"
   ]
 }

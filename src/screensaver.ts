@@ -1,0 +1,217 @@
+// Screensaver: pixel-art siakap (barramundi) swimming across the screen after
+// a few idle minutes. Any key, click or mouse movement brings the app back;
+// that first key press is swallowed so it never reaches a terminal.
+import type { Settings } from "./api";
+import { accentOf } from "./skin";
+
+/** 22×10 sprite, facing right. B back, S silver, L belly, F fin, T tail, E eye, P pupil. */
+export const FISH = [
+  "........F.F.F.F.......",
+  ".......FFFFFFFFF......",
+  "T.....BBBBBBBBBBBB....",
+  "TT..BBBBBBBBBBBBBBBB..",
+  "TTTBBSSSSSSSSSSSSEPB..",
+  "TTTSSSSSSSSSSSSSSSSSS.",
+  "TTTLLLLLLLLLLLLLLLLS..",
+  "TT..LLLLLLLLLLLLLLL...",
+  "T.....LLFFLLLLFFL.....",
+  ".........F....F.......",
+];
+
+const COLOURS: Record<string, string> = {
+  B: "#4f6274",
+  S: "#b9c6d2",
+  L: "#e6ecf1",
+  F: "#6d7f91",
+  T: "#7d8d9c",
+  E: "#ffb02e",
+  P: "#1b1b1b",
+};
+
+interface Fish {
+  x: number;
+  y: number;
+  px: number; // pixel size
+  speed: number;
+  dir: 1 | -1;
+  phase: number;
+  tint: string | null;
+}
+interface Bubble {
+  x: number;
+  y: number;
+  r: number;
+  v: number;
+}
+
+export class Screensaver {
+  private minutes = 0;
+  private lastInput = Date.now();
+  private el: HTMLCanvasElement | null = null;
+  private raf = 0;
+  private fish: Fish[] = [];
+  private bubbles: Bubble[] = [];
+  private s: Settings | null = null;
+  /** Return true when the screensaver may start (app unlocked, nothing modal). */
+  canStart: () => boolean = () => true;
+
+  constructor() {
+    const poke = () => {
+      this.lastInput = Date.now();
+    };
+    for (const ev of ["keydown", "mousedown", "wheel", "touchstart"]) window.addEventListener(ev, poke, { capture: true, passive: true });
+    let mx = -1;
+    let my = -1;
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        // Ignore tiny jitter; a real move counts as activity.
+        if (Math.abs(e.clientX - mx) + Math.abs(e.clientY - my) > 4) poke();
+        mx = e.clientX;
+        my = e.clientY;
+      },
+      { capture: true, passive: true },
+    );
+    window.setInterval(() => {
+      if (!this.el && this.minutes > 0 && Date.now() - this.lastInput >= this.minutes * 60_000 && this.canStart()) this.start();
+    }, 5000);
+  }
+
+  configure(minutes: number, s: Settings) {
+    this.minutes = minutes;
+    this.s = s;
+  }
+
+  get running() {
+    return !!this.el;
+  }
+
+  start() {
+    if (this.el) return;
+    const c = document.createElement("canvas");
+    c.className = "screensaver";
+    document.body.append(c);
+    this.el = c;
+    const fit = () => {
+      c.width = Math.floor(window.innerWidth * devicePixelRatio);
+      c.height = Math.floor(window.innerHeight * devicePixelRatio);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const accent = this.s ? accentOf(this.s) : "#5aa9e6";
+    this.fish = Array.from({ length: 9 }, (_, i) => this.newFish(c, i % 3 === 0 ? accent : null, true));
+    this.bubbles = [];
+    // Swallow the key/click that wakes the app.
+    const stop = (e: Event) => {
+      if (e instanceof MouseEvent && e.type === "mousemove" && Math.abs(e.movementX) + Math.abs(e.movementY) < 3) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.removeEventListener("resize", fit);
+      for (const ev of ["keydown", "mousedown", "mousemove", "wheel"]) window.removeEventListener(ev, stop, true);
+      this.stop();
+    };
+    // Give the mouse a moment to settle so the screensaver doesn't vanish at once.
+    window.setTimeout(() => {
+      for (const ev of ["keydown", "mousedown", "mousemove", "wheel"]) window.addEventListener(ev, stop, { capture: true });
+    }, 600);
+    let last = performance.now();
+    const frame = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      this.draw(c, dt, now / 1000);
+      this.raf = requestAnimationFrame(frame);
+    };
+    this.raf = requestAnimationFrame(frame);
+  }
+
+  stop() {
+    cancelAnimationFrame(this.raf);
+    this.el?.remove();
+    this.el = null;
+    this.lastInput = Date.now();
+  }
+
+  private newFish(c: HTMLCanvasElement, tint: string | null, anywhere = false): Fish {
+    const px = Math.round((2 + Math.random() * 6) * devicePixelRatio);
+    const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+    const w = FISH[0].length * px;
+    return {
+      px,
+      dir,
+      x: anywhere ? Math.random() * c.width : dir === 1 ? -w - Math.random() * c.width * 0.5 : c.width + Math.random() * c.width * 0.5,
+      y: 40 * devicePixelRatio + Math.random() * (c.height - 120 * devicePixelRatio),
+      speed: (18 + px * 9) * (0.7 + Math.random() * 0.6),
+      phase: Math.random() * Math.PI * 2,
+      tint,
+    };
+  }
+
+  private draw(c: HTMLCanvasElement, dt: number, t: number) {
+    const g = c.getContext("2d")!;
+    const s = this.s;
+    const bg = s?.background ?? "#0b1018";
+    // Deep-water gradient from the theme's background.
+    const grad = g.createLinearGradient(0, 0, 0, c.height);
+    grad.addColorStop(0, bg);
+    grad.addColorStop(1, "#02060c");
+    g.globalAlpha = 1;
+    g.fillStyle = grad;
+    g.fillRect(0, 0, c.width, c.height);
+    // Light rays.
+    g.globalAlpha = 0.05;
+    g.fillStyle = "#9fd3ff";
+    for (let i = 0; i < 4; i++) {
+      const x = ((i * 0.27 + t * 0.01) % 1) * c.width;
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x + 120 * devicePixelRatio, 0);
+      g.lineTo(x - 80 * devicePixelRatio, c.height);
+      g.lineTo(x - 200 * devicePixelRatio, c.height);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+    // Fish, small (far) first.
+    this.fish.sort((a, b) => a.px - b.px);
+    for (const f of this.fish) {
+      f.x += f.dir * f.speed * dt;
+      const w = FISH[0].length * f.px;
+      if ((f.dir === 1 && f.x > c.width + 20) || (f.dir === -1 && f.x < -w - 20)) Object.assign(f, this.newFish(c, f.tint));
+      const y = f.y + Math.sin(t * 1.6 + f.phase) * f.px * 2;
+      const wag = Math.sin(t * 8 + f.phase) > 0 ? 1 : 0;
+      g.globalAlpha = 0.55 + Math.min(0.45, f.px / (16 * devicePixelRatio));
+      FISH.forEach((row, ry) => {
+        for (let rx = 0; rx < row.length; rx++) {
+          const k = row[rx];
+          if (k === ".") continue;
+          let col = COLOURS[k];
+          if (f.tint && (k === "B" || k === "F")) col = f.tint;
+          const tail = k === "T" ? wag : 0;
+          const sx = f.dir === 1 ? rx : row.length - 1 - rx;
+          g.fillStyle = col;
+          g.fillRect(Math.round(f.x + sx * f.px), Math.round(y + ry * f.px + tail * f.px * 0.5), f.px, f.px);
+        }
+      });
+      // Now and then a bubble from the mouth.
+      if (Math.random() < dt * 0.6) {
+        const mouthX = f.dir === 1 ? f.x + w : f.x;
+        this.bubbles.push({ x: mouthX, y: y + 4 * f.px, r: Math.max(2, f.px * 0.6), v: 20 + Math.random() * 30 });
+      }
+    }
+    g.globalAlpha = 0.5;
+    g.strokeStyle = "#cfe8ff";
+    g.lineWidth = Math.max(1, devicePixelRatio);
+    this.bubbles = this.bubbles.filter((b) => (b.y -= b.v * dt * devicePixelRatio) > -10);
+    for (const b of this.bubbles) {
+      g.beginPath();
+      g.arc(b.x + Math.sin(b.y / 20) * 3, b.y, b.r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    // Caption.
+    g.globalAlpha = 0.45;
+    g.fillStyle = "#e6ecf1";
+    g.font = `${12 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
+    g.textAlign = "center";
+    g.fillText("Siakap Terminal  ·  move the mouse or press a key to come back", c.width / 2, c.height - 18 * devicePixelRatio);
+    g.globalAlpha = 1;
+  }
+}

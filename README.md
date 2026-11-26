@@ -59,6 +59,10 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   Siakap asks before replacing an existing file.
 - **Security keys in WSL.** The Key button lists your connected security keys, and lets you attach one to WSL or
   detach it back to Windows with `usbipd`. Siakap checks afterwards that the key really moved.
+- **Themes that reskin everything.** A theme colours the terminals, the whole app (light themes give a light app) and
+  the app icon.
+- **Sound and fun.** A chime when long commands finish, soft interface sounds, a pixel-siakap screensaver and a
+  welcome splash, all optional.
 - **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized
   and more), a full colour editor, your own saved themes, and import/export as JSON, including Windows Terminal
   colour schemes.
@@ -133,6 +137,8 @@ master password**.
 | Log a session | Same menus → *Log to file...*; a red REC badge shows while it records. *Settings → Session logs* can log every terminal automatically into a folder you choose |
 | Settings | The gear in the left rail opens Settings as its own tab: Appearance, Terminal, Startup/tabs/window, Connections, Mouse and clipboard, Macros, Files and logs, Security, Trusted servers, Keyboard shortcuts and About, with a search box. Changes save as you make them. The version is shown at the top |
 | Change the look | *Settings → Appearance*: pick a theme from the gallery, customise every colour (including the 16 terminal colours and the app's accent), save your own themes, and import or export them. Windows Terminal colour schemes can be imported directly |
+| Sounds and effects | *Settings → Sound and effects*: a chime when a tab finishes a long command (adjustable threshold), soft interface sounds, volume, the pixel-siakap screensaver and the welcome splash |
+| Undo a setting | **Undo** (or `Ctrl+Z`) and **Revert all** at the bottom left of Settings |
 | Change the font | *Settings → Terminal → Font* lists the fonts installed on your PC, fixed-width ones first. Line spacing, cursor shape and blinking, history length and the terminal bell are there too |
 | Stop a running macro | `Esc`, or the Stop button in the macro bar |
 | Hide the side panel | Click the active icon in the left rail, or double-click the panel edge |

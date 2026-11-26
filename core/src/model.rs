@@ -347,6 +347,23 @@ pub struct Settings {
     // ---- security
     /// Lock when the window is minimised.
     pub lock_on_minimize: bool,
+    // ---- sound, skin, screensaver, splash (0.7)
+    /// Chime when a command finishes.
+    pub sound_chime: bool,
+    /// Only chime for commands that ran at least this long (seconds; 0 = every command).
+    pub chime_min_secs: u32,
+    /// Soft sounds for clicks, Enter, tabs opening and closing, errors.
+    pub sound_ui: bool,
+    /// 0..=100.
+    pub sound_volume: u16,
+    /// Colour the whole app (panels, tabs, menus) from the theme, not just terminals.
+    pub app_skin: bool,
+    /// Colour the window's icon to match the theme.
+    pub theme_icon: bool,
+    /// Minutes without input before the screensaver (0 = off).
+    pub screensaver_minutes: u32,
+    /// Welcome splash when Siakap starts.
+    pub splash: bool,
 }
 
 impl Default for Settings {
@@ -421,6 +438,14 @@ impl Default for Settings {
             sftp_show_hidden: true,
             log_timestamps: false,
             lock_on_minimize: false,
+            sound_chime: true,
+            chime_min_secs: 5,
+            sound_ui: true,
+            sound_volume: 40,
+            app_skin: true,
+            theme_icon: true,
+            screensaver_minutes: 10,
+            splash: true,
         }
     }
 }
@@ -475,6 +500,9 @@ impl Settings {
             .collect();
         self.line_height = self.line_height.clamp(100, 200);
         self.ui_scale = self.ui_scale.clamp(80, 150);
+        self.sound_volume = self.sound_volume.min(100);
+        self.chime_min_secs = self.chime_min_secs.min(3600);
+        self.screensaver_minutes = self.screensaver_minutes.min(240);
         self.term_padding = self.term_padding.min(32);
         self.letter_spacing = self.letter_spacing.min(8);
         self.scroll_speed = self.scroll_speed.clamp(1, 10);

@@ -74,8 +74,9 @@ Text from the vault is always inserted with `textContent`, never as HTML. The we
 app's own pages (enforced by the backend), and it can't open new windows. Links that a program or server prints into
 the terminal (OSC 8 hyperlinks) are never opened. Clicking one shows the address as text, with a button to copy it.
 
-**Access to your system.** The web view gets Tauri's core defaults plus the five window controls the title bar needs
-(minimise, maximise, close, drag, and checking whether the window is maximised), and nothing else: no dialog, shell,
+**Access to your system.** The web view gets Tauri's core defaults plus the window controls the title bar needs
+(minimise, maximise, close, drag, and checking whether the window is maximised) and setting the window icon (so it can
+match the theme), and nothing else: no dialog, shell,
 filesystem or clipboard permission. The backend treats the web view as untrusted, as if it could be running injected script, and limits what
 it can ask for:
 
@@ -98,6 +99,12 @@ folder button in Settings: that dialog is run by the backend, which stores the f
 from the web view can't change it. Log file names are built from a timestamp and the session name with path
 characters removed, and existing files are never overwritten. Logs are written in the Rust backend as output arrives,
 with colour and cursor codes removed.
+
+**Sounds, splash and screensaver.** Sounds are generated in the app (Web Audio); there are no sound files and nothing
+is loaded from anywhere. The splash and the lock screen use the theme colours and the splash on/off choice, which are
+kept in the web view's local storage on this PC because they're needed before the vault is unlocked; they are not
+secret. The screensaver swallows the key or click that wakes it, so that key is never typed into a terminal; it
+doesn't lock the app (auto-lock does that, and covers the screensaver).
 
 **Font list.** The font picker reads the name and fixed-width flag from font files in the system and per-user font
 folders. Only those two small tables are read, malformed files are skipped, and only family names reach the web view.

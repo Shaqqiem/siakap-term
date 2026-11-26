@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
 import { serialSummary } from "./serial";
 import { xtermTheme } from "./themes";
+import { play } from "./sound";
 import { aggregate, TabCommandStatus } from "./status";
 import { $, alertDialog, confirmDialog, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
 
@@ -35,6 +36,8 @@ export interface Pane {
   pending: string[];
   /** Reconnect in place after the connection ended (R key). */
   reconnect?: () => void;
+  /** When the running command started (for the finish chime). */
+  cmdStart?: number;
   /** Automatic reconnect attempts since the last successful connection. */
   retries?: number;
   /** Title set by the program running in the pane (OSC 0/2). */
@@ -264,6 +267,13 @@ export class TabManager {
   private attachStatus(pane: Pane) {
     if (!this.settings?.tabStatus) return;
     pane.cmd = new TabCommandStatus((state) => {
+      // Chime when work finishes (long enough to have been waited for).
+      if (state === "running") pane.cmdStart = Date.now();
+      if ((state === "success" || state === "error") && pane.cmdStart) {
+        const secs = (Date.now() - pane.cmdStart) / 1000;
+        pane.cmdStart = undefined;
+        if (secs >= (this.settings?.chimeMinSecs ?? 5)) play(state === "success" ? "chime" : "fail");
+      }
       // A command finished in a tab you're not looking at.
       if ((state === "success" || state === "error") && this.settings?.notifyBackground && (pane.tab !== this.active || this.activePage)) {
         const name = pane.tab.customTitle ?? pane.title;
@@ -523,6 +533,7 @@ export class TabManager {
 
   private keyHandler(pane: Pane, e: KeyboardEvent): boolean {
     if (e.type !== "keydown") return true;
+    if (e.key === "Enter" && !e.repeat && pane.status === "connected") play("enter");
     const ctrlShift = e.ctrlKey && e.shiftKey && !e.altKey;
     if (ctrlShift && e.code === "KeyC") {
       if (pane.term.hasSelection()) api.clipboardWrite(this.copyText(pane.term.getSelection())).catch(() => {});
@@ -828,6 +839,7 @@ export class TabManager {
         tabEl: h("div", { class: "tab" }),
       };
       pane.tab = tab;
+      play("open");
       const at = this.settings?.newTabPosition === "next" && this.active ? this.tabs.indexOf(this.active) + 1 : this.tabs.length;
       this.tabs.splice(at, 0, tab);
       this.workspace.append(tab.el);
@@ -1066,6 +1078,7 @@ export class TabManager {
 
   async closePane(pane: Pane) {
     if (pane.disposed) return;
+    play("close");
     pane.disposed = true;
     if (pane.termId !== null) api.termClose(pane.termId).catch(() => {});
     pane.status = "closed";

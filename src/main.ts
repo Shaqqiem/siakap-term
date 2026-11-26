@@ -3,6 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
+import { applyIcon, applySkin } from "./skin";
+import { configure as configureSound, play } from "./sound";
+import { Screensaver } from "./screensaver";
+import { preloadLook, showSplash } from "./splash";
 import { MacroRunner } from "./runner";
 import { SettingsPanel } from "./settings";
 import { SftpPanel } from "./sftp";
@@ -10,7 +14,7 @@ import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane, type Slot, type Where } from "./tabs";
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
-import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, type TourStep } from "./tour";
+import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, tourRunning, type TourStep } from "./tour";
 
 type PanelName = "sessions" | "macros" | "sftp" | "settings";
 
@@ -48,9 +52,11 @@ const runner = new MacroRunner(tabs);
 const sidebar = new Sidebar(tabs, runner);
 let currentPanel: PanelName = "sessions";
 let collapsed = false;
+const screensaver = new Screensaver();
 const sftp = new SftpPanel(tabs, () => !collapsed && currentPanel === "sftp" && !$("app").classList.contains("hidden"));
 const settingsPanel = new SettingsPanel((s) => applySettings(s), (kind) => void startTour(kind, kind === "whatsNew" ? previousMinor() : undefined));
 settingsPanel.onPasswordModeChanged = () => void refreshVaultStatus().catch(() => {});
+settingsPanel.onPreviewScreensaver = () => screensaver.start();
 
 /** For "What's new" from Settings: show what this version added. */
 function previousMinor(): string {
@@ -75,8 +81,17 @@ function applySettings(s: Settings) {
     shownHidden = s.sftpShowHidden;
     void sftp.refresh();
   }
-  if (/^#[0-9a-fA-F]{3,6}$/.test(s.accent ?? "")) root.setProperty("--accent", s.accent);
-  else root.removeProperty("--accent");
+  applySkin(s);
+  void applyIcon(s);
+  configureSound({ ui: s.soundUi !== false, chime: s.soundChime !== false, volume: s.soundVolume ?? 40 });
+  screensaver.configure(s.screensaverMinutes ?? 0, s);
+  // Needed before the vault is unlocked, so kept on this PC (not secret).
+  try {
+    localStorage.setItem("siakap.splash", s.splash === false ? "0" : "1");
+    localStorage.setItem("siakap.skin", JSON.stringify({ bg: s.background, fg: s.foreground, accent: s.accent, palette: s.palette, appSkin: s.appSkin }));
+  } catch {
+    /* per-PC convenience only */
+  }
 }
 
 // A full-page tab (Settings) hides the side panel while it's in front.
@@ -103,16 +118,18 @@ const TOUR: TourStep[] = [
     title: "Sessions",
     text: "Your saved servers and devices live here, sorted into folders. Use + SSH for a server, + Local for a terminal on this PC and + Serial for a console cable. Double-click a session to connect.",
     target: '.rail button[data-panel="sessions"]',
-    before: () => showPanel("sessions"),
+    before: railStep,
+    action: "click",
   },
-  { since: "0.1.0", title: "New terminal", text: "Opens your default terminal: PowerShell, WSL, cmd and so on. Shortcut: Ctrl+Shift+T. You choose the default in Settings.", target: "#btn-new-local" },
-  { since: "0.1.0", title: "Split the screen", text: "Split the current terminal side by side or top and bottom. Drag the divider between them to resize.", target: "#btn-split-h" },
-  { since: "0.2.0", title: "Four terminals at once", text: "Ctrl+Shift+G (or this button) splits the current terminal into a 2×2 grid of the same terminal or server.", target: "#btn-grid" },
+  { since: "0.1.0", title: "New terminal", text: "Opens your default terminal: PowerShell, WSL, cmd and so on. Shortcut: Ctrl+Shift+T. Right-click it to pick any terminal or saved session.", target: "#btn-new-local", before: leavePage, action: "click" },
+  { since: "0.1.0", title: "Split the screen", text: "Split the current tab side by side or top and bottom. The new pane asks what to show: one of your open sessions, a terminal or a saved session. Drag the divider to resize.", target: "#btn-split-h", before: leavePage, action: "click" },
+  { since: "0.2.0", title: "Four panes at once", text: "Ctrl+Shift+G (or this button) splits a tab into a 2×2 grid. Close a pane with the x in its corner.", target: "#btn-grid", before: leavePage },
   {
     since: "0.2.0",
     title: "Choose what opens at start",
-    text: "In Settings, under When Siakap starts, pick a terminal (for example your WSL distro) or a saved session, in one, two or four panes.",
-    target: '.rail button[data-panel="settings"]',
+    text: "Here in Settings, under Startup, tabs and window, pick a terminal (for example your WSL distro) or a saved session, in one, two or four panes.",
+    target: "#set-startup",
+    before: () => openSettings("startup"),
   },
   {
     since: "0.3.0",
@@ -126,7 +143,8 @@ const TOUR: TourStep[] = [
     title: "Macros",
     text: "A macro types a list of commands for you, into the terminal you clicked last. Click a macro to run it; Esc stops it.",
     target: '.rail button[data-panel="macros"]',
-    before: () => showPanel("macros"),
+    before: railStep,
+    action: "click",
   },
   {
     since: "0.3.0",
@@ -143,28 +161,52 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.7.0",
+    title: "Themes colour the whole app",
+    text: "A theme now recolours the panels, tabs and menus too (light themes give a light app), and the app icon matches it. Undo and Revert all, bottom left, put back any change you make here.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
+  },
+  {
+    since: "0.7.0",
+    title: "Sounds, screensaver and a welcome splash",
+    text: "A chime plays when a tab finishes a long command, with soft sounds for clicks and Enter. After a few idle minutes, pixel siakap swim across the screen. All of it, and the splash, can be changed or turned off here.",
+    target: "#set-sound",
+    before: () => openSettings("sound"),
+  },
+  {
+    since: "0.7.0",
+    title: "The tour now shows you around",
+    text: "This tour opens the screens it talks about, and you can click what it highlights. Some steps carry on by themselves when you try them.",
+  },
+  {
     since: "0.6.2",
     title: "Check for updates",
     text: "Settings, under About, has a Check for updates button. It asks GitHub for the newest version only when you click it, and offers the download page if there's a newer one.",
-    target: '.rail button[data-panel="settings"]',
+    target: "#set-about",
+    before: () => openSettings("about"),
   },
   {
     since: "0.6.1",
     title: "Many more settings",
     text: "Settings now covers the interface size, tab behaviour, the window, SSH keep-alive and automatic reconnect, paste and copy, hidden SFTP files and timestamps in session logs. The version is shown at the top of Settings.",
-    target: '.rail button[data-panel="settings"]',
+    target: "#set-connections",
+    before: () => openSettings("connections"),
   },
   {
     since: "0.6.0",
     title: "A new Settings tab",
     text: "Settings now opens as its own tab, with sections and a search box. Pick from a gallery of colour themes, customise every colour, and import or export themes, including Windows Terminal colour schemes. Changes save as you make them.",
     target: '.rail button[data-panel="settings"]',
+    before: leavePage,
+    action: "click",
   },
   {
     since: "0.5.4",
     title: "Save and log terminal output",
     text: "Right-click a tab (or Shift+right-click in a terminal) to save everything on screen to a file, or to log the session to a file while it runs. Settings, under Session logs, can log every terminal automatically.",
     target: "#tabs",
+    before: leavePage,
   },
   {
     since: "0.5.3",
@@ -175,8 +217,9 @@ const TOUR: TourStep[] = [
   {
     since: "0.5.1",
     title: "Right-click to paste",
-    text: "Right-click in a terminal to paste. If text is selected, right-click copies it instead. Shift+right-click shows the menu. You can turn this off in Settings, under Look.",
+    text: "Right-click in a terminal to paste. If text is selected, right-click copies it instead. Shift+right-click shows the menu. You can turn this off in Settings, under Mouse and clipboard.",
     target: "#workspace",
+    before: leavePage,
   },
   {
     since: "0.5.0",
@@ -189,7 +232,8 @@ const TOUR: TourStep[] = [
     since: "0.4.3",
     title: "Skip the master password if you like",
     text: "In Settings, under Security, you can untick Ask for the master password when Siakap opens. Siakap then opens straight away on this PC, for your Windows account only. Lock still asks for it.",
-    target: '.rail button[data-panel="settings"]',
+    target: "#set-security",
+    before: () => openSettings("security"),
   },
   {
     since: "0.4.1",
@@ -215,6 +259,7 @@ const TOUR: TourStep[] = [
     title: "Command status on tabs",
     text: "The dot on each tab turns blue while a command runs, green when it succeeds and red when it fails, so you can keep an eye on other tabs.",
     target: "#tabs",
+    before: leavePage,
   },
   {
     since: "0.3.0",
@@ -228,9 +273,10 @@ const TOUR: TourStep[] = [
     title: "Files (SFTP)",
     text: "Browse, upload and download files on the server you're connected to. Drag files from Explorer onto this panel to upload them.",
     target: '.rail button[data-panel="sftp"]',
-    before: () => showPanel("sftp"),
+    before: railStep,
+    action: "click",
   },
-  { since: "0.1.0", title: "Security key", text: "Moves your USB security key between Windows and WSL with one click (needs usbipd-win).", target: "#btn-security-key" },
+  { since: "0.1.0", title: "Security key", text: "Moves your USB security key between Windows and WSL (needs usbipd-win). Pick the key, then Attach to WSL or Detach.", target: "#btn-security-key", before: leavePage },
   {
     since: "0.1.0",
     title: "Lock",
@@ -325,6 +371,7 @@ let passwordless = false;
 let rememberAvailable = false;
 
 function showLock(mode: "create" | "unlock" | "open", hint = "") {
+  screensaver.stop();
   runner.stop("the vault was locked");
   // Wipe what the UI holds from the vault: lists, open dialogs, menus, messages.
   if (tabs.settings?.lockDisconnects) void tabs.closeAll();
@@ -443,7 +490,21 @@ async function lockNow(reason = "") {
 
 // ------------------------------------------------------------------ rail & panel
 
+/** Bring the terminals back to the front if a page (Settings) is showing. */
+function leavePage() {
+  if (!tabs.activePage) return;
+  if (tabs.active) tabs.activate(tabs.active);
+  else tabs.closePage(tabs.activePage);
+}
+
+/** For tour steps that ask you to click a rail button: start with the panel closed. */
+function railStep() {
+  leavePage();
+  setCollapsed(true);
+}
+
 function showPanel(name: PanelName) {
+  leavePage();
   currentPanel = name;
   setCollapsed(false);
   for (const n of ["sessions", "macros", "sftp"] as PanelName[]) {
@@ -466,12 +527,7 @@ document.querySelectorAll<HTMLButtonElement>(".rail button[data-panel]").forEach
   b.addEventListener("click", () => {
     const name = b.dataset.panel as PanelName;
     if (name === "settings") return openSettings();
-    if (tabs.activePage) {
-      // Leave Settings: back to the terminal, with this panel open.
-      if (tabs.active) tabs.activate(tabs.active);
-      else tabs.closePage(tabs.activePage);
-      return showPanel(name);
-    }
+    if (tabs.activePage) return showPanel(name); // leave Settings, with this panel open
     if (name === currentPanel && !collapsed) setCollapsed(true);
     else showPanel(name);
   }),
@@ -749,6 +805,18 @@ const activity = () => {
 };
 for (const ev of ["keydown", "mousedown", "wheel"]) window.addEventListener(ev, activity, { capture: true, passive: true });
 
+// Interface sounds: a soft tick for buttons, tabs and menu items.
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest(".xterm")) return;
+    if (t.closest("input.switch, input[type=checkbox]")) return play("toggle");
+    if (t.closest("button, .tab, .row.item, .folder-row, .menu-item, .theme-card, .slot-item, .welcome-card, .set-nav-item")) play("click");
+  },
+  true,
+);
+
 // Lock when the window is minimised (Settings > Security).
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && tabs.settings?.lockOnMinimize && $("lock").classList.contains("hidden")) void lockNow("Locked when minimised.");
@@ -805,6 +873,10 @@ tabs.onConnected = async (pane) => {
 void listen("vault-locked", () => showLock(lockMode(), passwordless ? "" : "Locked after inactivity."));
 
 // ------------------------------------------------------------------ boot
+
+preloadLook();
+void showSplash();
+screensaver.canStart = () => $("lock").classList.contains("hidden") && !isModalOpen() && !tourRunning() && document.visibilityState === "visible";
 
 (async () => {
   try {

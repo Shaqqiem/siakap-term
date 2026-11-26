@@ -124,6 +124,14 @@ export interface Settings {
   sftpShowHidden: boolean;
   logTimestamps: boolean;
   lockOnMinimize: boolean;
+  soundChime: boolean;
+  chimeMinSecs: number;
+  soundUi: boolean;
+  soundVolume: number;
+  appSkin: boolean;
+  themeIcon: boolean;
+  screensaverMinutes: number;
+  splash: boolean;
 }
 export interface TerminalTheme {
   name: string;

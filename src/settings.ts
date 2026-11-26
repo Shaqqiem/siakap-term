@@ -4,6 +4,7 @@ import { icon } from "./icons";
 import { api, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { ANSI_NAMES, BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, hex6, parseThemes, uniqueName, withTheme } from "./themes";
 import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
+import { play } from "./sound";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -41,11 +42,27 @@ export class SettingsPanel {
   private status = h("span", { class: "save-status muted small" });
   private query = "";
   private scrollTo = "";
+  /** Settings before each change (newest last), for Undo. */
+  private history: Settings[] = [];
+  /** Settings as they were when this Settings tab was opened, for Revert all. */
+  private opened: Settings | null = null;
+  private undoBtn = h("button", { type: "button", class: "small-btn", title: "Undo the last change (Ctrl+Z)" }, icon("undo", 14), " Undo") as HTMLButtonElement;
+  private revertBtn = h("button", { type: "button", class: "small-btn", title: "Put back every setting as it was when you opened Settings" }, icon("refresh", 14), " Revert all") as HTMLButtonElement;
+  /** Set by main.ts: show the screensaver now. */
+  onPreviewScreensaver?: () => void;
 
   constructor(
     private onSaved: (s: Settings) => void,
     private onTour: (kind: "full" | "whatsNew") => void = () => {},
-  ) {}
+  ) {
+    // Ctrl+Z undoes the last settings change (not while typing in a box).
+    this.el.addEventListener("keydown", (e) => {
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "z" && !(e.target as HTMLElement).matches("input:not([type=checkbox]):not([type=range]), textarea")) {
+        e.preventDefault();
+        this.undo();
+      }
+    });
+  }
 
   /** Set by main.ts: the vault's password mode changed. */
   onPasswordModeChanged?: () => void;
@@ -58,8 +75,13 @@ export class SettingsPanel {
   // ------------------------------------------------------------ saving
 
   /** Merge a change into the settings and save it shortly after. */
-  private set(patch: Partial<Settings>, rerender = false) {
+  private set(patch: Partial<Settings>, rerender = false, undoable = true) {
+    if (undoable) {
+      this.history.push(this.s);
+      if (this.history.length > 100) this.history.shift();
+    }
     this.s = { ...this.s, ...patch };
+    this.syncUndo();
     this.onSaved(this.s); // apply at once (theme, fonts, ...)
     window.clearTimeout(this.saveTimer);
     this.status.textContent = "Saving...";
@@ -74,6 +96,27 @@ export class SettingsPanel {
       }
     }, 300);
     if (rerender) void this.render(true);
+  }
+
+  private syncUndo() {
+    this.undoBtn.disabled = !this.history.length;
+    this.revertBtn.disabled = !this.opened || JSON.stringify(this.opened) === JSON.stringify(this.s);
+  }
+
+  /** Put back the settings from before the last change. */
+  undo() {
+    const prev = this.history.pop();
+    if (!prev) return;
+    this.set(prev, true, false);
+    toast("Undid the last change.", "info", 1800);
+  }
+
+  /** Put back every setting as it was when Settings was opened. */
+  revertAll() {
+    if (!this.opened) return;
+    this.history.push(this.s);
+    this.set(this.opened, true, false);
+    toast("Settings are back to how they were when you opened this tab.", "info", 2500);
   }
 
   // ------------------------------------------------------------ controls
@@ -141,6 +184,11 @@ export class SettingsPanel {
       // A redraw after a change keeps the settings being edited (a save may still be pending).
       const fresh = keepScroll && this.s ? Promise.resolve(this.s) : api.settingsGet();
       [this.s, hosts, shells, { sessions }, vs] = await Promise.all([fresh, api.knownHostsList(), api.shellsList(), api.sessionsList(), api.vaultStatus()]);
+      if (!keepScroll) {
+        // A fresh open of Settings: this is what "Revert all" goes back to.
+        this.opened = this.s;
+        this.history = [];
+      }
     } catch (e) {
       el.replaceChildren(h("p", { class: "error" }, messageOf(e)));
       return;
@@ -155,6 +203,7 @@ export class SettingsPanel {
       { id: "startup", title: "Startup, tabs and window", icon: "play", build: () => this.startup(shells, sessions) },
       { id: "connections", title: "Connections", icon: "remote", build: () => this.connections() },
       { id: "mouse", title: "Mouse and clipboard", icon: "paste", build: () => this.mouse() },
+      { id: "sound", title: "Sound and effects", icon: "sound", build: () => this.sound() },
       { id: "macros", title: "Macros", icon: "macros", build: () => this.macros() },
       { id: "logs", title: "Files and session logs", icon: "file", build: () => this.logs() },
       { id: "security", title: "Security", icon: "lock", build: () => this.security(vs) },
@@ -208,10 +257,22 @@ export class SettingsPanel {
     });
 
     el.replaceChildren(
-      h("aside", { class: "settings-side" }, h("h1", {}, "Settings"), h("div", { class: "settings-version muted small" }, `Siakap Terminal ${APP_VERSION}`), search, nav, this.status),
+      h(
+        "aside",
+        { class: "settings-side" },
+        h("h1", {}, "Settings"),
+        h("div", { class: "settings-version muted small" }, `Siakap Terminal ${APP_VERSION}`),
+        search,
+        nav,
+        h("div", { class: "undo-bar" }, this.undoBtn, this.revertBtn),
+        this.status,
+      ),
       body,
     );
     if (this.query) filter();
+    this.undoBtn.onclick = () => this.undo();
+    this.revertBtn.onclick = () => this.revertAll();
+    this.syncUndo();
     nav.querySelector(".set-nav-item")?.classList.add("active");
     if (this.scrollTo) {
       const target = body.querySelector(`#set-${this.scrollTo}`);
@@ -336,6 +397,8 @@ export class SettingsPanel {
       ),
       editor,
       this.sub("Interface"),
+      this.toggle("appSkin", "Colour the whole app with the theme", "Panels, tabs, menus and dialogs take the theme's colours too. A light theme gives a light app."),
+      this.toggle("themeIcon", "Match the app icon to the theme", "The icon in the taskbar and title uses the theme's colours while Siakap runs."),
       this.choice("uiScale", "Interface size", "Makes menus, panels and tabs bigger or smaller. Terminal text has its own size under Terminal.", [["90", "Small (90%)"], ["100", "Normal"], ["110", "Large (110%)"], ["125", "Larger (125%)"], ["150", "Largest (150%)"]], (v) => Number(v)),
       this.toggle("railLabels", "Show labels under the left-hand buttons"),
       this.choice("tabWidth", "Tab width", "", [["compact", "Compact"], ["normal", "Normal"], ["wide", "Wide"]], (v) => v as Settings["tabWidth"]),
@@ -426,6 +489,29 @@ export class SettingsPanel {
       this.sub("New SSH sessions"),
       this.textSetting("defaultSshUser", "Default username", "Filled in when you add a server.", "e.g. admin"),
       this.number("defaultSshPort", "Default port", "", 1, 65535, 1),
+    ];
+  }
+
+  private sound(): HTMLElement[] {
+    const vol = h("input", { type: "range", min: 0, max: 100, step: 5, value: String(this.s.soundVolume ?? 40) }) as HTMLInputElement;
+    const pct = h("span", { class: "muted small vol-pct" }, `${vol.value}%`);
+    vol.addEventListener("input", () => (pct.textContent = `${vol.value}%`));
+    vol.addEventListener("change", () => {
+      this.set({ soundVolume: Number(vol.value) });
+      play("chime");
+    });
+    const test = (label: string, name: Parameters<typeof play>[0]) => h("button", { type: "button", onclick: () => play(name) }, label);
+    return [
+      this.toggle("soundChime", "Chime when a tab finishes its work", "Plays when a command finishes (a different sound if it failed). Needs command status on tabs."),
+      this.choice("chimeMinSecs", "Only for commands that took at least", "So quick commands like ls stay quiet.", [["0", "Every command"], ["3", "3 seconds"], ["5", "5 seconds"], ["10", "10 seconds"], ["30", "30 seconds"], ["60", "1 minute"]], (v) => Number(v)),
+      this.toggle("soundUi", "Interface sounds", "Soft clicks for buttons and tabs, a tap on Enter, and sounds for opening and closing tabs and for errors."),
+      this.row("Volume", "", h("div", { class: "inline vol" }, vol, pct)),
+      this.row("Try the sounds", "", h("div", { class: "inline" }, test("Chime", "chime"), test("Failed", "fail"), test("Click", "click"), test("Enter", "enter"))),
+      this.sub("Screensaver"),
+      this.choice("screensaverMinutes", "Show the swimming siakap after", "Pixel-art siakap swim across the screen when you're away. Move the mouse or press a key to come back; that key isn't typed anywhere.", [["0", "Never"], ["2", "2 minutes"], ["5", "5 minutes"], ["10", "10 minutes"], ["15", "15 minutes"], ["30", "30 minutes"]], (v) => Number(v)),
+      this.row("Preview", "", h("button", { type: "button", onclick: () => this.onPreviewScreensaver?.() }, "Show it now")),
+      this.sub("Welcome splash"),
+      this.toggle("splash", "Show a welcome splash when Siakap starts", "The logo, a greeting and the version, for about two seconds. Click or press a key to skip it."),
     ];
   }
 
