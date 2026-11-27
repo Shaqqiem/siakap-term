@@ -45,11 +45,11 @@ function greeting() {
   return hr < 5 ? "Working late" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
 }
 
-export function showSplash(): Promise<void> {
-  if (!splashEnabled() || matchMedia("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
+export function showSplash(opts: { force?: boolean; date?: Date } = {}): Promise<void> {
+  if (!opts.force && (!splashEnabled() || matchMedia("(prefers-reduced-motion: reduce)").matches)) return Promise.resolve();
   return new Promise((resolve) => {
     const look = (storedLook() ?? {}) as Settings;
-    const day = specialDay();
+    const day = specialDay(opts.date);
     const logo = drawIcon({ background: look.background ?? "#11151c", foreground: look.foreground ?? "#d8dee9", accent: look.accent ?? "", palette: look.palette ?? [] } as Settings, 192);
     logo.className = "splash-logo";
     const sea = document.createElement("canvas");

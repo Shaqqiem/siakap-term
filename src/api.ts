@@ -115,6 +115,15 @@ export interface Settings {
   glassTransparency: number;
   glassBlur: number;
   glassTerminal: number;
+  uiFont: string;
+  wallpaper: "style" | "color" | "image" | "desktop";
+  wallpaperColor: string;
+  wallpaperDim: number;
+  wallpaperBlur: number;
+  desktopEffect: "acrylic" | "clear";
+  termWallpaper: "style" | "solid" | "color" | "image" | "through";
+  termWallpaperColor: string;
+  termWallpaperBlur: number;
   tabCloseOnHover: boolean;
   termPadding: number;
   fontWeight: "300" | "normal" | "500" | "bold";
@@ -305,6 +314,11 @@ export const api = {
   updateDownload: (progress: Channel<{ done: number; total: number }>) => invoke<string>("update_download", { progress }),
   updateInstall: () => invoke<void>("update_install"),
   openReleasePage: (url: string) => invoke<void>("open_release_page", { url }),
+  wallpaperPick: (target: "app" | "term") => invoke<boolean>("wallpaper_pick", { target }),
+  wallpaperGet: (target: "app" | "term") => invoke<string | null>("wallpaper_get", { target }),
+  wallpaperClear: (target: "app" | "term") => invoke<void>("wallpaper_clear", { target }),
+  windowBackdrop: (kind: "acrylic" | "clear" | "none") => invoke<void>("window_backdrop", { kind }),
+  adminCheck: (password: string) => invoke<boolean>("admin_check", { password }),
   diagInfo: () => invoke<Record<string, unknown>>("diag_info"),
   fontsList: () => invoke<{ name: string; monospace: boolean }[]>("fonts_list"),
   securityKeyState: () => invoke<KeyDevice[]>("security_key_state"),

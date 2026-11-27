@@ -3,12 +3,15 @@
 import { icon } from "./icons";
 import { api, Channel, messageOf, type AnimStyle, type UiStyle, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
-import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
+import { alertDialog, confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
 import { play } from "./sound";
 import { openReport } from "./report";
+import { loader } from "./loader";
+import DOTO_OFL from "./assets/fonts/Doto-OFL.txt?raw";
 import { openThemeEditor } from "./themeeditor";
 import { searchEgg, versionClicked } from "./eggs";
 import { accentOf, setGlass } from "./skin";
+import { wallpaperChanged } from "./wallpaper";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -220,6 +223,19 @@ export class SettingsPanel {
     const nav = h("nav", { class: "settings-nav" });
     for (const sec of sections) {
       const card = h("section", { class: "set-section", id: `set-${sec.id}`, "data-section": sec.id }, h("h2", {}, icon(sec.icon, 17), sec.title), ...sec.build());
+      if (sec.id === "about") {
+        let n = 0;
+        let timer = 0;
+        card.querySelector("h2 .icon")?.addEventListener("click", () => {
+          n++;
+          window.clearTimeout(timer);
+          timer = window.setTimeout(() => (n = 0), 3000);
+          if (n >= 7) {
+            n = 0;
+            this.onAdmin?.();
+          }
+        });
+      }
       body.append(card);
       nav.append(
         h("button", { class: "set-nav-item", "data-target": sec.id, onclick: () => card.scrollIntoView({ behavior: "smooth", block: "start" }) }, icon(sec.icon, 15), h("span", {}, sec.title)),
@@ -452,7 +468,6 @@ export class SettingsPanel {
       ...(glass
         ? [
             this.row("Glass transparency", "How much of the backdrop shows through the panels, tabs, menus and dialogs. 0% is solid.", slider("glassTransparency", 90, "%")),
-            this.row("Terminal transparency", "How much of the backdrop shows through the terminals. Keep it low if text gets hard to read. 0% is solid.", slider("glassTerminal", 90, "%")),
             this.row("Glass blur", "How soft the backdrop looks through the glass and the terminals. 0 is clear glass.", slider("glassBlur", 60, " px")),
           ]
         : []),
@@ -460,6 +475,131 @@ export class SettingsPanel {
       this.sub("Animations"),
       h("div", { class: "set-block", "data-search": "animation motion fluid bouncy slide subtle off" }, animGallery),
       this.row("See it move", "Shows a message, so you can see the animation you picked. When Windows is set to reduce animations, Siakap keeps fades and drops movement.", demo),
+      ...this.wallpapers(slider),
+    ];
+  }
+
+  private wallpapers(slider: (key: "glassTransparency" | "glassBlur" | "glassTerminal", max: number, unit: string) => HTMLElement): HTMLElement[] {
+    const s = this.s;
+    const style = s.uiStyle ?? "standard";
+    const styleName = { standard: "Standard", glass: "Glass", material: "Material", fluent: "Fluent", dot: "Dot matrix", retro: "Retro", minimal: "Minimal" }[style];
+    const appDefault = style === "glass" ? "your desktop, see-through" : "plain";
+    const termDefault = style === "glass" ? "shows the app wallpaper" : style === "standard" || style === "minimal" ? "solid" : "its own pattern";
+    const card = <K extends "wallpaper" | "termWallpaper">(key: K, value: Settings[K], name: string, sub: string, swatch: string) =>
+      h(
+        "button",
+        { type: "button", class: `wall-card${(s[key] ?? "style") === value ? " active" : ""}`, "data-wall-key": key, "data-wall-value": value, onclick: () => this.set({ [key]: value } as Partial<Settings>, true) },
+        h("div", { class: "wall-swatch", style: swatch }),
+        h("span", { class: "look-name" }, name),
+        h("span", { class: "look-sub" }, sub),
+      );
+    const colourInput = (key: "wallpaperColor" | "termWallpaperColor") => {
+      const c = h("input", { type: "color", value: s[key] || "#1b2233" }) as HTMLInputElement;
+      c.addEventListener("input", () => document.documentElement.style.setProperty(key === "wallpaperColor" ? "--wall-color" : "--twall-color", c.value));
+      c.addEventListener("change", () => this.set({ [key]: c.value } as Partial<Settings>));
+      return c;
+    };
+    const pictureButtons = (target: "app" | "term") =>
+      h(
+        "div",
+        { class: "inline" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "primary",
+            onclick: async () => {
+              try {
+                if (await api.wallpaperPick(target)) {
+                  wallpaperChanged(target);
+                  this.set({ [target === "app" ? "wallpaper" : "termWallpaper"]: "image" } as Partial<Settings>, true);
+                  toast("Wallpaper set.", "ok", 2000);
+                }
+              } catch (e) {
+                toast(messageOf(e), "error");
+              }
+            },
+          },
+          icon("image", 14),
+          " Choose picture...",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            onclick: async () => {
+              await api.wallpaperClear(target).catch(() => {});
+              wallpaperChanged(target);
+              this.set({ [target === "app" ? "wallpaper" : "termWallpaper"]: "style" } as Partial<Settings>, true);
+            },
+          },
+          "Remove",
+        ),
+      );
+    const range = (key: "wallpaperDim" | "wallpaperBlur" | "termWallpaperBlur", max: number, unit: string, cssVar: string, scale = 1) => {
+      const input = h("input", { type: "range", min: 0, max, step: 1, value: String(s[key] ?? 0) }) as HTMLInputElement;
+      const out = h("span", { class: "muted small vol-pct" }, `${input.value}${unit}`);
+      input.addEventListener("input", () => {
+        out.textContent = `${input.value}${unit}`;
+        document.documentElement.style.setProperty(cssVar, scale === 1 ? `${input.value}px` : String(Number(input.value) / scale));
+      });
+      input.addEventListener("change", () => this.set({ [key]: Number(input.value) } as Partial<Settings>));
+      return h("div", { class: "inline vol" }, input, out);
+    };
+    const app = s.wallpaper ?? "style";
+    const term = s.termWallpaper ?? "style";
+    const fonts = (fontCache ?? []).map((f) => f.name.replace(/['";{}<>\\]/g, "").trim()).filter(Boolean);
+    const fontSel = h("select", {}, h("option", { value: "" }, `${styleName}'s own`), h("option", { value: "Doto" }, "Doto (dot matrix, built in)"), ...fonts.map((n) => h("option", { value: n }, n))) as HTMLSelectElement;
+    fontSel.value = s.uiFont ?? "";
+    fontSel.addEventListener("change", () => this.set({ uiFont: fontSel.value }, true));
+    const deskNote = /Windows/i.test(navigator.userAgent) ? "Your desktop shows through the window." : "Needs Windows 10 or 11; elsewhere it may show black.";
+    return [
+      this.sub("Wallpaper"),
+      h(
+        "div",
+        { class: "set-block", "data-search": "wallpaper background picture image colour transparent desktop see-through acrylic" },
+        h("div", { class: "set-label" }, "App"),
+        h(
+          "div",
+          { class: "wall-gallery" },
+          card("wallpaper", "style", "Style default", `${styleName}: ${appDefault}`, "background:linear-gradient(135deg,var(--bg2),var(--bg))"),
+          card("wallpaper", "color", "Colour", "One colour behind everything", `background:${s.wallpaperColor}`),
+          card("wallpaper", "image", "Picture", "A photo or image of yours", "background:linear-gradient(135deg,#355c7d,#6c5b7b,#c06c84)"),
+          card("wallpaper", "desktop", "See-through", "Your desktop behind the app", "background:repeating-conic-gradient(#8884 0 25%,#0000 0 50%) 0 0/12px 12px"),
+        ),
+      ),
+      ...(app === "color" ? [this.row("App colour", "", colourInput("wallpaperColor"))] : []),
+      ...(app === "image"
+        ? [
+            this.row("App picture", "Stored on this PC in Siakap's data folder (not encrypted).", pictureButtons("app")),
+            this.row("Darken", "Makes text easier to read over a busy picture.", range("wallpaperDim", 90, "%", "--wall-dim", 100)),
+            this.row("Blur", "", range("wallpaperBlur", 60, " px", "--wall-blur")),
+          ]
+        : []),
+      ...(app === "desktop"
+        ? [this.choice("desktopEffect", "See-through", `${deskNote} Blurred is easier on the eyes; clear shows it as it is.`, [["acrylic", "Blurred (acrylic)"], ["clear", "Clear"]], (v) => v as Settings["desktopEffect"])]
+        : []),
+      h(
+        "div",
+        { class: "set-block", "data-search": "terminal wallpaper background picture image colour transparent see-through" },
+        h("div", { class: "set-label" }, "Terminal"),
+        h(
+          "div",
+          { class: "wall-gallery" },
+          card("termWallpaper", "style", "Style default", `${styleName}: ${termDefault}`, "background:linear-gradient(135deg,var(--bg2),var(--term-bg))"),
+          card("termWallpaper", "solid", "Solid", "The theme's background", "background:var(--term-bg)"),
+          card("termWallpaper", "color", "Colour", "A colour of your own", `background:${s.termWallpaperColor}`),
+          card("termWallpaper", "image", "Picture", "A photo or image of yours", "background:linear-gradient(135deg,#0f2027,#203a43,#2c5364)"),
+          card("termWallpaper", "through", "See-through", "Shows the app wallpaper", "background:repeating-conic-gradient(#8884 0 25%,#0000 0 50%) 0 0/12px 12px"),
+        ),
+      ),
+      ...(term === "color" ? [this.row("Terminal colour", "", colourInput("termWallpaperColor"))] : []),
+      ...(term === "image" ? [this.row("Terminal picture", "Stored on this PC in Siakap's data folder (not encrypted).", pictureButtons("term")), this.row("Blur the picture", "", range("termWallpaperBlur", 60, " px", "--twall-blur"))] : []),
+      ...(["color", "image", "through"].includes(term) || (term === "style" && style === "glass")
+        ? [this.row("Terminal transparency", "How much of the wallpaper shows through the terminal's own background. Keep it low if text gets hard to read.", slider("glassTerminal", 90, "%"))]
+        : []),
+      this.sub("Interface font"),
+      this.row("Font for menus, panels and settings", "The terminal has its own font under Terminal.", fontSel),
     ];
   }
 
@@ -472,7 +612,8 @@ export class SettingsPanel {
     const fontPick = h("select", {}) as HTMLSelectElement;
     const group = (label: string, names: string[]) => (names.length ? h("optgroup", { label }, ...names.map((n) => h("option", { value: n }, n))) : null);
     const known = new Set([...mono, ...other].map((n) => n.toLowerCase()));
-    for (const g of [known.has(current.toLowerCase()) ? null : group("Current", [current]), group("Fixed width (recommended)", mono), group("Other fonts", other)]) if (g) fontPick.append(g);
+    known.add("doto");
+    for (const g of [known.has(current.toLowerCase()) ? null : group("Current", [current]), group("Built into Siakap", ["Doto"]), group("Fixed width (recommended)", mono), group("Other fonts", other)]) if (g) fontPick.append(g);
     fontPick.value = [...fontPick.options].find((o) => o.value.toLowerCase() === current.toLowerCase())?.value ?? current;
     fontPick.addEventListener("change", () => this.set({ fontFamily: `'${fontPick.value}', monospace` }, true));
     const fallback = h("input", { value: s.fontFamily, spellcheck: "false" }) as HTMLInputElement;
@@ -723,7 +864,7 @@ export class SettingsPanel {
     const btn = h("button", { type: "button" }, icon("refresh", 14), " Check for updates") as HTMLButtonElement;
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.lastChild!.textContent = " Checking...";
+      btn.replaceChildren(loader(14), " Checking...");
       result.classList.add("hidden");
       try {
         const u = await api.updateCheck();
@@ -746,13 +887,18 @@ export class SettingsPanel {
         result.classList.remove("hidden");
       } finally {
         btn.disabled = false;
-        btn.lastChild!.textContent = " Check for updates";
+        btn.replaceChildren(icon("refresh", 14), " Check for updates");
       }
     });
     return [
       this.row("Version", "", h("span", { class: "mono", onclick: () => versionClicked(APP_VERSION) }, APP_VERSION)),
       this.row("Updates", "Asks GitHub for the newest release, only when you click. Siakap never checks on its own.", btn),
       h("div", { class: "set-block update-block", "data-search": "update check version download" }, result),
+      this.row(
+        "Fonts",
+        "The Doto dot-matrix font is built into Siakap under the SIL Open Font License.",
+        h("button", { type: "button", onclick: () => void alertDialog("Doto font licence", DOTO_OFL) }, "Licence"),
+      ),
       this.row(
         "Report a problem",
         "Makes a report of what went wrong (versions, settings and recent errors) for you to save or copy and send to the developer. Nothing is sent by the app.",
@@ -766,6 +912,9 @@ export class SettingsPanel {
       h("p", { class: "muted small set-block" }, "Siakap only connects to the servers and devices you open, and to GitHub when you click Check for updates or Download and install. It sends no usage data and never checks for anything on its own."),
     ];
   }
+
+  /** Set by main.ts. */
+  onAdmin?: () => void;
 
   /** Set by main.ts: confirm closing sessions and close them; false = not now. */
   prepareInstall?: () => Promise<boolean>;

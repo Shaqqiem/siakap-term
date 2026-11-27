@@ -197,6 +197,12 @@ the preview before you share it.
   including anything sensitive that was printed (a password you typed is normally not echoed, so it isn't logged).
   Logging is off unless you turn it on. Keep the log folder private, and delete logs you no longer need.
 
+- **Wallpaper pictures.** A picture you choose as a wallpaper is copied unencrypted into Siakap's data folder
+  (`%APPDATA%\dev.siakap.terminal`). It is checked to be a PNG, JPEG, GIF, WebP or BMP image and is only read after
+  the vault is unlocked, but anyone who can read your files can see it. Don't use a picture you need to keep private.
+- **See-through window.** With the see-through wallpaper, whatever is behind the Siakap window shows through it
+  (blurred or clear). The lock screen is always solid.
+
 ## Supply chain
 
 - Dependencies are locked (`Cargo.lock`, `package-lock.json`), and CI builds with `--locked` / `npm ci`.

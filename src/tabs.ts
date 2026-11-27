@@ -1,6 +1,7 @@
 // Tabs, each holding a binary split tree of terminal panes.
 import { icon } from "./icons";
 import { record } from "./diag";
+import { loader } from "./loader";
 import { Terminal, type FontWeight, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -740,20 +741,7 @@ export class TabManager {
         }
         if (e.kind === "hostKeyChanged") {
           this.failPane(pane, e.message, true);
-          await modal<void>(
-            "Host key changed: possible man-in-the-middle attack",
-            (close) => ({
-              body: h(
-                "div",
-                {},
-                h("p", {}, h("strong", {}, "Don't continue. This server's identity has changed since you last connected. Contact your IT team before trying again.")),
-                h("p", { class: "pre muted small" }, e.message),
-                h("dl", { class: "kv" }, h("dt", {}, "Stored"), h("dd", { class: "mono" }, e.knownFingerprint ?? ""), h("dt", {}, "Presented"), h("dd", { class: "mono" }, `${e.fingerprint} (${e.keyType})`)),
-              ),
-              actions: [h("button", { class: "danger", onclick: () => close() }, "Close")],
-            }),
-            { danger: true },
-          );
+          await this.keyChanged(e.message, e.knownFingerprint ?? "", e.fingerprint ?? "", e.keyType ?? "");
           return;
         }
         if (e.kind === "passwordRequired") {
@@ -785,7 +773,25 @@ export class TabManager {
     this.failPane(pane, "Too many attempts.");
   }
 
-  private askTrust(host: string, port: number, keyType: string, fp: string): Promise<boolean> {
+  /** The loud warning shown when a server's key changed. */
+  keyChanged(message: string, known: string, fp: string, keyType: string): Promise<void> {
+    return modal<void>(
+      "Host key changed: possible man-in-the-middle attack",
+      (close) => ({
+        body: h(
+          "div",
+          {},
+          h("p", {}, h("strong", {}, "Don't continue. This server's identity has changed since you last connected. Contact your IT team before trying again.")),
+          h("p", { class: "pre muted small" }, message),
+          h("dl", { class: "kv" }, h("dt", {}, "Stored"), h("dd", { class: "mono" }, known), h("dt", {}, "Presented"), h("dd", { class: "mono" }, `${fp} (${keyType})`)),
+        ),
+        actions: [h("button", { class: "danger", onclick: () => close() }, "Close")],
+      }),
+      { danger: true },
+    );
+  }
+
+  askTrust(host: string, port: number, keyType: string, fp: string): Promise<boolean> {
     return modal<boolean>(
       "First connection to this server",
       (close) => ({
@@ -1290,7 +1296,7 @@ export class TabManager {
         const el = h(
           "div",
           { class: `tab${t === this.active && !this.activePage ? " active" : ""}${t.bell ? " tab-bell" : ""}${shownTabs.has(t) ? "" : " tab-enter"}`, title: label, onclick: () => this.activate(t) },
-          h("span", { class: `dot ${shown}`, title: dotTitle }),
+          shown === "connecting" ? Object.assign(loader(10), { title: dotTitle }) : h("span", { class: `dot ${shown}`, title: dotTitle }),
           h("span", { class: "tab-title" }, label),
           panes.some((p) => p.logPath) ? h("span", { class: "tab-rec", title: "Logging to a file" }, "REC") : null,
           h("button", {

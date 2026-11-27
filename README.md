@@ -67,7 +67,10 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   Orchid and more), a theme editor with a live preview of the whole app (Save, or Save as a new theme to reuse), and
   import/export as JSON, including Windows Terminal colour schemes.
 - **Styles and animations.** Pick a style for the whole interface (Standard, Glass, Material, Fluent, Dot matrix, Retro
-  or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). All built in.
+  or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). Loading indicators match the style. All built in.
+- **Wallpapers.** A colour or your own picture behind the app and, separately, behind the terminal, or a see-through
+  window that shows your desktop (blurred or clear, Windows 10/11). Each style has its own default; Glass shows your
+  desktop. You can also pick the interface font; Dot matrix uses the built-in Doto dot-matrix font.
 - **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
   fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
   you click **Check for updates** in Settings → About.
@@ -313,3 +316,6 @@ See [SECURITY.md](SECURITY.md) for what the app protects against, what it doesn'
 ## License
 
 Proprietary. For internal use only; not for redistribution.
+
+The built-in Doto font is © The Doto Project Authors and licensed under the SIL Open Font License 1.1
+(`src/assets/fonts/Doto-OFL.txt`; also shown in Settings → About).

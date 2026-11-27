@@ -12,6 +12,7 @@
 //! * [`serial`] — serial consoles (COM ports)
 //! * [`security_key`] — usbipd attach/detach toggle for hardware security keys
 
+pub mod admin;
 pub mod backup;
 pub mod error;
 pub mod fonts;
@@ -28,5 +29,6 @@ pub mod ssh;
 pub mod termlog;
 pub mod update;
 pub mod vault;
+pub mod wallpaper;
 
 pub use error::{CoreError, Result};

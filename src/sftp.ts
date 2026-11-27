@@ -1,5 +1,6 @@
 // MobaXterm-style SFTP browser that follows the active SSH pane.
 import { icon } from "./icons";
+import { loader } from "./loader";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, Channel, errorOf, messageOf, type Progress, type SftpEntry } from "./api";
 import type { Pane, TabManager } from "./tabs";
@@ -159,6 +160,7 @@ export class SftpPanel {
       pathInput,
       tb,
       this.error ? h("div", { class: "error" }, this.error) : null,
+      this.loading ? h("div", { class: "panel-loading" }, loader(18), "Loading...") : null,
       h(
         "div",
         { class: `file-list${this.loading ? " loading" : ""}` },

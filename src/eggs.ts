@@ -70,6 +70,10 @@ export function versionClicked(version: string) {
   versionTimer = window.setTimeout(() => (versionClicks = 0), 2000);
   if (versionClicks < 7) return;
   versionClicks = 0;
+  showCredits(version);
+}
+
+export function showCredits(version: string) {
   play("chime");
   void modal<void>(
     "Behind the scenes",

@@ -34,6 +34,7 @@ const P: Record<string, string> = {
   download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   bug: '<rect x="8" y="6" width="8" height="14" rx="4"/><path d="M12 10v10M8 13H4M20 13h-4M8 17l-3 2M16 17l3 2M8 9 5 7M16 9l3-2M10 6l-1-2M14 6l1-2"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/>',
   "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',

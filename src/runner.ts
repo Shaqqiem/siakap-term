@@ -7,6 +7,7 @@
 //   * it stops if that pane closes or focus moves elsewhere, and every wait can
 //     be cancelled.
 import { api, messageOf, type Macro } from "./api";
+import { loader } from "./loader";
 import { icon } from "./icons";
 import { check, fill, inputNames, MacroError, validateInput } from "./macros";
 import type { Pane, TabManager } from "./tabs";
@@ -116,7 +117,7 @@ export class MacroRunner {
     this.current = { pane, ctl, name: m.name };
     const bar = $("macro-bar");
     const label = h("span", {});
-    bar.replaceChildren(h("span", { class: "spinner" }), label, h("button", { onclick: () => this.stop() }, icon("stop", 12), "Stop macro"));
+    bar.replaceChildren(loader(13), label, h("button", { onclick: () => this.stop() }, icon("stop", 12), "Stop macro"));
     bar.classList.remove("hidden");
     const delay = Math.max(0, this.tabs.settings.lineDelayMs);
     try {

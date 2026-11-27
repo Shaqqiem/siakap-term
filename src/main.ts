@@ -6,6 +6,10 @@ import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { installDiag } from "./diag";
 import { installEggs } from "./eggs";
+import { loader } from "./loader";
+import { askAdminPassword, buildAdmin } from "./admin";
+import { openReport } from "./report";
+import { applyWallpaper } from "./wallpaper";
 import { accentOf, applyIcon, applySkin, drawIcon, setGlass } from "./skin";
 import { configure as configureSound, play } from "./sound";
 import { Screensaver, fishIcon, swimBy } from "./screensaver";
@@ -104,6 +108,7 @@ function applySettings(s: Settings) {
   document.documentElement.dataset.ui = s.uiStyle ?? "standard";
   document.documentElement.dataset.anim = s.animations ?? "fluid";
   setGlass(s.glassTransparency ?? 42, s.glassBlur ?? 30, s.glassTerminal ?? 30);
+  void applyWallpaper(s);
   siakapAccent = accentOf(s);
   siakapLook = s;
   drawSiakapButton();
@@ -140,6 +145,7 @@ $("btn-siakap").addEventListener("click", () => {
   if (siakapFish) {
     play("splash");
     swimBy(siakapAccent);
+    backToLogoLater();
     return;
   }
   siakapClicks++;
@@ -157,7 +163,22 @@ $("btn-siakap").addEventListener("click", () => {
   void btn.offsetWidth;
   btn.classList.add("morph");
   toast("You found the siakap! Click it again to watch it swim.", "ok", 4000);
+  backToLogoLater();
 });
+/** The fish turns back into the logo a minute after it was last clicked. */
+let backToLogoTimer = 0;
+function backToLogoLater() {
+  window.clearTimeout(backToLogoTimer);
+  backToLogoTimer = window.setTimeout(() => {
+    siakapFish = false;
+    siakapClicks = 0;
+    drawSiakapButton();
+    const btn = $("btn-siakap");
+    btn.classList.remove("morph");
+    void btn.offsetWidth;
+    btn.classList.add("morph");
+  }, 60_000);
+}
 $("btn-siakap").addEventListener("contextmenu", (e) => {
   if (!siakapFish) return;
   showMenu(e as MouseEvent, [
@@ -210,6 +231,62 @@ function openSettings(section = "") {
   else void settingsPanel.render();
 }
 
+// ------------------------------------------------------------------ preview panel
+
+function adminOn(): boolean {
+  try {
+    return localStorage.getItem("siakap.admin") === "1";
+  } catch {
+    return false;
+  }
+}
+function showAdminButton() {
+  $("btn-admin").classList.toggle("hidden", !adminOn());
+}
+function openAdmin() {
+  tabs.openPage("admin", "Preview", "shield", () =>
+    buildAdmin({
+      version: APP_VERSION,
+      accent: () => siakapAccent,
+      settings: () => api.settingsGet(),
+      saveSettings: async (patch) => applySettings(await api.settingsSave({ ...(await api.settingsGet()), ...patch })),
+      openSettings,
+      tour: (kind) => void startTour(kind, kind === "whatsNew" ? previousMinor() : undefined),
+      screensaver: () => screensaver.start(),
+      morphLogo: () => {
+        for (let i = 0; i < 5; i++) $("btn-siakap").click();
+      },
+      report: () => void openReport(),
+      trust: (h, p, k, f) => tabs.askTrust(h, p, k, f),
+      keyChanged: (m, k, f, t) => tabs.keyChanged(m, k, f, t),
+      lock: () => void lockNow(),
+      leave: () => {
+        try {
+          localStorage.removeItem("siakap.admin");
+        } catch {
+          /* nothing stored */
+        }
+        showAdminButton();
+        const page = tabs.pages.find((p) => p.id === "admin");
+        if (page) tabs.closePage(page);
+      },
+    }),
+  );
+}
+settingsPanel.onAdmin = async () => {
+  if (!(await askAdminPassword())) return;
+  try {
+    localStorage.setItem("siakap.admin", "1");
+  } catch {
+    /* the button still opens it this time */
+  }
+  showAdminButton();
+  play("chime");
+  openAdmin();
+};
+$("btn-admin").addEventListener("click", openAdmin);
+showAdminButton();
+
 // ------------------------------------------------------------------ guided tour
 
 const TOUR: TourStep[] = [
@@ -260,6 +337,13 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.8.0",
+    title: "Wallpapers and a see-through window",
+    text: "Under Appearance, give the app and the terminal their own wallpaper: a colour, your own picture, or see-through to your desktop. Each style has its own default, and Glass shows your desktop through the window.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
   },
   {
     since: "0.7.5",
@@ -608,7 +692,7 @@ $("lock-form").addEventListener("submit", async (e) => {
     if (pass.value !== pass2.value) return void (err.textContent = "The passwords don't match.");
   }
   btn.disabled = true;
-  btn.textContent = form.dataset.mode === "create" ? "Creating..." : "Opening...";
+  btn.replaceChildren(h("span", { class: "lock-submit-loading" }, loader(14), form.dataset.mode === "create" ? "Creating..." : "Opening..."));
   try {
     if (noPassword) await api.vaultCreatePasswordless();
     else if (form.dataset.mode === "create") await api.vaultCreate(pass.value);

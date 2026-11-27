@@ -4,6 +4,36 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.0] - 2026-11-28
+
+**Wallpapers, a truly see-through Glass, and loading animations for every style.**
+
+### New
+- **Wallpapers** in Settings → Appearance, separately for the app and for the terminal:
+  - **App:** the style's default, a colour, your own picture (with darken and blur), or **see-through**: the window
+    itself becomes transparent and shows your desktop, blurred (acrylic) or clear, on Windows 10 and 11.
+  - **Terminal:** the style's default, the theme's solid background, a colour, your own picture (with blur), or
+    see-through to the app wallpaper, with a transparency slider so text stays readable.
+  - **Each style has its own defaults.** Glass shows your desktop through the window, and its terminals show it too.
+    Material, Fluent, Dot matrix and Retro have their own terminal patterns. Standard and Minimal stay solid.
+- **Loading animations that match the style**: a ring (Standard), iOS-like spokes (Glass), a Material arc, orbiting
+  dots (Fluent), a blinking dot grid (Dot matrix), an ASCII spinner (Retro) and a thin bar (Minimal). They show while
+  the vault opens, tabs connect, updates are checked, SFTP folders load and macros run.
+- **Interface font.** Choose the font for menus, panels and Settings, or keep the style's own.
+- **Dot matrix uses a dot-matrix font** (Doto, built into the app) for everything by default. It's also available for
+  terminals in the font list.
+
+### Improved
+- **Glass is truly see-through**: by default your desktop shows through the panels, tabs and terminals, instead of a
+  painted backdrop.
+
+### Fixed
+- The new tab, split and window buttons in the title bar looked like large coloured blobs in some styles; they're
+  plain again in every style.
+- Labels under the left-hand buttons (such as *Sessions* and *Settings*) no longer run out of space in Dot matrix,
+  Retro and Material.
+- Dot matrix showed a circle around a left-hand button on hover; the selected button now has a line under its label.
+
 ## [0.7.8] - 2026-11-27
 
 ### New
@@ -304,6 +334,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.8...v0.8.0
 [0.7.8]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.5...v0.7.6

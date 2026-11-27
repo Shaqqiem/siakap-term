@@ -545,6 +545,7 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
         "log" => d.set_title("Log this session to a file").add_filter("Log file", &["log", "txt"]),
         "text" => d.set_title("Save terminal output").add_filter("Text file", &["txt", "log"]),
         "report" => d.set_title("Save problem report").add_filter("Text file", &["txt"]),
+        "image" => d.set_title("Choose a wallpaper picture").add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]),
         "theme" => d.set_title("Colour theme").add_filter("Theme (JSON)", &["json"]).add_filter("All files", &["*"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
@@ -1299,6 +1300,113 @@ pub async fn diag_info(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<se
         "settings": settings,
         "crashes": crate::PANICS.lock().map(|p| p.clone()).unwrap_or_default(),
     }))
+}
+
+// ---------------------------------------------------------------- wallpapers
+
+fn wallpaper_dir(app: &tauri::AppHandle) -> Res<PathBuf> {
+    tauri::Manager::path(app).app_data_dir().map_err(|e| CoreError::Io { message: e.to_string() })
+}
+
+fn wallpaper_files(dir: &std::path::Path, stem: &str) -> Vec<PathBuf> {
+    siakap_core::wallpaper::EXTENSIONS.iter().map(|e| dir.join(format!("{stem}.{e}"))).filter(|p| p.exists()).collect()
+}
+
+/// Pick a picture for the app ("app") or terminal ("term") wallpaper. It must
+/// really be an image; it is copied into the app's data folder. Returns false
+/// when the dialog was cancelled.
+#[tauri::command]
+pub async fn wallpaper_pick(app: tauri::AppHandle, st: State<'_, AppState>, target: String) -> Res<bool> {
+    st.ensure_unlocked()?;
+    let stem = siakap_core::wallpaper::stem(&target).ok_or_else(|| CoreError::invalid("unknown wallpaper"))?;
+    #[cfg(debug_assertions)]
+    let test_file = std::env::var_os("SIAKAP_TEST_IMAGE").map(PathBuf::from);
+    #[cfg(not(debug_assertions))]
+    let test_file: Option<PathBuf> = None;
+    let path = match test_file {
+        Some(p) => p,
+        None => {
+            let dlg = dialog_for(&app, "image")?;
+            let picked = tauri::async_runtime::spawn_blocking(move || dlg.blocking_pick_file())
+                .await
+                .map_err(|e| CoreError::Io { message: e.to_string() })?;
+            match picked.and_then(|f| f.into_path().ok()) {
+                Some(p) => p,
+                None => return Ok(false),
+            }
+        }
+    };
+    let dir = wallpaper_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || -> Res<()> {
+        let meta = std::fs::metadata(&path)?;
+        if meta.len() as usize > siakap_core::wallpaper::MAX_BYTES {
+            return Err(CoreError::invalid("That picture is too large (the limit is 25 MB)."));
+        }
+        let bytes = std::fs::read(&path)?;
+        let (_, ext) = siakap_core::wallpaper::image_kind(&bytes).ok_or_else(|| CoreError::invalid("That file isn't a PNG, JPEG, GIF, WebP or BMP picture."))?;
+        std::fs::create_dir_all(&dir)?;
+        for old in wallpaper_files(&dir, stem) {
+            let _ = std::fs::remove_file(old);
+        }
+        atomic_write(&dir.join(format!("{stem}.{ext}")), &bytes)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| CoreError::Io { message: e.to_string() })??;
+    Ok(true)
+}
+
+/// The wallpaper picture as a data: URL (shown by the web view), if one is set.
+#[tauri::command]
+pub async fn wallpaper_get(app: tauri::AppHandle, st: State<'_, AppState>, target: String) -> Res<Option<String>> {
+    st.ensure_unlocked()?;
+    let stem = siakap_core::wallpaper::stem(&target).ok_or_else(|| CoreError::invalid("unknown wallpaper"))?;
+    let dir = wallpaper_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || -> Res<Option<String>> {
+        let Some(p) = wallpaper_files(&dir, stem).into_iter().next() else { return Ok(None) };
+        let bytes = std::fs::read(p)?;
+        if bytes.len() > siakap_core::wallpaper::MAX_BYTES {
+            return Ok(None);
+        }
+        Ok(siakap_core::wallpaper::image_kind(&bytes).map(|(mime, _)| format!("data:{mime};base64,{}", B64.encode(&bytes))))
+    })
+    .await
+    .map_err(|e| CoreError::Io { message: e.to_string() })?
+}
+
+/// Remove a wallpaper picture.
+#[tauri::command]
+pub fn wallpaper_clear(app: tauri::AppHandle, st: State<'_, AppState>, target: String) -> Res<()> {
+    st.ensure_unlocked()?;
+    let stem = siakap_core::wallpaper::stem(&target).ok_or_else(|| CoreError::invalid("unknown wallpaper"))?;
+    for p in wallpaper_files(&wallpaper_dir(&app)?, stem) {
+        let _ = std::fs::remove_file(p);
+    }
+    Ok(())
+}
+
+/// See-through window: "acrylic" (Windows blurs what's behind the window),
+/// "clear", or "none". The page decides what is see-through.
+#[tauri::command]
+pub fn window_backdrop(app: tauri::AppHandle, kind: String) -> Res<()> {
+    use tauri::window::{Color, Effect, EffectsBuilder};
+    let Some(w) = tauri::Manager::get_webview_window(&app, "main") else { return Ok(()) };
+    let io = |e: tauri::Error| CoreError::Io { message: e.to_string() };
+    // The window keeps a solid background unless the page wants to be see-through.
+    let see_through = kind != "none";
+    w.set_background_color(Some(if see_through { Color(0, 0, 0, 0) } else { Color(13, 17, 23, 255) })).map_err(io)?;
+    match kind.as_str() {
+        "acrylic" => w.set_effects(EffectsBuilder::new().effect(Effect::Acrylic).build()).map_err(io),
+        "clear" | "none" => w.set_effects(None).map_err(io),
+        _ => Err(CoreError::invalid("unknown backdrop")),
+    }
+}
+
+// ---------------------------------------------------------------- preview panel
+
+#[tauri::command]
+pub fn admin_check(password: String) -> bool {
+    siakap_core::admin::check(&password)
 }
 
 // ---------------------------------------------------------------- fonts

@@ -311,8 +311,25 @@ pub struct Settings {
     pub glass_transparency: u8,
     /// Glass style: blur behind the glass, in pixels (0..=60).
     pub glass_blur: u8,
-    /// Glass style: how see-through the terminals are, in percent (0..=90).
+    /// How see-through the terminals are over their wallpaper, in percent (0..=90).
     pub glass_terminal: u8,
+    // ---- wallpapers and fonts (0.8.0)
+    /// Interface font ("" = the style's own).
+    pub ui_font: String,
+    /// App wallpaper: "style", "color", "image" or "desktop" (see-through window).
+    pub wallpaper: String,
+    pub wallpaper_color: String,
+    /// Darken the wallpaper picture, in percent (0..=90).
+    pub wallpaper_dim: u8,
+    /// Blur the wallpaper picture, in pixels (0..=60).
+    pub wallpaper_blur: u8,
+    /// With the "desktop" wallpaper: "acrylic" (blurred) or "clear".
+    pub desktop_effect: String,
+    /// Terminal wallpaper: "style", "solid", "color", "image" or "through" (shows the app wallpaper).
+    pub term_wallpaper: String,
+    pub term_wallpaper_color: String,
+    /// Blur the terminal wallpaper picture, in pixels (0..=60).
+    pub term_wallpaper_blur: u8,
     /// Space around the text inside a terminal, in pixels.
     pub term_padding: u16,
     // ---- terminal text
@@ -430,6 +447,15 @@ impl Default for Settings {
             glass_transparency: 42,
             glass_blur: 30,
             glass_terminal: 30,
+            ui_font: String::new(),
+            wallpaper: "style".into(),
+            wallpaper_color: "#1b2233".into(),
+            wallpaper_dim: 30,
+            wallpaper_blur: 0,
+            desktop_effect: "acrylic".into(),
+            term_wallpaper: "style".into(),
+            term_wallpaper_color: "#101820".into(),
+            term_wallpaper_blur: 0,
             term_padding: 6,
             font_weight: "normal".into(),
             letter_spacing: 0,
@@ -520,6 +546,19 @@ impl Settings {
         self.glass_transparency = self.glass_transparency.min(90);
         self.glass_blur = self.glass_blur.min(60);
         self.glass_terminal = self.glass_terminal.min(90);
+        self.wallpaper_dim = self.wallpaper_dim.min(90);
+        self.wallpaper_blur = self.wallpaper_blur.min(60);
+        self.term_wallpaper_blur = self.term_wallpaper_blur.min(60);
+        self.ui_font.retain(|c| !c.is_control() && !matches!(c, ';' | '{' | '}' | '<' | '>' | '\\' | '"'));
+        self.ui_font.truncate(200);
+        let colour = |v: &mut String, default: &str| {
+            let ok = v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|c| c.is_ascii_hexdigit());
+            if !ok {
+                *v = default.into();
+            }
+        };
+        colour(&mut self.wallpaper_color, "#1b2233");
+        colour(&mut self.term_wallpaper_color, "#101820");
         self.chime_min_secs = self.chime_min_secs.min(3600);
         self.screensaver_minutes = self.screensaver_minutes.min(240);
         self.term_padding = self.term_padding.min(32);
@@ -540,6 +579,9 @@ impl Settings {
         pick(&mut self.tab_width, &["compact", "normal", "wide"], "normal");
         pick(&mut self.ui_style, &["standard", "glass", "material", "fluent", "dot", "retro", "minimal"], "standard");
         pick(&mut self.animations, &["fluid", "bouncy", "slide", "subtle", "off"], "fluid");
+        pick(&mut self.wallpaper, &["style", "color", "image", "desktop"], "style");
+        pick(&mut self.desktop_effect, &["acrylic", "clear"], "acrylic");
+        pick(&mut self.term_wallpaper, &["style", "solid", "color", "image", "through"], "style");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
         pick(&mut self.new_tab_position, &["end", "next"], "end");
