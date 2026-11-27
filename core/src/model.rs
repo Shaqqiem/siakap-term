@@ -296,8 +296,10 @@ pub struct Settings {
     pub custom_themes: Vec<TerminalTheme>,
     /// The app's own colours from the theme (see UI_COLOUR_KEYS).
     pub ui_colors: BTreeMap<String, String>,
-    /// Icon pack: "style", "outline", "bold", "thin", "sharp", "duotone" or "emoji".
+    /// Icon pack: "style", "line", "solid", "pixel", "dot", "tiles", "sketch" or "emoji".
     pub icon_pack: String,
+    /// Line thickness of line and sketch icons, in tenths of a pixel (8..=32).
+    pub icon_weight: u8,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     /// Line height in percent (100 = normal).
@@ -448,6 +450,7 @@ impl Default for Settings {
             custom_themes: Vec::new(),
             ui_colors: BTreeMap::new(),
             icon_pack: "style".into(),
+            icon_weight: 18,
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             line_height: 100,
@@ -599,7 +602,18 @@ impl Settings {
         pick(&mut self.wallpaper, &["style", "color", "image", "desktop"], "style");
         pick(&mut self.desktop_effect, &["acrylic", "clear"], "acrylic");
         clean_ui_colours(&mut self.ui_colors);
-        pick(&mut self.icon_pack, &["style", "outline", "bold", "thin", "sharp", "duotone", "emoji"], "style");
+        // 0.8.1 had thickness variants as packs; they became the slider.
+        match self.icon_pack.as_str() {
+            "bold" => (self.icon_pack, self.icon_weight) = ("line".into(), 24),
+            "thin" => (self.icon_pack, self.icon_weight) = ("line".into(), 12),
+            "outline" | "sharp" | "duotone" => self.icon_pack = "line".into(),
+            _ => {}
+        }
+        if self.icon_weight == 0 {
+            self.icon_weight = 18;
+        }
+        self.icon_weight = self.icon_weight.clamp(8, 32);
+        pick(&mut self.icon_pack, &["style", "line", "solid", "pixel", "dot", "tiles", "sketch", "emoji"], "style");
         pick(&mut self.term_wallpaper, &["style", "solid", "color", "image", "through"], "style");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
@@ -821,6 +835,9 @@ mod tests {
         assert_eq!(t.name, "Mine");
         assert_eq!(t.ui.len(), 1, "only known app colours with valid values are kept");
         assert_eq!(t.ui["panel"], "#202020");
+        let old = Settings { icon_pack: "bold".into(), ..Default::default() }.sanitized();
+        assert_eq!((old.icon_pack.as_str(), old.icon_weight), ("line", 24), "old bold pack becomes a thick line");
+        assert_eq!(Settings { icon_weight: 200, ..Default::default() }.sanitized().icon_weight, 32);
         assert_eq!(t.cursor, "", "invalid colours are dropped");
         assert_eq!(t.accent, "");
         assert_eq!(t.palette.len(), 16);

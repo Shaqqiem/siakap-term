@@ -117,7 +117,8 @@ export interface Settings {
   glassTerminal: number;
   uiFont: string;
   uiColors: Record<string, string>;
-  iconPack: "style" | "outline" | "bold" | "thin" | "sharp" | "duotone" | "emoji";
+  iconPack: "style" | "line" | "solid" | "pixel" | "dot" | "tiles" | "sketch" | "emoji";
+  iconWeight: number;
   wallpaper: "style" | "color" | "image" | "desktop";
   wallpaperColor: string;
   wallpaperDim: number;

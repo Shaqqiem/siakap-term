@@ -4,6 +4,26 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.2] - 2026-11-28
+
+**Real icon packs.**
+
+### New
+- **Six new icon packs**, each drawn on its own, for every icon in the app:
+  - **Solid:** filled shapes.
+  - **Pixel:** 12×12 pixel art.
+  - **Dot matrix:** the pixel art drawn as round dots.
+  - **Tiles:** white symbols on coloured rounded tiles, like phone settings.
+  - **Sketch:** hand-drawn pencil lines.
+  - **Emoji.**
+- **Line thickness slider** for the Line and Sketch packs, from hairline to bold.
+- Each style picks a pack by default: Tiles for Glass, Solid for Material, Dot matrix for Dot matrix and Pixel for
+  Retro.
+
+### Changed
+- The Bold, Thin, Sharp and Duotone packs from 0.8.1 are replaced by Line and the thickness slider. A Bold or Thin
+  choice is kept as a thick or thin line.
+
 ## [0.8.1] - 2026-11-28
 
 **Themes that colour the whole app, 23 new themes and icon packs.**
@@ -351,6 +371,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.8...v0.8.0
 [0.7.8]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.7...v0.7.8

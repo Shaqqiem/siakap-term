@@ -108,6 +108,7 @@ function applySettings(s: Settings) {
   document.documentElement.dataset.ui = s.uiStyle ?? "standard";
   document.documentElement.dataset.anim = s.animations ?? "fluid";
   document.documentElement.dataset.icons = iconPackFor(s.iconPack, s.uiStyle);
+  document.documentElement.style.setProperty("--icon-w", String((s.iconWeight || 18) / 10));
   setGlass(s.glassTransparency ?? 42, s.glassBlur ?? 30, s.glassTerminal ?? 30);
   void applyWallpaper(s);
   siakapAccent = accentOf(s);
@@ -340,9 +341,16 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
+    since: "0.8.2",
+    title: "New icon packs",
+    text: "Under Icons, choose Solid, Pixel, Dot matrix, Tiles, Sketch or Emoji icons, each drawn on its own, and set how thick the line icons are.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
+  },
+  {
     since: "0.8.1",
     title: "More themes, app colours and icon packs",
-    text: "There are 23 new themes, and the theme editor now sets the app's own colours too: panels, text, lines and more. Under Icons, pick Bold, Thin, Sharp, Duotone or even Emoji icons.",
+    text: "There are 23 new themes, and the theme editor now sets the app's own colours too: panels, text, lines and more. Under Icons, pick an icon pack.",
     target: "#set-appearance",
     before: () => openSettings("appearance"),
   },

@@ -1,3 +1,4 @@
+import { PIXEL, SOLID, pixelDots, pixelRects, tileColour } from "./iconsets";
 // Small line-icon set (24×24 grid, 1.75 stroke, currentColor). Static markup
 // only — never built from user data.
 
@@ -60,30 +61,58 @@ const EMOJI: Record<string, string> = {
   shield: "🛡️", palette: "🎨", keyboard: "⌨️", undo: "↩️", sound: "🔊", logo: "🐟", grid: "🔲", "arrow-up": "⬆️",
 };
 
+export const ICON_PACKS = ["line", "solid", "pixel", "dot", "tiles", "sketch", "emoji"] as const;
+export type IconPack = (typeof ICON_PACKS)[number];
+
 export function icon(name: string, size = 16, cls = ""): SVGSVGElement {
   const tpl = document.createElement("template");
-  const em = EMOJI[name];
-  // The emoji live in one hidden sprite and are referenced, so they never become part of a button's text.
-  if (em) emojiSprite();
-  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon ${em ? "has-em " : ""}${cls}" data-name="${name}">${P[name] ?? ""}${em ? `<use class="em" href="#em-${name}"/>` : ""}</svg>`;
+  const known = name in P;
+  if (known) iconSprite();
+  // The line drawing is inline (its thickness follows the slider); the other
+  // packs are referenced from one hidden sprite, and CSS shows the chosen one.
+  const others = known
+    ? `<use class="v-solid" href="#i-solid-${name}"/><use class="v-pixel" href="#i-pixel-${name}"/><use class="v-dot" href="#i-dot-${name}"/><use class="v-tiles" href="#i-tiles-${name}"/><use class="v-sketch" href="#i-sketch-${name}"/>${EMOJI[name] ? `<use class="v-emoji" href="#i-emoji-${name}"/>` : ""}`
+    : "";
+  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon ${EMOJI[name] ? "has-em " : ""}${cls}" data-name="${name}"><g class="v-line">${P[name] ?? ""}</g>${others}</svg>`;
   return tpl.content.firstElementChild as SVGSVGElement;
 }
 
-let sprite = false;
-function emojiSprite() {
-  if (sprite || typeof document === "undefined") return;
-  sprite = true;
-  const tpl = document.createElement("template");
-  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0" aria-hidden="true" id="emoji-sprite">${Object.entries(EMOJI)
-    .map(([n, e]) => `<symbol id="em-${n}" viewBox="0 0 24 24"><text x="12" y="13" text-anchor="middle" dominant-baseline="central" font-size="18" stroke="none" fill="currentColor" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif">${e}</text></symbol>`)
-    .join("")}</svg>`;
-  document.body.prepend(tpl.content.firstElementChild!);
+/** The icon pack a style uses by default. */
+export function iconPackFor(pack: string | undefined, style: string | undefined): IconPack {
+  if (pack && (ICON_PACKS as readonly string[]).includes(pack)) return pack as IconPack;
+  return (({ standard: "line", glass: "tiles", material: "solid", fluent: "line", dot: "dot", retro: "pixel", minimal: "line" } as Record<string, IconPack>)[style ?? "standard"] ?? "line");
 }
 
-/** The icon pack a style uses by default. */
-export function iconPackFor(pack: string | undefined, style: string | undefined): string {
-  if (pack && pack !== "style") return pack;
-  return ({ standard: "outline", glass: "outline", material: "duotone", fluent: "thin", dot: "sharp", retro: "sharp", minimal: "thin" } as Record<string, string>)[style ?? "standard"] ?? "outline";
+let sprite = false;
+function iconSprite() {
+  if (sprite || typeof document === "undefined") return;
+  sprite = true;
+  const sym = (id: string, body: string, extra = "") => `<symbol id="${id}" viewBox="0 0 24 24"${extra}>${body}</symbol>`;
+  let out = `<defs>
+    <filter id="i-rough-a" filterUnits="userSpaceOnUse" x="-3" y="-3" width="30" height="30"><feTurbulence type="fractalNoise" baseFrequency="0.22" numOctaves="3" seed="4"/><feDisplacementMap in="SourceGraphic" scale="2.6"/></filter>
+    <filter id="i-rough-b" filterUnits="userSpaceOnUse" x="-3" y="-3" width="30" height="30"><feTurbulence type="fractalNoise" baseFrequency="0.3" numOctaves="2" seed="17"/><feDisplacementMap in="SourceGraphic" scale="3.4"/></filter>
+    <linearGradient id="i-shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  </defs>`;
+  for (const name of Object.keys(P)) {
+    const line = P[name];
+    out += sym(`i-solid-${name}`, `<g fill="currentColor" stroke="none">${SOLID[name] ?? line}</g>`);
+    const px = PIXEL[name];
+    out += sym(`i-pixel-${name}`, px ? `<g fill="currentColor" stroke="none" shape-rendering="crispEdges">${pixelRects(px)}</g>` : line);
+    out += sym(`i-dot-${name}`, px ? `<g fill="currentColor" stroke="none">${pixelDots(px)}</g>` : line);
+    out += sym(
+      `i-tiles-${name}`,
+      `<rect x="1" y="1" width="22" height="22" rx="6.2" fill="${tileColour(name)}" stroke="none"/><rect x="1" y="1" width="22" height="22" rx="6.2" fill="url(#i-shine)" stroke="none"/><g transform="translate(5 5) scale(.5833)" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">${line}</g>`,
+    );
+    out += sym(
+      `i-sketch-${name}`,
+      `<g filter="url(#i-rough-a)" fill="none" stroke="currentColor" style="stroke-width:calc(var(--icon-w, 1.75) * 1px)" stroke-linecap="round" stroke-linejoin="round">${line}</g><g filter="url(#i-rough-b)" opacity=".6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" transform="translate(.9 .7) rotate(1.5 12 12)">${line}</g>`,
+    );
+    if (EMOJI[name])
+      out += sym(`i-emoji-${name}`, `<text x="12" y="13" text-anchor="middle" dominant-baseline="central" font-size="18" stroke="none" fill="currentColor" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif">${EMOJI[name]}</text>`);
+  }
+  const tpl = document.createElement("template");
+  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" id="icon-sprite">${out}</svg>`;
+  document.body.prepend(tpl.content.firstElementChild!);
 }
 
 /** Fill every `[data-icon]` element in the static HTML. */

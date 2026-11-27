@@ -1,6 +1,8 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
-import { icon, iconPackFor } from "./icons";
+import { icon, iconPackFor, type IconPack } from "./icons";
+
+const PACK_NAMES: Record<IconPack, string> = { line: "Line", solid: "Solid", pixel: "Pixel", dot: "Dot matrix", tiles: "Tiles", sketch: "Sketch", emoji: "Emoji" };
 import { api, Channel, messageOf, type AnimStyle, type UiStyle, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
 import { alertDialog, confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
@@ -601,7 +603,8 @@ export class SettingsPanel {
         ? [this.row("Terminal transparency", "How much of the wallpaper shows through the terminal's own background. Keep it low if text gets hard to read.", slider("glassTerminal", 90, "%"))]
         : []),
       this.sub("Icons"),
-      h("div", { class: "set-block", "data-search": "icons icon pack outline bold thin sharp duotone emoji" }, this.iconGallery()),
+      h("div", { class: "set-block", "data-search": "icons icon pack line solid pixel dot matrix tiles sketch emoji thickness bold thin" }, this.iconGallery()),
+      this.iconWeight(),
       this.sub("Interface font"),
       this.row("Font for menus, panels and settings", "The terminal has its own font under Terminal.", fontSel),
     ];
@@ -609,16 +612,18 @@ export class SettingsPanel {
 
   private iconGallery(): HTMLElement {
     const s = this.s;
+    const own = iconPackFor("style", s.uiStyle);
     const packs: [Settings["iconPack"], string, string][] = [
-      ["style", "Style default", `${iconPackFor("style", s.uiStyle)[0].toUpperCase()}${iconPackFor("style", s.uiStyle).slice(1)} with this style`],
-      ["outline", "Outline", "Clean lines"],
-      ["bold", "Bold", "Thicker lines"],
-      ["thin", "Thin", "Light and airy"],
-      ["sharp", "Sharp", "Square ends and corners"],
-      ["duotone", "Duotone", "Lines with a soft fill"],
+      ["style", "Style default", `${PACK_NAMES[own]} with this style`],
+      ["line", "Line", "Clean outlines"],
+      ["solid", "Solid", "Filled shapes"],
+      ["pixel", "Pixel", "12×12 pixel art"],
+      ["dot", "Dot matrix", "Pixel art in dots"],
+      ["tiles", "Tiles", "Coloured app tiles"],
+      ["sketch", "Sketch", "Drawn by hand"],
       ["emoji", "Emoji", "Colourful emoji"],
     ];
-    const sample = ["sessions", "macros", "folder", "settings", "lock"];
+    const sample = ["sessions", "macros", "folder", "settings", "lock", "terminal"];
     return h(
       "div",
       { class: "icon-gallery" },
@@ -626,12 +631,23 @@ export class SettingsPanel {
         h(
           "button",
           { type: "button", class: `icon-card${(s.iconPack ?? "style") === id ? " active" : ""}`, "data-icons": iconPackFor(id, s.uiStyle), "data-pack": id, onclick: () => this.set({ iconPack: id }, true) },
-          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 18))),
+          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 20))),
           h("span", { class: "look-name" }, name),
           h("span", { class: "look-sub" }, sub),
         ),
       ),
     );
+  }
+
+  private iconWeight(): HTMLElement {
+    const input = h("input", { type: "range", min: 8, max: 32, step: 1, value: String(this.s.iconWeight || 18), "data-icon-weight": "" }) as HTMLInputElement;
+    const out = h("span", { class: "muted small vol-pct" }, (Number(input.value) / 10).toFixed(1));
+    input.addEventListener("input", () => {
+      out.textContent = (Number(input.value) / 10).toFixed(1);
+      document.documentElement.style.setProperty("--icon-w", String(Number(input.value) / 10));
+    });
+    input.addEventListener("change", () => this.set({ iconWeight: Number(input.value) }));
+    return this.row("Line thickness", "For the Line and Sketch packs: from hairline to bold.", h("div", { class: "inline vol" }, input, out));
   }
 
   private terminal(): HTMLElement[] {

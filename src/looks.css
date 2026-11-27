@@ -651,15 +651,23 @@
 .sw-app i { width: 6px; height: 6px; border-radius: 50%; }
 
 /* ============================================================= icon packs */
-svg.icon .em { display: none; stroke: none; fill: currentColor; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
-/* The app's pack (on <html>) skips the preview cards; each card shows its own. */
-:root[data-icons="bold"] svg.icon:not(.icon-card svg), .icon-card[data-icons="bold"] svg.icon { stroke-width: 2.4; }
-:root[data-icons="thin"] svg.icon:not(.icon-card svg), .icon-card[data-icons="thin"] svg.icon { stroke-width: 1.2; }
-:root[data-icons="sharp"] svg.icon:not(.icon-card svg), .icon-card[data-icons="sharp"] svg.icon { stroke-width: 1.9; stroke-linecap: square; stroke-linejoin: miter; }
-:root[data-icons="duotone"] svg.icon:not(.icon-card svg) :is(rect, circle, ellipse, path[d$="z"], path[d$="Z"]),
-.icon-card[data-icons="duotone"] svg.icon :is(rect, circle, ellipse, path[d$="z"], path[d$="Z"]) { fill: color-mix(in srgb, currentColor 24%, transparent); }
-:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) > :not(.em), .icon-card[data-icons="emoji"] svg.icon.has-em > :not(.em) { display: none; }
-:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) .em, .icon-card[data-icons="emoji"] svg.icon.has-em .em { display: inline; }
+/* Every icon carries each pack's drawing; the app's pack (on <html>) or a
+   preview card's own pack decides which one shows. */
+svg.icon { stroke-width: var(--icon-w, 1.75); }
+svg.icon > :is(.v-solid, .v-pixel, .v-dot, .v-tiles, .v-sketch, .v-emoji) { display: none; }
+:root[data-icons="solid"] svg.icon:not(.icon-card svg) > .v-line, .icon-card[data-icons="solid"] svg.icon > .v-line { display: none; }
+:root[data-icons="solid"] svg.icon:not(.icon-card svg) > .v-solid, .icon-card[data-icons="solid"] svg.icon > .v-solid { display: inline; }
+:root[data-icons="pixel"] svg.icon:not(.icon-card svg) > .v-line, .icon-card[data-icons="pixel"] svg.icon > .v-line { display: none; }
+:root[data-icons="pixel"] svg.icon:not(.icon-card svg) > .v-pixel, .icon-card[data-icons="pixel"] svg.icon > .v-pixel { display: inline; }
+:root[data-icons="dot"] svg.icon:not(.icon-card svg) > .v-line, .icon-card[data-icons="dot"] svg.icon > .v-line { display: none; }
+:root[data-icons="dot"] svg.icon:not(.icon-card svg) > .v-dot, .icon-card[data-icons="dot"] svg.icon > .v-dot { display: inline; }
+:root[data-icons="tiles"] svg.icon:not(.icon-card svg) > .v-line, .icon-card[data-icons="tiles"] svg.icon > .v-line { display: none; }
+:root[data-icons="tiles"] svg.icon:not(.icon-card svg) > .v-tiles, .icon-card[data-icons="tiles"] svg.icon > .v-tiles { display: inline; }
+:root[data-icons="sketch"] svg.icon:not(.icon-card svg) > .v-line, .icon-card[data-icons="sketch"] svg.icon > .v-line { display: none; }
+:root[data-icons="sketch"] svg.icon:not(.icon-card svg) > .v-sketch, .icon-card[data-icons="sketch"] svg.icon > .v-sketch { display: inline; }
+:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) > .v-line, .icon-card[data-icons="emoji"] svg.icon.has-em > .v-line { display: none; }
+:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) > .v-emoji, .icon-card[data-icons="emoji"] svg.icon.has-em > .v-emoji { display: inline; }
+/* Cards in the gallery show the line pack at its normal weight unless they are another pack. */
 .icon-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
 .icon-row { display: flex; gap: 8px; justify-content: center; padding: 10px 4px; border-radius: 6px; background: var(--bg2); color: var(--fg); }
 :root[data-ui] .icon-card { display: flex; flex-direction: column; gap: 5px; padding: 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--ui-font); font-size: 12.5px; box-shadow: none; overflow: visible; }
