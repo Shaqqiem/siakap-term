@@ -66,6 +66,8 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized,
   Orchid and more), a theme editor with a live preview of the whole app (Save, or Save as a new theme to reuse), and
   import/export as JSON, including Windows Terminal colour schemes.
+- **Styles and animations.** Pick a style for the whole interface (Standard, Glass, Material, Fluent, Dot matrix, Retro
+  or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). All built in.
 - **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
   fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
   you click **Check for updates** in Settings → About.

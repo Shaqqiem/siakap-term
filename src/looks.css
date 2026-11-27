@@ -1,0 +1,366 @@
+/* Interface styles (html[data-ui]) and animation styles (html[data-anim]).
+   Everything is built in: no fonts, images or scripts are downloaded.
+   The theme's colours still apply; a style changes shapes, depth, surfaces
+   and type. Colour variables that the skin sets inline on <html> are
+   overridden on <body> where a style needs its own. */
+
+/* ===================================================================== motion */
+:root {
+  --a-dur: 0s;
+  --a-ease: ease;
+  --a-scale: 1;
+  --a-shift: 0px;
+  --a-x: 0px;
+  --t-dur: 0s;
+  --t-ease: ease;
+}
+:root[data-anim="fluid"] { --a-dur: .32s; --a-ease: cubic-bezier(.22, 1, .36, 1); --a-scale: .96; --a-shift: 8px; --t-dur: .18s; --t-ease: cubic-bezier(.22, 1, .36, 1); }
+:root[data-anim="bouncy"] { --a-dur: .5s; --a-ease: cubic-bezier(.34, 1.56, .64, 1); --a-scale: .86; --a-shift: 14px; --t-dur: .28s; --t-ease: cubic-bezier(.34, 1.56, .64, 1); }
+:root[data-anim="slide"] { --a-dur: .34s; --a-ease: cubic-bezier(.16, 1, .3, 1); --a-x: 26px; --t-dur: .2s; --t-ease: cubic-bezier(.16, 1, .3, 1); }
+:root[data-anim="subtle"] { --a-dur: .16s; --a-ease: ease-out; --t-dur: .12s; --t-ease: ease-out; }
+/* Windows' "reduce animations": keep fades, drop movement. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-anim="off"]) { --a-scale: 1; --a-shift: 0px; --a-x: 0px; --a-ease: ease-out; --t-ease: ease-out; }
+}
+
+@keyframes a-in { from { opacity: 0; transform: translate(var(--a-x), var(--a-shift)) scale(var(--a-scale)); } }
+@keyframes a-fade { from { opacity: 0; } }
+@keyframes a-toast { from { opacity: 0; transform: translate(calc(var(--a-x) + var(--a-shift) * 3), 0) scale(var(--a-scale)); } }
+@keyframes a-tab { from { opacity: 0; max-width: 0; padding-left: 0; padding-right: 0; } }
+@keyframes a-wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg) scale(1.08); } 60% { transform: rotate(9deg); } }
+@keyframes a-morph { 0% { transform: scale(1) rotate(0); filter: none; } 45% { transform: scale(.2) rotate(200deg); filter: blur(2px); opacity: .3; } 100% { transform: scale(1) rotate(360deg); } }
+
+:root:not([data-anim="off"]) {
+  .modal-backdrop { animation: a-fade var(--a-dur) ease-out both; }
+  .modal { animation: a-in var(--a-dur) var(--a-ease) both; }
+  .menu { animation: a-in calc(var(--a-dur) * .7) var(--a-ease) both; transform-origin: top left; }
+  .toast { animation: a-toast var(--a-dur) var(--a-ease) both; }
+  .panel-body:not(.hidden) { animation: a-in var(--a-dur) var(--a-ease) both; }
+  .tab.tab-enter { animation: a-tab var(--a-dur) var(--a-ease) both; }
+  .tab-content:not(.hidden), .page-content:not(.hidden) { animation: a-fade calc(var(--a-dur) * .8) ease-out both; }
+  .slot-body, .lock-card, .update-result:not(.hidden), .set-empty:not(.hidden) { animation: a-in var(--a-dur) var(--a-ease) both; }
+
+  button, .tab, .set-nav-item, .theme-card, .look-card, .anim-card, .menu-item, .slot-item, input, select, textarea {
+    transition: background-color var(--t-dur) var(--t-ease), border-color var(--t-dur) var(--t-ease), color var(--t-dur) var(--t-ease),
+      box-shadow var(--t-dur) var(--t-ease), transform var(--t-dur) var(--t-ease), opacity var(--t-dur) var(--t-ease);
+  }
+  button:active:not(:disabled) { transform: scale(.96); }
+  .tab:active { transform: none; }
+  .theme-card:hover, .look-card:hover, .anim-card:hover { transform: translateY(-2px); }
+  .rail button .icon { transition: transform var(--t-dur) var(--t-ease); }
+  .rail button:hover .icon { transform: translateY(-1px) scale(1.08); }
+  input.switch, input.switch::after { transition: background var(--t-dur) var(--t-ease), transform var(--t-dur) var(--t-ease), border-color var(--t-dur) var(--t-ease); }
+  .rail-siakap.wiggle .rail-logo { animation: a-wiggle .45s var(--a-ease); }
+  .rail-siakap.morph > canvas { animation: a-morph .7s var(--a-ease); }
+}
+:root[data-anim="subtle"] {
+  button:active:not(:disabled) { transform: none; }
+  .theme-card:hover, .look-card:hover, .anim-card:hover { transform: none; }
+  .rail button:hover .icon { transform: none; }
+}
+
+/* Material-style touch ripple (added by main.ts while the Material style is on). */
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; background: currentColor; opacity: .22; transform: scale(0); animation: ripple .55s cubic-bezier(.22, 1, .36, 1) forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* ============================================================== glass (Apple-like) */
+:root[data-ui="glass"] {
+  body {
+    --ui-font: -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --glass: color-mix(in srgb, var(--bg2) 58%, transparent);
+    --glass-line: color-mix(in srgb, var(--fg) 13%, transparent);
+    background:
+      radial-gradient(1100px 760px at 8% -10%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 62%),
+      radial-gradient(900px 700px at 105% 105%, color-mix(in srgb, var(--err) 20%, transparent), transparent 60%),
+      radial-gradient(760px 560px at 85% 0%, color-mix(in srgb, var(--ok) 16%, transparent), transparent 60%),
+      var(--bg);
+  }
+  .rail, .panel, .tabbar, .settings-side, .set-section, .menu, .toast, .modal, .lock-card, .empty, .page-content {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(28px) saturate(170%);
+    backdrop-filter: blur(28px) saturate(170%);
+    border-color: var(--glass-line);
+  }
+  .page-content, .empty { background: color-mix(in srgb, var(--bg) 30%, transparent); }
+  .modal { border-radius: 20px; box-shadow: 0 30px 80px #0008, inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent); }
+  .modal-backdrop { background: #0005; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .menu { border-radius: 12px; padding: 5px; }
+  .menu-item { border-radius: 7px; }
+  .toast { border-radius: 14px; }
+  .set-section { border-radius: 16px; }
+  .theme-card { border-radius: 12px; }
+  .lock-card { border-radius: 22px; }
+  button { border-radius: 9px; background: color-mix(in srgb, var(--fg) 8%, transparent); border-color: var(--glass-line); }
+  button.primary { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 85%, #fff), var(--accent)); border-color: transparent; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+  button.icon, .rail button, .tab-close, .set-nav-item, .menu-item { background: transparent; border-color: transparent; box-shadow: none; }
+  input, select, textarea { border-radius: 9px; background: color-mix(in srgb, var(--fg) 7%, transparent); border-color: var(--glass-line); }
+  input.switch { border-radius: 999px; }
+  input.switch:checked { background: var(--ok); border-color: var(--ok); }
+  .rail { border-right-color: var(--glass-line); }
+  .rail button { border-radius: 11px; }
+  .rail button.active { background: color-mix(in srgb, var(--fg) 13%, transparent); box-shadow: none; }
+  .tabbar { border-bottom-color: var(--glass-line); }
+  .tab { border-right: 0; border-radius: 9px; margin: 5px 2px; }
+  .tab.active { background: color-mix(in srgb, var(--fg) 14%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent); }
+  .set-nav-item { border-radius: 9px; }
+  .set-nav-item.active { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+}
+
+/* ================================================================ material */
+:root[data-ui="material"] {
+  body {
+    --ui-font: Roboto, "Google Sans", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --tone1: color-mix(in srgb, var(--accent) 6%, var(--bg2));
+    --tone2: color-mix(in srgb, var(--accent) 11%, var(--bg2));
+    --e1: 0 1px 2px #0005, 0 1px 3px 1px #0003;
+    --e3: 0 4px 8px 3px #0003, 0 1px 3px #0005;
+  }
+  .rail, .panel, .tabbar, .settings-side { background: var(--tone1); border-color: transparent; }
+  .set-section { background: var(--tone1); border: 0; border-radius: 16px; box-shadow: var(--e1); }
+  .set-row { border-bottom-color: transparent; }
+  button { position: relative; overflow: hidden; border: 0; border-radius: 999px; padding: 6px 16px; background: var(--tone2); font-weight: 500; letter-spacing: .01em; }
+  button:hover:not(:disabled) { box-shadow: var(--e1); }
+  button.primary { background: var(--accent); color: var(--accent-fg); box-shadow: var(--e1); }
+  button.icon, button.tool, .tab-close { padding: 3px; background: transparent; }
+  button.tool { padding: 0; }
+  input:not([type=checkbox]):not([type=color]):not([type=range]), select, textarea {
+    border: 0; border-bottom: 2px solid color-mix(in srgb, var(--fg) 35%, transparent); border-radius: 6px 6px 0 0;
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-bottom-color: var(--accent); }
+  input.switch { width: 40px; height: 24px; border: 2px solid var(--muted); background: transparent; }
+  input.switch::after { top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted); }
+  input.switch:checked { background: var(--accent); border-color: var(--accent); }
+  input.switch:checked::after { transform: translateX(15px) scale(1.35); background: var(--accent-fg); }
+  .rail button { background: transparent; box-shadow: none; }
+  .rail button .icon { padding: 4px 10px; border-radius: 16px; box-sizing: content-box; }
+  .rail button.active { background: transparent; box-shadow: none; color: var(--fg); }
+  .rail button.active .icon { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .tab { border-right: 0; }
+  .tab.active { background: transparent; box-shadow: inset 0 -3px 0 var(--accent); color: var(--accent); }
+  .set-nav-item { border-radius: 999px; }
+  .set-nav-item.active { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+  .modal { border: 0; border-radius: 28px; padding: 24px; background: var(--tone2); box-shadow: var(--e3); }
+  .modal h2 { font-size: 20px; font-weight: 400; }
+  .menu { border: 0; border-radius: 6px; padding: 6px 0; box-shadow: var(--e3); background: var(--tone2); }
+  .menu-item { border-radius: 0; padding: 8px 14px; }
+  .toast { border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); box-shadow: var(--e3); }
+  .toast.error { box-shadow: inset 4px 0 0 var(--err), var(--e3); }
+  .toast.ok { box-shadow: inset 4px 0 0 var(--ok), var(--e3); }
+  .theme-card { border: 0; border-radius: 14px; background: var(--tone2); box-shadow: var(--e1); }
+  .theme-card.active { box-shadow: 0 0 0 2px var(--accent), var(--e1); }
+  .lock-card { border: 0; border-radius: 28px; box-shadow: var(--e3); background: var(--tone2); }
+}
+
+/* ======================================================== fluent (Windows 11) */
+:root[data-ui="fluent"] {
+  body {
+    --ui-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --stroke: color-mix(in srgb, var(--fg) 9%, transparent);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--bg)), var(--bg) 45%);
+  }
+  .rail, .tabbar, .panel, .settings-side { background: color-mix(in srgb, var(--bg2) 80%, transparent); border-color: var(--stroke); }
+  .page-content, .empty { background: transparent; }
+  button { border-radius: 4px; background: color-mix(in srgb, var(--fg) 6%, transparent); border: 1px solid var(--stroke); border-bottom-color: color-mix(in srgb, var(--fg) 4%, transparent); }
+  button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 9%, transparent); border-color: var(--stroke); }
+  button.primary { background: var(--accent); border-color: color-mix(in srgb, #fff 10%, var(--accent)); border-bottom-color: color-mix(in srgb, #000 25%, var(--accent)); }
+  button.icon, .rail button, .tab-close, .set-nav-item, .menu-item { background: transparent; border-color: transparent; }
+  input:not([type=checkbox]):not([type=color]):not([type=range]), select, textarea { border-radius: 4px; border-color: var(--stroke); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--fg) 35%, transparent); background: color-mix(in srgb, var(--fg) 4%, transparent); }
+  input:focus, select:focus, textarea:focus { outline: none; box-shadow: inset 0 -2px 0 var(--accent); }
+  .rail button, .set-nav-item { position: relative; border-radius: 4px; }
+  .rail button.active, .set-nav-item.active { background: color-mix(in srgb, var(--fg) 7%, transparent); box-shadow: none; color: var(--fg); }
+  .rail button.active::before, .set-nav-item.active::before { content: ""; position: absolute; left: 0; top: 30%; bottom: 30%; width: 3px; border-radius: 3px; background: var(--accent); }
+  .tab { border-right: 0; border-radius: 6px 6px 0 0; margin-top: 4px; }
+  .tab.active { box-shadow: none; background: var(--term-bg); }
+  .set-section { border-radius: 8px; border-color: var(--stroke); background: color-mix(in srgb, var(--bg2) 75%, transparent); }
+  .modal { border-radius: 8px; padding: 22px 22px 0; border-color: var(--stroke); box-shadow: 0 32px 64px #0007; }
+  .modal-actions { margin: 20px -22px 0; padding: 18px 22px; background: var(--bg); border-top: 1px solid var(--stroke); border-radius: 0 0 8px 8px; }
+  .menu { border-radius: 8px; border-color: var(--stroke); box-shadow: 0 8px 16px #0006; }
+  .menu-item { border-radius: 4px; }
+  .toast { border-radius: 8px; border-left: 3px solid var(--accent); }
+  .toast.ok { border-left-color: var(--ok); }
+  .toast.error { border-left-color: var(--err); }
+  input.switch { border-color: var(--muted); background: transparent; }
+  input.switch:checked { background: var(--accent); }
+  .theme-card { border-radius: 6px; }
+}
+
+/* =================================================== dot matrix (Nothing OS-like) */
+:root[data-ui="dot"] {
+  body {
+    --accent: #d71921;
+    --accent-fg: #ffffff;
+    --dot-ink: color-mix(in srgb, var(--fg) 16%, transparent);
+    --dot-line: color-mix(in srgb, var(--fg) 24%, transparent);
+    --ui-font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --dot-font: var(--mono);
+  }
+  .rail, .panel, .tabbar, .settings-side { background: color-mix(in srgb, var(--bg) 60%, #000); border-color: var(--dot-line); }
+  .page-content, .empty, .lock {
+    background-color: color-mix(in srgb, var(--bg) 70%, #000);
+    background-image: radial-gradient(var(--dot-ink) 1px, transparent 1.4px);
+    background-size: 14px 14px;
+  }
+  .set-section, .modal, .menu, .toast, .lock-card { background: color-mix(in srgb, var(--bg) 55%, #000); border: 1px solid var(--dot-line); }
+  .set-section { border-radius: 22px; }
+  .modal { border-radius: 26px; }
+  .menu, .toast { border-radius: 16px; }
+  .set-section h2, .panel h4, .set-subhead, .settings-side h1, .modal h2, .panel-head h3, .rail button span, .slot-body h4, .te-head {
+    font-family: var(--dot-font); text-transform: uppercase; letter-spacing: .14em; font-weight: 500;
+  }
+  .settings-side h1, .modal h2, .splash-title, .lock-card h1, .lock-card h2 {
+    font-size: 22px; letter-spacing: .18em;
+    -webkit-mask-image: radial-gradient(circle, #000 52%, transparent 58%);
+    -webkit-mask-size: 2.5px 2.5px;
+    mask-image: radial-gradient(circle, #000 52%, transparent 58%);
+    mask-size: 2.5px 2.5px;
+  }
+  .set-section h2 .icon { color: var(--fg); }
+  button { border-radius: 999px; background: transparent; border: 1px solid var(--dot-line); font-family: var(--dot-font); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.icon, button.tool, .rail button, .tab-close, .set-nav-item, .menu-item, .tab button { border-color: transparent; text-transform: none; letter-spacing: 0; font-family: var(--ui-font); }
+  input:not([type=checkbox]):not([type=color]):not([type=range]), select, textarea { border-radius: 999px; background: transparent; border-color: var(--dot-line); padding-left: 12px; }
+  textarea { border-radius: 16px !important; }
+  .rail button { position: relative; }
+  .rail button.active { background: transparent; box-shadow: none; color: var(--fg); }
+  .rail button.active::after { content: ""; position: absolute; top: 6px; right: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .tab { border-right-style: dotted; border-right-color: var(--dot-line); }
+  .tab.active { box-shadow: inset 0 -2px 0 var(--accent); background: transparent; }
+  .set-nav-item.active { background: transparent; color: var(--fg); box-shadow: inset 3px 0 0 var(--accent); border-radius: 0; }
+  .set-row { border-bottom-style: dotted; }
+  input.switch { background: transparent; border-color: var(--dot-line); }
+  input.switch:checked { background: #fff; border-color: #fff; }
+  input.switch:checked::after { background: var(--accent); }
+  .theme-card { border-radius: 16px; border-style: dotted; }
+  .theme-card.active { border-style: solid; }
+}
+:root[data-ui="dot"].skin-light {
+  body { --dot-ink: color-mix(in srgb, var(--fg) 20%, transparent); }
+  .rail, .panel, .tabbar, .settings-side, .set-section, .modal, .menu, .toast, .lock-card { background: color-mix(in srgb, var(--bg) 60%, #fff); }
+  .page-content, .empty, .lock { background-color: color-mix(in srgb, var(--bg) 50%, #fff); }
+  input.switch:checked { background: #111; border-color: #111; }
+}
+
+/* ======================================================================= retro */
+:root[data-ui="retro"] {
+  body { --ui-font: var(--mono); }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, #0000001a 0 1px, transparent 1px 3px);
+  }
+  *, *::before, *::after { border-radius: 0 !important; }
+  .rail, .panel, .tabbar, .settings-side { border-width: 2px; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .modal, .lock-card { border: 3px double var(--accent); box-shadow: 0 0 0 1px #000, 0 0 40px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .menu, .toast, .set-section { border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 4px 4px 0 #0008; }
+  button { background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--line)); color: var(--accent); text-transform: uppercase; font-size: 12px; letter-spacing: .06em; }
+  button:hover:not(:disabled) { background: var(--accent); color: var(--accent-fg); }
+  button.primary { background: var(--accent); color: var(--accent-fg); }
+  button.icon, button.tool, .rail button, .tab-close, .set-nav-item, .menu-item { border-color: transparent; text-transform: none; color: inherit; }
+  .rail button.active, .tab.active, .set-nav-item.active, .set-section h2, .settings-side h1, .modal h2 {
+    color: var(--accent); text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  .rail button.active { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+  .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
+  .set-nav-item.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .set-nav-item.active::before { content: "> "; }
+  input, select, textarea { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); caret-color: var(--accent); }
+}
+
+/* ===================================================================== minimal */
+:root[data-ui="minimal"] {
+  .rail, .panel, .tabbar, .settings-side { background: var(--bg); border-color: transparent; }
+  .set-section { background: transparent; border-color: transparent; }
+  .set-row { border-bottom-color: transparent; }
+  .set-section h2 { border-bottom-color: transparent; }
+  .modal, .menu, .toast, .lock-card { border-color: transparent; box-shadow: 0 12px 40px #0006; }
+  button { border-color: transparent; background: var(--bg3); }
+  button.icon, .rail button, .tab-close, .set-nav-item, .menu-item { background: transparent; }
+  .rail button.active { background: transparent; box-shadow: none; color: var(--fg); }
+  .tab { border-right-color: transparent; }
+  .tab.active { box-shadow: none; background: transparent; color: var(--fg); font-weight: 600; }
+  .set-nav-item.active { background: transparent; font-weight: 600; }
+  input:not([type=checkbox]):not([type=color]):not([type=range]), select, textarea { border-color: transparent; background: var(--bg3); }
+  .theme-card { border-color: transparent; }
+  .theme-card.active { box-shadow: 0 0 0 2px var(--accent); }
+}
+
+/* ============================================ the pickers in Settings → Appearance */
+.look-gallery, .anim-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.anim-gallery { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.look-card, .anim-card { display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg); cursor: pointer; text-align: left; font: inherit; text-transform: none; letter-spacing: 0; }
+.look-card.active, .anim-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.look-name { font-size: 12.5px; font-weight: 600; padding: 0 2px; }
+.look-sub { font-size: 11px; color: var(--muted); padding: 0 2px 2px; font-weight: 400; }
+
+/* Mini windows: each card draws its own style, whatever style the app is in. */
+.lc { position: relative; height: 78px; border-radius: 7px; overflow: hidden; display: grid; grid-template-columns: 14px 1fr; background: var(--bg); }
+.lc-rail { background: var(--bg2); border-right: 1px solid var(--line); }
+.lc-body { position: relative; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.lc-card { height: 26px; border-radius: 5px; background: var(--bg2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
+.lc-line { height: 4px; width: 46%; border-radius: 2px; background: var(--muted); opacity: .6; }
+.lc-sw { width: 16px; height: 9px; border-radius: 9px; background: var(--accent); }
+.lc-btns { display: flex; gap: 5px; justify-content: flex-end; }
+.lc-btn { width: 30px; height: 12px; border-radius: 4px; background: var(--bg3); border: 1px solid var(--line); }
+.lc-btn.p { background: var(--accent); border-color: transparent; }
+
+.lc[data-look="glass"] { background: radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 60%), radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--err) 35%, transparent), transparent 60%), var(--bg); }
+.lc[data-look="glass"] .lc-rail { background: color-mix(in srgb, var(--bg2) 50%, transparent); border-color: color-mix(in srgb, var(--fg) 14%, transparent); }
+.lc[data-look="glass"] .lc-card { border-radius: 9px; background: color-mix(in srgb, var(--bg2) 45%, transparent); border-color: color-mix(in srgb, var(--fg) 16%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.lc[data-look="glass"] .lc-sw { background: var(--ok); }
+.lc[data-look="glass"] .lc-btn { border-radius: 6px; background: color-mix(in srgb, var(--fg) 10%, transparent); border-color: transparent; }
+.lc[data-look="glass"] .lc-btn.p { background: var(--accent); box-shadow: 0 3px 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+.lc[data-look="material"] .lc-rail { background: color-mix(in srgb, var(--accent) 10%, var(--bg2)); border: 0; }
+.lc[data-look="material"] .lc-card { border: 0; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--bg2)); box-shadow: 0 1px 3px #0006; }
+.lc[data-look="material"] .lc-btn { border: 0; border-radius: 9px; background: color-mix(in srgb, var(--accent) 22%, var(--bg3)); }
+.lc[data-look="material"] .lc-btn.p { background: var(--accent); box-shadow: 0 1px 3px #0006; }
+
+.lc[data-look="fluent"] { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--bg)), var(--bg) 55%); }
+.lc[data-look="fluent"] .lc-card { border-radius: 4px; background: color-mix(in srgb, var(--bg2) 75%, transparent); border-color: color-mix(in srgb, var(--fg) 9%, transparent); }
+.lc[data-look="fluent"] .lc-card::before { content: ""; width: 2px; height: 10px; border-radius: 2px; background: var(--accent); margin-left: -5px; }
+.lc[data-look="fluent"] .lc-btn { border-radius: 3px; border-bottom-color: color-mix(in srgb, var(--fg) 30%, transparent); }
+
+.lc[data-look="dot"] { background: color-mix(in srgb, var(--bg) 60%, #000) radial-gradient(color-mix(in srgb, var(--fg) 22%, transparent) 1px, transparent 1.4px) 0 0 / 7px 7px; }
+.lc[data-look="dot"] .lc-rail { background: #000a; border-color: color-mix(in srgb, var(--fg) 25%, transparent); }
+.lc[data-look="dot"] .lc-card { border-radius: 13px; background: #000c; border-color: color-mix(in srgb, var(--fg) 25%, transparent); }
+.lc[data-look="dot"] .lc-line { height: 3px; background: repeating-linear-gradient(90deg, var(--fg) 0 2px, transparent 2px 4px); opacity: .8; }
+.lc[data-look="dot"] .lc-sw { background: #fff; box-shadow: inset -5px 0 0 -1px #d71921; }
+.lc[data-look="dot"] .lc-btn { border-radius: 9px; background: transparent; border-color: color-mix(in srgb, var(--fg) 40%, transparent); }
+.lc[data-look="dot"] .lc-btn.p { background: #d71921; border-color: #d71921; }
+
+.lc[data-look="retro"] { border-radius: 0; }
+.lc[data-look="retro"]::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, #0000002a 0 1px, transparent 1px 3px); }
+.lc[data-look="retro"] .lc-rail { border-right: 2px solid var(--accent); }
+.lc[data-look="retro"] .lc-card { border-radius: 0; border: 1px solid var(--accent); box-shadow: 3px 3px 0 #0009; }
+.lc[data-look="retro"] .lc-line { border-radius: 0; background: var(--accent); box-shadow: 0 0 5px var(--accent); }
+.lc[data-look="retro"] .lc-sw { border-radius: 0; }
+.lc[data-look="retro"] .lc-btn { border-radius: 0; background: transparent; border-color: var(--accent); }
+
+.lc[data-look="minimal"] .lc-rail { background: var(--bg); border-color: transparent; }
+.lc[data-look="minimal"] .lc-card { background: transparent; border-color: transparent; }
+.lc[data-look="minimal"] .lc-btn { border-color: transparent; }
+
+/* Animation cards: a dot that moves with that style's curve. */
+.ac { position: relative; height: 34px; border-radius: 7px; background: var(--bg2); overflow: hidden; }
+.ac i { position: absolute; top: 11px; left: 8px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.anim-card:hover .ac i, .anim-card.active .ac i { animation: ac-move 1.4s infinite alternate; }
+.ac[data-a="fluid"] i { animation-timing-function: cubic-bezier(.22, 1, .36, 1) !important; }
+.ac[data-a="bouncy"] i { animation-timing-function: cubic-bezier(.34, 1.56, .64, 1) !important; }
+.ac[data-a="slide"] i { animation-timing-function: cubic-bezier(.16, 1, .3, 1) !important; }
+.ac[data-a="subtle"] i { animation-name: ac-fade !important; animation-timing-function: ease-out !important; }
+.ac[data-a="off"] i { animation: none !important; }
+@keyframes ac-move { 0%, 15% { left: 8px; } 85%, 100% { left: calc(100% - 20px); } }
+@keyframes ac-fade { 0%, 15% { opacity: .15; } 85%, 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .anim-card .ac i { animation: none !important; } }
+
+/* The pickers' cards are buttons, but they keep their own shape in every style. */
+:root[data-ui] :is(.look-card, .anim-card) {
+  border-radius: 10px; padding: 6px; overflow: visible; position: static; box-shadow: none;
+  background: var(--bg); border: 1px solid var(--line); color: var(--fg);
+  font-family: var(--ui-font); font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+:root[data-ui] :is(.look-card, .anim-card).active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+:root[data-ui] :is(.look-card, .anim-card):hover:not(.active) { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: var(--bg); color: var(--fg); }
+:root[data-ui] .theme-card { padding: 6px; overflow: visible; text-transform: none; letter-spacing: 0; font-family: var(--ui-font); font-size: 13px; color: var(--fg); }
+:root[data-ui="retro"] :is(.look-card, .anim-card, .theme-card) { border-radius: 0 !important; }

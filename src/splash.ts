@@ -13,7 +13,9 @@ export function storedLook(): Partial<Settings> | null {
   try {
     const raw = JSON.parse(localStorage.getItem("siakap.skin") ?? "null");
     if (!raw || typeof raw !== "object") return null;
-    return { background: raw.bg, foreground: raw.fg, accent: raw.accent ?? "", palette: Array.isArray(raw.palette) ? raw.palette : [], appSkin: raw.appSkin !== false };
+    const ui = ["standard", "glass", "material", "fluent", "dot", "retro", "minimal"].includes(raw.ui) ? raw.ui : "standard";
+    const anim = ["fluid", "bouncy", "slide", "subtle", "off"].includes(raw.anim) ? raw.anim : "fluid";
+    return { background: raw.bg, foreground: raw.fg, accent: raw.accent ?? "", palette: Array.isArray(raw.palette) ? raw.palette : [], appSkin: raw.appSkin !== false, uiStyle: ui, animations: anim };
   } catch {
     return null;
   }
@@ -31,6 +33,9 @@ export function splashEnabled(): boolean {
 export function preloadLook() {
   const look = storedLook();
   if (look?.background) applySkin(look as Settings);
+  const root = document.documentElement;
+  root.dataset.ui = look?.uiStyle ?? "standard";
+  root.dataset.anim = look?.animations ?? "fluid";
 }
 
 function greeting() {

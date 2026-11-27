@@ -1,10 +1,11 @@
 import "./styles.css";
+import "./looks.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { installDiag } from "./diag";
-import { accentOf, applyIcon, applySkin } from "./skin";
+import { accentOf, applyIcon, applySkin, drawIcon } from "./skin";
 import { configure as configureSound, play } from "./sound";
 import { Screensaver, fishIcon, swimBy } from "./screensaver";
 import { preloadLook, showSplash } from "./splash";
@@ -99,25 +100,96 @@ function applySettings(s: Settings) {
   }
   applySkin(s);
   void applyIcon(s);
+  document.documentElement.dataset.ui = s.uiStyle ?? "standard";
+  document.documentElement.dataset.anim = s.animations ?? "fluid";
   siakapAccent = accentOf(s);
-  $("btn-siakap").replaceChildren(fishIcon(siakapAccent), h("span", {}, "Siakap"));
+  siakapLook = s;
+  drawSiakapButton();
   configureSound({ ui: s.soundUi !== false, chime: s.soundChime !== false, volume: s.soundVolume ?? 40 });
   screensaver.configure(s.screensaverMinutes ?? 0, s);
   // Needed before the vault is unlocked, so kept on this PC (not secret).
   try {
     localStorage.setItem("siakap.splash", s.splash === false ? "0" : "1");
-    localStorage.setItem("siakap.skin", JSON.stringify({ bg: s.background, fg: s.foreground, accent: s.accent, palette: s.palette, appSkin: s.appSkin }));
+    localStorage.setItem("siakap.skin", JSON.stringify({ bg: s.background, fg: s.foreground, accent: s.accent, palette: s.palette, appSkin: s.appSkin, ui: s.uiStyle, anim: s.animations }));
   } catch {
     /* per-PC convenience only */
   }
 }
 
-// The siakap at the top of the rail: a school swims across the app.
-$("btn-siakap").replaceChildren(fishIcon(siakapAccent), h("span", {}, "Siakap"));
+// The Siakap Terminal logo at the top of the rail. Five clicks turn it into a
+// pixel siakap; after that, each click sends a school swimming across the app.
+let siakapClicks = 0;
+let siakapFish = false;
+let siakapLook: Settings | null = null;
+function drawSiakapButton() {
+  const btn = $("btn-siakap");
+  let art: HTMLCanvasElement;
+  if (siakapFish) art = fishIcon(siakapAccent);
+  else {
+    art = siakapLook ? drawIcon(siakapLook, 64) : drawIcon({ background: "#11151c", foreground: "#d8dee9", accent: "", palette: [] } as unknown as Settings, 64);
+    art.classList.add("rail-logo");
+  }
+  btn.title = siakapFish ? "Siakap! Click to swim" : "Siakap Terminal";
+  btn.replaceChildren(art, h("span", {}, "Siakap"));
+}
+drawSiakapButton();
 $("btn-siakap").addEventListener("click", () => {
-  play("splash");
-  swimBy(siakapAccent);
+  const btn = $("btn-siakap");
+  if (siakapFish) {
+    play("splash");
+    swimBy(siakapAccent);
+    return;
+  }
+  siakapClicks++;
+  if (siakapClicks < 5) {
+    play("click");
+    btn.classList.remove("wiggle");
+    void btn.offsetWidth; // restart the animation
+    btn.classList.add("wiggle");
+    return;
+  }
+  siakapFish = true;
+  play("chime");
+  drawSiakapButton();
+  btn.classList.remove("wiggle", "morph");
+  void btn.offsetWidth;
+  btn.classList.add("morph");
+  toast("You found the siakap! Click it again to watch it swim.", "ok", 4000);
 });
+$("btn-siakap").addEventListener("contextmenu", (e) => {
+  if (!siakapFish) return;
+  showMenu(e as MouseEvent, [
+    {
+      label: "Back to the Siakap Terminal logo",
+      action: () => {
+        siakapFish = false;
+        siakapClicks = 0;
+        drawSiakapButton();
+      },
+    },
+  ]);
+});
+
+// Material style: a ripple where a button is pressed.
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const root = document.documentElement;
+    if (root.dataset.ui !== "material" || root.dataset.anim === "off") return;
+    const b = (e.target as HTMLElement).closest?.("button");
+    if (!b || (b as HTMLButtonElement).disabled) return;
+    const r = b.getBoundingClientRect();
+    const size = Math.max(r.width, r.height) * 2.2;
+    const z = parseFloat(getComputedStyle(b).zoom || "1") || 1;
+    const dot = h("span", { class: "ripple" });
+    dot.style.cssText = `width:${size / z}px;height:${size / z}px;left:${(e.clientX - r.left - size / 2) / z}px;top:${(e.clientY - r.top - size / 2) / z}px`;
+    if (getComputedStyle(b).position === "static") b.style.position = "relative";
+    b.style.overflow = "hidden";
+    b.append(dot);
+    window.setTimeout(() => dot.remove(), 600);
+  },
+  true,
+);
 
 // A full-page tab (Settings) hides the side panel while it's in front.
 tabs.onPageChange = (p) => {
@@ -186,9 +258,16 @@ const TOUR: TourStep[] = [
     before: () => showPanel("macros"),
   },
   {
-    since: "0.7.4",
-    title: "Say hello to the siakap",
-    text: "Click the siakap at the top of this bar and a school of them swims across the screen. Just for fun.",
+    since: "0.7.5",
+    title: "Pick a style and how things move",
+    text: "Choose how Siakap looks: Standard, Glass, Material, Fluent, Dot matrix, Retro or Minimal. Then pick the animations: Fluid, Bouncy, Slide, Subtle or Off.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
+  },
+  {
+    since: "0.7.5",
+    title: "The Siakap Terminal logo",
+    text: "The logo now sits at the top of this bar. Some say clicking it a few times does something.",
     target: "#btn-siakap",
     before: leavePage,
   },

@@ -302,6 +302,11 @@ pub struct Settings {
     pub tab_width: String,
     /// Show a tab's close button only when hovering it.
     pub tab_close_on_hover: bool,
+    // ---- look and motion (0.7.5)
+    /// Interface style: "standard", "glass", "material", "fluent", "dot", "retro" or "minimal".
+    pub ui_style: String,
+    /// Animation style: "fluid", "bouncy", "slide", "subtle" or "off".
+    pub animations: String,
     /// Space around the text inside a terminal, in pixels.
     pub term_padding: u16,
     // ---- terminal text
@@ -414,6 +419,8 @@ impl Default for Settings {
             rail_labels: true,
             tab_width: "normal".into(),
             tab_close_on_hover: false,
+            ui_style: "standard".into(),
+            animations: "fluid".into(),
             term_padding: 6,
             font_weight: "normal".into(),
             letter_spacing: 0,
@@ -519,6 +526,8 @@ impl Settings {
             }
         };
         pick(&mut self.tab_width, &["compact", "normal", "wide"], "normal");
+        pick(&mut self.ui_style, &["standard", "glass", "material", "fluent", "dot", "retro", "minimal"], "standard");
+        pick(&mut self.animations, &["fluid", "bouncy", "slide", "subtle", "off"], "fluid");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
         pick(&mut self.new_tab_position, &["end", "next"], "end");

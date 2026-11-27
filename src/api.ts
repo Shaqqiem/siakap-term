@@ -11,6 +11,8 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   });
 }
 
+export type UiStyle = "standard" | "glass" | "material" | "fluent" | "dot" | "retro" | "minimal";
+export type AnimStyle = "fluid" | "bouncy" | "slide" | "subtle" | "off";
 export type SessionKind = "ssh" | "local" | "serial";
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 export type ValidationMode = "safe" | "unrestricted";
@@ -108,6 +110,8 @@ export interface Settings {
   uiScale: number;
   railLabels: boolean;
   tabWidth: "compact" | "normal" | "wide";
+  uiStyle: UiStyle;
+  animations: AnimStyle;
   tabCloseOnHover: boolean;
   termPadding: number;
   fontWeight: "300" | "normal" | "500" | "bold";

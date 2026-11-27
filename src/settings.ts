@@ -1,7 +1,7 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
 import { icon } from "./icons";
-import { api, Channel, messageOf, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
+import { api, Channel, messageOf, type AnimStyle, type UiStyle, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
 import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
 import { play } from "./sound";
@@ -367,6 +367,7 @@ export class SettingsPanel {
         ),
       ),
       editor,
+      ...this.styleAndMotion(),
       this.sub("Interface"),
       this.toggle("appSkin", "Colour the whole app with the theme", "Panels, tabs, menus and dialogs take the theme's colours too. A light theme gives a light app."),
       this.toggle("themeIcon", "Match the app icon to the theme", "The icon in the taskbar and title uses the theme's colours while Siakap runs."),
@@ -374,6 +375,66 @@ export class SettingsPanel {
       this.toggle("railLabels", "Show labels under the left-hand buttons"),
       this.choice("tabWidth", "Tab width", "", [["compact", "Compact"], ["normal", "Normal"], ["wide", "Wide"]], (v) => v as Settings["tabWidth"]),
       this.toggle("tabCloseOnHover", "Show a tab's close button only when pointing at it"),
+    ];
+  }
+
+  private styleAndMotion(): HTMLElement[] {
+    const s = this.s;
+    const looks: [UiStyle, string, string][] = [
+      ["standard", "Standard", "Siakap's own look"],
+      ["glass", "Glass", "Frosted, see-through panels (Apple-like)"],
+      ["material", "Material", "Soft tones, pill buttons, ripples"],
+      ["fluent", "Fluent", "Clean and layered, like Windows 11"],
+      ["dot", "Dot matrix", "Black, white and red with dotted type (Nothing OS-like)"],
+      ["retro", "Retro", "Square, glowing, with CRT scan lines"],
+      ["minimal", "Minimal", "No borders or boxes, just content"],
+    ];
+    const lookGallery = h(
+      "div",
+      { class: "look-gallery" },
+      ...looks.map(([id, name, sub]) =>
+        h(
+          "button",
+          { type: "button", class: `look-card${(s.uiStyle ?? "standard") === id ? " active" : ""}`, "data-look-id": id, title: sub, onclick: () => this.set({ uiStyle: id }, true) },
+          h(
+            "div",
+            { class: "lc", "data-look": id },
+            h("div", { class: "lc-rail" }),
+            h("div", { class: "lc-body" }, h("div", { class: "lc-card" }, h("div", { class: "lc-line" }), h("div", { class: "lc-sw" })), h("div", { class: "lc-btns" }, h("div", { class: "lc-btn" }), h("div", { class: "lc-btn p" }))),
+          ),
+          h("span", { class: "look-name" }, name),
+          h("span", { class: "look-sub" }, sub),
+        ),
+      ),
+    );
+    const anims: [AnimStyle, string, string][] = [
+      ["fluid", "Fluid", "Smooth and quick"],
+      ["bouncy", "Bouncy", "Playful overshoot"],
+      ["slide", "Slide", "Things glide in"],
+      ["subtle", "Subtle", "Gentle fades only"],
+      ["off", "Off", "No animation"],
+    ];
+    const animGallery = h(
+      "div",
+      { class: "anim-gallery" },
+      ...anims.map(([id, name, sub]) =>
+        h(
+          "button",
+          { type: "button", class: `anim-card${(s.animations ?? "fluid") === id ? " active" : ""}`, "data-anim-id": id, title: sub, onclick: () => this.set({ animations: id }, true) },
+          h("div", { class: "ac", "data-a": id }, h("i")),
+          h("span", { class: "look-name" }, name),
+          h("span", { class: "look-sub" }, sub),
+        ),
+      ),
+    );
+    const demo = h("button", { type: "button", onclick: () => toast("This is how messages move now.", "ok", 2500) }, "Try it");
+    return [
+      this.sub("Style"),
+      h("div", { class: "set-block", "data-search": "style look ui glass apple material fluent windows dot matrix nothing retro minimal" }, lookGallery),
+      h("p", { class: "muted small set-block" }, "Styles change shapes, depth and type. Your theme's colours still apply (Dot matrix uses red for its accent). All styles are part of Siakap; nothing is downloaded."),
+      this.sub("Animations"),
+      h("div", { class: "set-block", "data-search": "animation motion fluid bouncy slide subtle off" }, animGallery),
+      this.row("See it move", "Shows a message, so you can see the animation you picked. When Windows is set to reduce animations, Siakap keeps fades and drops movement.", demo),
     ];
   }
 

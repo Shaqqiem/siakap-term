@@ -4,6 +4,26 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.7.5] - 2026-11-27
+
+**Choose your style and your animations.**
+
+### New
+- **Styles** in Settings → Appearance, each shown as a small preview:
+  - **Standard:** Siakap's own look.
+  - **Glass:** frosted, see-through panels over a soft colour backdrop, rounded corners (Apple-like).
+  - **Material:** soft tonal surfaces, pill buttons, a pill behind the selected icon, and ripples when you press.
+  - **Fluent:** clean and layered like Windows 11, with accent markers and dialog footers.
+  - **Dot matrix:** black, white and red, a dotted backdrop and dot-matrix headings (Nothing OS-like).
+  - **Retro:** square corners, glowing text and CRT scan lines.
+  - **Minimal:** no borders or boxes, just content.
+
+  Your theme's colours still apply. All styles are part of the app; nothing is downloaded.
+- **Animations:** Fluid (default), Bouncy, Slide, Subtle or Off. Dialogs, menus, messages, panels and new tabs animate
+  in, and buttons and cards respond to the pointer. When Windows is set to reduce animations, Siakap keeps fades and
+  drops movement.
+- **The Siakap Terminal logo** now sits at the top of the left-hand bar, in your theme's colours. It may hide a fish.
+
 ## [0.7.4] - 2026-11-27
 
 **A theme editor with a live preview, and a siakap to say hello.**
@@ -251,6 +271,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.7.5]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.1...v0.7.2

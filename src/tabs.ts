@@ -76,6 +76,9 @@ export interface Slot {
 }
 type SplitNode = { type: "leaf"; pane: Pane } | Slot | { type: "split"; dir: "h" | "v"; ratio: number; a: SplitNode; b: SplitNode };
 
+/** Tabs already drawn once (only new tabs animate in). */
+const shownTabs = new WeakSet<object>();
+
 export interface Tab {
   uid: number;
   root: SplitNode;
@@ -1286,7 +1289,7 @@ export class TabManager {
         const label = base + (panes.length > 1 ? ` (${panes.length})` : "");
         const el = h(
           "div",
-          { class: `tab${t === this.active && !this.activePage ? " active" : ""}${t.bell ? " tab-bell" : ""}`, title: label, onclick: () => this.activate(t) },
+          { class: `tab${t === this.active && !this.activePage ? " active" : ""}${t.bell ? " tab-bell" : ""}${shownTabs.has(t) ? "" : " tab-enter"}`, title: label, onclick: () => this.activate(t) },
           h("span", { class: `dot ${shown}`, title: dotTitle }),
           h("span", { class: "tab-title" }, label),
           panes.some((p) => p.logPath) ? h("span", { class: "tab-rec", title: "Logging to a file" }, "REC") : null,
@@ -1305,18 +1308,20 @@ export class TabManager {
         el.addEventListener("contextmenu", (e) => this.tabMenu(t, e));
         this.bindTabDrag(el);
         t.tabEl = el;
+        shownTabs.add(t);
         return el;
       }),
       ...this.pages.map((p) => {
         const el = h(
           "div",
-          { class: `tab page-tab${p === this.activePage ? " active" : ""}`, title: p.title, "data-page-tab": p.id, onclick: () => this.activatePage(p) },
+          { class: `tab page-tab${p === this.activePage ? " active" : ""}${shownTabs.has(p) ? "" : " tab-enter"}`, title: p.title, "data-page-tab": p.id, onclick: () => this.activatePage(p) },
           icon(p.icon, 14),
           h("span", { class: "tab-title" }, p.title),
           h("button", { class: "tab-close", title: `Close ${p.title}`, onclick: (e: Event) => (e.stopPropagation(), this.closePage(p)) }, icon("x", 13)),
         );
         el.addEventListener("auxclick", (e) => (e as MouseEvent).button === 1 && this.closePage(p));
         el.addEventListener("contextmenu", (e) => showMenu(e, [{ label: `Close ${p.title}`, action: () => this.closePage(p) }]));
+        shownTabs.add(p);
         return el;
       }),
     );
