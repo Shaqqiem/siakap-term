@@ -139,3 +139,10 @@ export async function applyIcon(s: Settings) {
     .setIcon(bytes)
     .catch(() => {});
 }
+
+/** Glass style: how see-through the glass is (percent) and how much it blurs (px). */
+export function setGlass(transparency: number, blur: number) {
+  const root = document.documentElement.style;
+  root.setProperty("--g-opacity", `${100 - Math.min(90, Math.max(0, transparency))}%`);
+  root.setProperty("--g-blur-px", `${Math.min(60, Math.max(0, blur))}px`);
+}

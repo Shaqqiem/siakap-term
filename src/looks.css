@@ -71,11 +71,11 @@
     --ui-font: -apple-system, "SF Pro Text", "SF Pro", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     --g-base: color-mix(in srgb, var(--bg) 45%, #000);
     --g-card: color-mix(in srgb, var(--fg) 8%, var(--g-base));
-    --g-glass: color-mix(in srgb, var(--g-card) 58%, transparent);
+    --g-glass: color-mix(in srgb, var(--g-card) var(--g-opacity, 58%), transparent);
     --g-fill: color-mix(in srgb, var(--fg) 12%, transparent);
     --g-sep: color-mix(in srgb, var(--fg) 14%, transparent);
     --g-rim: inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent), inset 0 0 0 .5px color-mix(in srgb, #fff 12%, transparent);
-    --g-blur: blur(30px) saturate(190%);
+    --g-blur: blur(var(--g-blur-px, 30px)) saturate(190%);
     --g-shadow: 0 10px 36px #0007;
     --g-green: #30d158;
     letter-spacing: -.01em;
@@ -188,7 +188,7 @@
   body {
     --g-base: color-mix(in srgb, var(--bg) 30%, #f2f2f7);
     --g-card: color-mix(in srgb, var(--bg) 15%, #ffffff);
-    --g-glass: color-mix(in srgb, #ffffff 62%, transparent);
+    --g-glass: color-mix(in srgb, #ffffff var(--g-opacity, 58%), transparent);
     --g-fill: color-mix(in srgb, var(--fg) 8%, transparent);
     --g-rim: inset 0 1px 0 #ffffffcc, inset 0 0 0 .5px #0000001a;
     --g-shadow: 0 10px 30px #0002;

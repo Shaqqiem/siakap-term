@@ -4,6 +4,12 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.7.7] - 2026-11-27
+
+### New
+- **Glass transparency and blur.** With the Glass style, two sliders in Settings → Appearance set how see-through
+  the glass is (from solid to almost clear) and how soft the backdrop looks through it. The app changes as you drag.
+
 ## [0.7.6] - 2026-11-27
 
 **A redesigned Glass style, and a calmer Material style.**
@@ -286,6 +292,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.7.7]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.3...v0.7.4

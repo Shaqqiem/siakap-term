@@ -8,7 +8,7 @@ import { play } from "./sound";
 import { openReport } from "./report";
 import { openThemeEditor } from "./themeeditor";
 import { searchEgg, versionClicked } from "./eggs";
-import { accentOf } from "./skin";
+import { accentOf, setGlass } from "./skin";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -431,9 +431,30 @@ export class SettingsPanel {
       ),
     );
     const demo = h("button", { type: "button", onclick: () => toast("This is how messages move now.", "ok", 2500) }, "Try it");
+    // Glass controls: they change the app live while dragging and save on release.
+    const slider = (key: "glassTransparency" | "glassBlur", max: number, unit: string) => {
+      const input = h("input", { type: "range", min: 0, max, step: 1, value: String(this.s[key] ?? (key === "glassBlur" ? 30 : 42)), "data-glass": key }) as HTMLInputElement;
+      const out = h("span", { class: "muted small vol-pct" }, `${input.value}${unit}`);
+      const live = () => {
+        out.textContent = `${input.value}${unit}`;
+        const t = key === "glassTransparency" ? Number(input.value) : (this.s.glassTransparency ?? 42);
+        const b = key === "glassBlur" ? Number(input.value) : (this.s.glassBlur ?? 30);
+        setGlass(t, b);
+      };
+      input.addEventListener("input", live);
+      input.addEventListener("change", () => this.set({ [key]: Number(input.value) } as Partial<Settings>));
+      return h("div", { class: "inline vol" }, input, out);
+    };
+    const glass = (s.uiStyle ?? "standard") === "glass";
     return [
       this.sub("Style"),
       h("div", { class: "set-block", "data-search": "style look ui glass apple material fluent windows dot matrix nothing retro minimal" }, lookGallery),
+      ...(glass
+        ? [
+            this.row("Glass transparency", "How much of the backdrop shows through the panels, tabs, menus and dialogs. 0% is solid.", slider("glassTransparency", 90, "%")),
+            this.row("Glass blur", "How soft the backdrop looks through the glass. 0 is clear glass.", slider("glassBlur", 60, " px")),
+          ]
+        : []),
       h("p", { class: "muted small set-block" }, "Styles change shapes, depth and type. Your theme's colours still apply (Dot matrix uses red for its accent). All styles are part of Siakap; nothing is downloaded."),
       this.sub("Animations"),
       h("div", { class: "set-block", "data-search": "animation motion fluid bouncy slide subtle off" }, animGallery),

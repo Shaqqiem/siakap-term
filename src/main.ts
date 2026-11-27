@@ -6,7 +6,7 @@ import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { installDiag } from "./diag";
 import { installEggs } from "./eggs";
-import { accentOf, applyIcon, applySkin, drawIcon } from "./skin";
+import { accentOf, applyIcon, applySkin, drawIcon, setGlass } from "./skin";
 import { configure as configureSound, play } from "./sound";
 import { Screensaver, fishIcon, swimBy } from "./screensaver";
 import { preloadLook, showSplash } from "./splash";
@@ -103,6 +103,7 @@ function applySettings(s: Settings) {
   void applyIcon(s);
   document.documentElement.dataset.ui = s.uiStyle ?? "standard";
   document.documentElement.dataset.anim = s.animations ?? "fluid";
+  setGlass(s.glassTransparency ?? 42, s.glassBlur ?? 30);
   siakapAccent = accentOf(s);
   siakapLook = s;
   drawSiakapButton();
@@ -111,7 +112,7 @@ function applySettings(s: Settings) {
   // Needed before the vault is unlocked, so kept on this PC (not secret).
   try {
     localStorage.setItem("siakap.splash", s.splash === false ? "0" : "1");
-    localStorage.setItem("siakap.skin", JSON.stringify({ bg: s.background, fg: s.foreground, accent: s.accent, palette: s.palette, appSkin: s.appSkin, ui: s.uiStyle, anim: s.animations }));
+    localStorage.setItem("siakap.skin", JSON.stringify({ bg: s.background, fg: s.foreground, accent: s.accent, palette: s.palette, appSkin: s.appSkin, ui: s.uiStyle, anim: s.animations, gt: s.glassTransparency, gb: s.glassBlur }));
   } catch {
     /* per-PC convenience only */
   }

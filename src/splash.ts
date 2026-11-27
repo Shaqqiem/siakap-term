@@ -6,7 +6,7 @@ import { version as APP_VERSION } from "../package.json";
 import type { Settings } from "./api";
 import { FISH, paintFish } from "./screensaver";
 import { specialDay } from "./eggs";
-import { applySkin, drawIcon } from "./skin";
+import { applySkin, drawIcon, setGlass } from "./skin";
 import { h } from "./ui";
 
 /** Theme colours remembered from the last session (not secret). */
@@ -16,7 +16,7 @@ export function storedLook(): Partial<Settings> | null {
     if (!raw || typeof raw !== "object") return null;
     const ui = ["standard", "glass", "material", "fluent", "dot", "retro", "minimal"].includes(raw.ui) ? raw.ui : "standard";
     const anim = ["fluid", "bouncy", "slide", "subtle", "off"].includes(raw.anim) ? raw.anim : "fluid";
-    return { background: raw.bg, foreground: raw.fg, accent: raw.accent ?? "", palette: Array.isArray(raw.palette) ? raw.palette : [], appSkin: raw.appSkin !== false, uiStyle: ui, animations: anim };
+    return { background: raw.bg, foreground: raw.fg, accent: raw.accent ?? "", palette: Array.isArray(raw.palette) ? raw.palette : [], appSkin: raw.appSkin !== false, uiStyle: ui, animations: anim, glassTransparency: Number.isFinite(raw.gt) ? raw.gt : 42, glassBlur: Number.isFinite(raw.gb) ? raw.gb : 30 };
   } catch {
     return null;
   }
@@ -37,6 +37,7 @@ export function preloadLook() {
   const root = document.documentElement;
   root.dataset.ui = look?.uiStyle ?? "standard";
   root.dataset.anim = look?.animations ?? "fluid";
+  setGlass(look?.glassTransparency ?? 42, look?.glassBlur ?? 30);
 }
 
 function greeting() {

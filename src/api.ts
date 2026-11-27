@@ -112,6 +112,8 @@ export interface Settings {
   tabWidth: "compact" | "normal" | "wide";
   uiStyle: UiStyle;
   animations: AnimStyle;
+  glassTransparency: number;
+  glassBlur: number;
   tabCloseOnHover: boolean;
   termPadding: number;
   fontWeight: "300" | "normal" | "500" | "bold";

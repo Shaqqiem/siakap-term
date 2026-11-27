@@ -307,6 +307,10 @@ pub struct Settings {
     pub ui_style: String,
     /// Animation style: "fluid", "bouncy", "slide", "subtle" or "off".
     pub animations: String,
+    /// Glass style: how see-through the glass is, in percent (0..=90).
+    pub glass_transparency: u8,
+    /// Glass style: blur behind the glass, in pixels (0..=60).
+    pub glass_blur: u8,
     /// Space around the text inside a terminal, in pixels.
     pub term_padding: u16,
     // ---- terminal text
@@ -421,6 +425,8 @@ impl Default for Settings {
             tab_close_on_hover: false,
             ui_style: "standard".into(),
             animations: "fluid".into(),
+            glass_transparency: 42,
+            glass_blur: 30,
             term_padding: 6,
             font_weight: "normal".into(),
             letter_spacing: 0,
@@ -508,6 +514,8 @@ impl Settings {
         self.line_height = self.line_height.clamp(100, 200);
         self.ui_scale = self.ui_scale.clamp(80, 150);
         self.sound_volume = self.sound_volume.min(100);
+        self.glass_transparency = self.glass_transparency.min(90);
+        self.glass_blur = self.glass_blur.min(60);
         self.chime_min_secs = self.chime_min_secs.min(3600);
         self.screensaver_minutes = self.screensaver_minutes.min(240);
         self.term_padding = self.term_padding.min(32);
