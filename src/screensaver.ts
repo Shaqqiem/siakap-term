@@ -29,12 +29,14 @@ const COLOURS: Record<string, string> = {
 };
 
 /** Draw one siakap with its top-left corner at (x, y). */
-export function paintFish(g: CanvasRenderingContext2D, x: number, y: number, px: number, dir: 1 | -1, tint: string | null, wag = 0) {
+export const GOLD: Record<string, string> = { B: "#b8860b", S: "#f5c542", L: "#fff1a8", F: "#d4a017", T: "#c99a2e", E: "#1b1b1b", P: "#ffffff" };
+
+export function paintFish(g: CanvasRenderingContext2D, x: number, y: number, px: number, dir: 1 | -1, tint: string | null, wag = 0, colours: Record<string, string> = COLOURS) {
   FISH.forEach((row, ry) => {
     for (let rx = 0; rx < row.length; rx++) {
       const k = row[rx];
       if (k === ".") continue;
-      let col = COLOURS[k];
+      let col = colours[k];
       if (tint && (k === "B" || k === "F")) col = tint;
       const tail = k === "T" ? wag : 0;
       const sx = dir === 1 ? rx : row.length - 1 - rx;
@@ -60,7 +62,10 @@ export function fishIcon(accent: string): HTMLCanvasElement {
  * Purely decorative: it doesn't take clicks or keys, and each click adds a
  * new school on top while one is still going.
  */
-export function swimBy(accent: string) {
+let swims = 0;
+export function swimBy(accent: string, opts: { giant?: boolean } = {}) {
+  swims++;
+  const giant = opts.giant || swims % 25 === 0;
   const c = document.createElement("canvas");
   c.className = "swim-by";
   document.body.append(c);
@@ -70,22 +75,25 @@ export function swimBy(accent: string) {
   const g = c.getContext("2d")!;
   const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
   const midY = c.height * (0.25 + Math.random() * 0.5);
-  const school = Array.from({ length: 7 + Math.floor(Math.random() * 6) }, (_, i) => {
-    const px = Math.round((2 + Math.random() * 5) * dpr);
+  const school = Array.from({ length: giant ? 6 : 7 + Math.floor(Math.random() * 6) }, (_, i) => {
+    const big = giant && i === 0;
+    const px = Math.round((big ? 16 : 2 + Math.random() * 5) * dpr);
     const w = FISH[0].length * px;
     return {
       px,
-      lead: i * 0.13 * c.width * Math.random(), // spread out behind the leader
-      y: midY + (Math.random() - 0.5) * c.height * 0.45,
-      speed: (260 + px * 40) * (0.85 + Math.random() * 0.3),
+      lead: big ? 0 : (giant ? 0.25 : 0.13) * i * c.width * Math.random(),
+      y: big ? c.height / 2 - 5 * px : midY + (Math.random() - 0.5) * c.height * 0.45,
+      speed: big ? 150 * dpr : (260 + px * 40) * (0.85 + Math.random() * 0.3),
       phase: Math.random() * Math.PI * 2,
-      tint: i % 3 === 0 ? accent : null,
+      tint: !big && i % 3 === 0 ? accent : null,
+      gold: big || Math.random() < 0.04,
       w,
       x: 0,
     };
   });
   for (const f of school) f.x = dir === 1 ? -f.w - f.lead : c.width + f.lead;
   const bubbles: { x: number; y: number; r: number; v: number }[] = [];
+  const sparkles: { x: number; y: number; life: number }[] = [];
   let last = performance.now();
   const start = last;
   const frame = (now: number) => {
@@ -99,7 +107,8 @@ export function swimBy(accent: string) {
       if ((dir === 1 && f.x < c.width) || (dir === -1 && f.x > -f.w)) visible = true;
       const y = f.y + Math.sin(t * 3 + f.phase) * f.px * 3;
       g.globalAlpha = 0.95;
-      paintFish(g, f.x, y, f.px, dir, f.tint, Math.sin(t * 14 + f.phase) > 0 ? 1 : 0);
+      paintFish(g, f.x, y, f.px, dir, f.gold ? null : f.tint, Math.sin(t * 14 + f.phase) > 0 ? 1 : 0, f.gold ? GOLD : COLOURS);
+      if (f.gold && Math.random() < dt * 8) sparkles.push({ x: f.x + Math.random() * f.w, y: y + Math.random() * 10 * f.px, life: 1 });
       if (Math.random() < dt * 2.5) bubbles.push({ x: dir === 1 ? f.x + f.w : f.x, y: y + 4 * f.px, r: Math.max(2, f.px * 0.6), v: (30 + Math.random() * 40) * dpr });
     }
     g.globalAlpha = 0.6;
@@ -111,7 +120,17 @@ export function swimBy(accent: string) {
       g.arc(b.x + Math.sin(b.y / 15) * 3 * dpr, b.y, b.r, 0, Math.PI * 2);
       g.stroke();
     }
-    if (visible && now - start < 15000) requestAnimationFrame(frame);
+    g.fillStyle = "#ffe680";
+    for (const sp of sparkles) {
+      sp.life -= dt * 1.6;
+      if (sp.life <= 0) continue;
+      g.globalAlpha = sp.life;
+      const r = 3 * dpr * sp.life;
+      g.fillRect(sp.x - r, sp.y - r / 4, r * 2, r / 2);
+      g.fillRect(sp.x - r / 4, sp.y - r, r / 2, r * 2);
+    }
+    g.globalAlpha = 1;
+    if (visible && now - start < 30000) requestAnimationFrame(frame);
     else c.remove();
   };
   requestAnimationFrame(frame);
@@ -125,6 +144,7 @@ interface Fish {
   dir: 1 | -1;
   phase: number;
   tint: string | null;
+  gold?: boolean;
 }
 interface Bubble {
   x: number;
@@ -232,6 +252,7 @@ export class Screensaver {
       speed: (18 + px * 9) * (0.7 + Math.random() * 0.6),
       phase: Math.random() * Math.PI * 2,
       tint,
+      gold: Math.random() < 1 / 30,
     };
   }
 
@@ -268,7 +289,7 @@ export class Screensaver {
       const y = f.y + Math.sin(t * 1.6 + f.phase) * f.px * 2;
       const wag = Math.sin(t * 8 + f.phase) > 0 ? 1 : 0;
       g.globalAlpha = 0.55 + Math.min(0.45, f.px / (16 * devicePixelRatio));
-      paintFish(g, f.x, y, f.px, f.dir, f.tint, wag);
+      paintFish(g, f.x, y, f.px, f.dir, f.gold ? null : f.tint, wag, f.gold ? GOLD : COLOURS);
       // Now and then a bubble from the mouth.
       if (Math.random() < dt * 0.6) {
         const mouthX = f.dir === 1 ? f.x + w : f.x;

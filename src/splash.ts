@@ -4,7 +4,8 @@
 // before the vault is unlocked.
 import { version as APP_VERSION } from "../package.json";
 import type { Settings } from "./api";
-import { FISH } from "./screensaver";
+import { FISH, paintFish } from "./screensaver";
+import { specialDay } from "./eggs";
 import { applySkin, drawIcon } from "./skin";
 import { h } from "./ui";
 
@@ -47,6 +48,7 @@ export function showSplash(): Promise<void> {
   if (!splashEnabled() || matchMedia("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
   return new Promise((resolve) => {
     const look = (storedLook() ?? {}) as Settings;
+    const day = specialDay();
     const logo = drawIcon({ background: look.background ?? "#11151c", foreground: look.foreground ?? "#d8dee9", accent: look.accent ?? "", palette: look.palette ?? [] } as Settings, 192);
     logo.className = "splash-logo";
     const sea = document.createElement("canvas");
@@ -55,7 +57,7 @@ export function showSplash(): Promise<void> {
       "div",
       { class: "splash", role: "presentation" },
       sea,
-      h("div", { class: "splash-center" }, logo, h("div", { class: "splash-title" }, "Siakap Terminal"), h("div", { class: "splash-sub" }, `${greeting()}. Welcome back.`)),
+      h("div", { class: "splash-center" }, logo, h("div", { class: "splash-title" }, "Siakap Terminal"), h("div", { class: "splash-sub" }, day ? day.greeting : `${greeting()}. Welcome back.`)),
       h("div", { class: "splash-version" }, `Version ${APP_VERSION}`),
     );
     document.body.append(el);
@@ -72,17 +74,22 @@ export function showSplash(): Promise<void> {
     const start = performance.now();
     const frame = (now: number) => {
       const t = (now - start) / 1000;
-      x = -w + (sea.width + w) * Math.min(1, t / 2.2);
+      x = -w + (sea.width + w + ((day?.tints?.length ?? 1) - 1) * (w + 6 * px)) * Math.min(1, t / 2.2);
       g.clearRect(0, 0, sea.width, sea.height);
       const y = sea.height / 2 - 5 * px + Math.sin(t * 5) * px;
-      FISH.forEach((row, ry) => {
-        for (let rx = 0; rx < row.length; rx++) {
-          const k = row[rx];
-          if (k === ".") continue;
-          g.fillStyle = colours[k];
-          g.fillRect(Math.round(x + rx * px), Math.round(y + ry * px), px, px);
-        }
-      });
+      const tints = day?.tints;
+      if (tints) {
+        // A little parade, one fish per colour.
+        tints.forEach((c, i) => paintFish(g, x - i * (w + 6 * px), y + Math.sin(t * 5 + i) * px, px, 1, c, Math.sin(t * 12 + i) > 0 ? 1 : 0));
+      } else
+        FISH.forEach((row, ry) => {
+          for (let rx = 0; rx < row.length; rx++) {
+            const k = row[rx];
+            if (k === ".") continue;
+            g.fillStyle = colours[k];
+            g.fillRect(Math.round(x + rx * px), Math.round(y + ry * px), px, px);
+          }
+        });
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);

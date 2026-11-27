@@ -4,6 +4,21 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.7.6] - 2026-11-27
+
+**A redesigned Glass style, and a calmer Material style.**
+
+### Improved
+- **Glass** is now modelled on iOS:
+  - floating glass panels over a soft colour backdrop made from your theme's accent
+  - Settings laid out like the iOS Settings app: large title, grouped rounded lists with fine separators and coloured
+    icon tiles
+  - capsule buttons, iOS-style green switches, and rounded sheets, menus and banners
+- **Material** is cleaner and follows Material 3 more closely:
+  - one calm surface colour, with outlined buttons; only the main action is filled
+  - outlined text fields, and accent-coloured section headings without boxes or lines
+  - a pill behind the selected icon only
+
 ## [0.7.5] - 2026-11-27
 
 **Choose your style and your animations.**
@@ -271,6 +286,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.7.6]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.2...v0.7.3

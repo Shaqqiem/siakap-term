@@ -7,6 +7,8 @@ import { confirmDialog, field, h, modal, promptDialog, select, showMenu, toast }
 import { play } from "./sound";
 import { openReport } from "./report";
 import { openThemeEditor } from "./themeeditor";
+import { searchEgg, versionClicked } from "./eggs";
+import { accentOf } from "./skin";
 import { version as APP_VERSION } from "../package.json";
 
 let fontCache: { name: string; monospace: boolean }[] | null = null;
@@ -245,6 +247,7 @@ export class SettingsPanel {
         nav.querySelector<HTMLElement>(`[data-target="${sec.dataset.section}"]`)?.classList.toggle("dim", !visible);
         any ||= visible;
       });
+      empty.textContent = searchEgg(q, accentOf(this.s)) ? "No setting by that name, but here's one swimming past." : "No setting matches your search.";
       empty.classList.toggle("hidden", any);
     };
     search.addEventListener("input", filter);
@@ -382,8 +385,8 @@ export class SettingsPanel {
     const s = this.s;
     const looks: [UiStyle, string, string][] = [
       ["standard", "Standard", "Siakap's own look"],
-      ["glass", "Glass", "Frosted, see-through panels (Apple-like)"],
-      ["material", "Material", "Soft tones, pill buttons, ripples"],
+      ["glass", "Glass", "Floating glass and grouped lists (iOS-like)"],
+      ["material", "Material", "Calm surfaces, outlined buttons, ripples"],
       ["fluent", "Fluent", "Clean and layered, like Windows 11"],
       ["dot", "Dot matrix", "Black, white and red with dotted type (Nothing OS-like)"],
       ["retro", "Retro", "Square, glowing, with CRT scan lines"],
@@ -725,7 +728,7 @@ export class SettingsPanel {
       }
     });
     return [
-      this.row("Version", "", h("span", { class: "mono" }, APP_VERSION)),
+      this.row("Version", "", h("span", { class: "mono", onclick: () => versionClicked(APP_VERSION) }, APP_VERSION)),
       this.row("Updates", "Asks GitHub for the newest release, only when you click. Siakap never checks on its own.", btn),
       h("div", { class: "set-block update-block", "data-search": "update check version download" }, result),
       this.row(

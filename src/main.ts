@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
 import { hydrateIcons } from "./icons";
 import { installDiag } from "./diag";
+import { installEggs } from "./eggs";
 import { accentOf, applyIcon, applySkin, drawIcon } from "./skin";
 import { configure as configureSound, play } from "./sound";
 import { Screensaver, fishIcon, swimBy } from "./screensaver";
@@ -169,6 +170,8 @@ $("btn-siakap").addEventListener("contextmenu", (e) => {
     },
   ]);
 });
+
+installEggs(() => siakapAccent);
 
 // Material style: a ripple where a button is pressed.
 document.addEventListener(
