@@ -15,6 +15,20 @@ test("export then import gives the same theme", () => {
   assert.deepEqual(back, d);
 });
 
+test("app colours survive export and import, and bad ones are dropped", () => {
+  const c = BUILTIN_THEMES.find((t) => t.name === "Catppuccin Mocha")!;
+  const [back] = parseThemes(exportTheme(c));
+  assert.deepEqual(back, c);
+  const [bad] = parseThemes(JSON.stringify({ name: "x", background: "#000000", foreground: "#ffffff", ui: { panel: "#123456", text: "red", evil: "#000000" } }));
+  assert.deepEqual(bad.ui, { panel: "#123456" });
+});
+
+test("every built-in theme has a unique name and valid app colours", () => {
+  const names = new Set(BUILTIN_THEMES.map((t) => t.name.toLowerCase()));
+  assert.equal(names.size, BUILTIN_THEMES.length);
+  for (const t of BUILTIN_THEMES) for (const v of Object.values(t.ui ?? {})) assert.match(v, /^#[0-9a-f]{6}$/i, t.name);
+});
+
 test("reads a Windows Terminal scheme and a settings file", () => {
   const scheme = {
     name: "WT", background: "#0C0C0C", foreground: "#CCCCCC", cursorColor: "#FFF", selectionBackground: "#333333",

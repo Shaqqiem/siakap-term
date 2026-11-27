@@ -637,3 +637,30 @@
 /* Glass over the desktop: the grouped cards are glass too. */
 :root[data-ui="glass"][data-wall="desktop"] body { --g-card: color-mix(in srgb, var(--fg) 9%, color-mix(in srgb, var(--g-base) 62%, transparent)); --g-base: color-mix(in srgb, var(--bg) 45%, #000); }
 :root[data-ui="glass"][data-wall="desktop"] .page-content { background-color: color-mix(in srgb, var(--g-base) 35%, transparent); }
+
+/* Theme editor: app colours */
+.te-field[data-key^="ui:"] { grid-template-columns: 30px 1fr 78px 42px; }
+.te-field .te-autobtn { padding: 1px 6px; font-size: 10.5px; border-radius: 6px; line-height: 1.5; }
+.te-field.is-auto .te-autobtn { visibility: hidden; }
+.te-field.is-auto .te-label::after { content: " · auto"; color: var(--muted); font-size: 11px; }
+.te-field { grid-template-rows: auto; }
+.te-note { margin: 0 6px 6px; }
+
+.theme-swatch { position: relative; padding-left: 22px !important; overflow: hidden; }
+.sw-app { position: absolute; left: 0; top: 0; bottom: 0; width: 14px; border-right: 1px solid; display: flex; justify-content: center; padding-top: 6px; }
+.sw-app i { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ============================================================= icon packs */
+svg.icon .em { display: none; stroke: none; fill: currentColor; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+/* The app's pack (on <html>) skips the preview cards; each card shows its own. */
+:root[data-icons="bold"] svg.icon:not(.icon-card svg), .icon-card[data-icons="bold"] svg.icon { stroke-width: 2.4; }
+:root[data-icons="thin"] svg.icon:not(.icon-card svg), .icon-card[data-icons="thin"] svg.icon { stroke-width: 1.2; }
+:root[data-icons="sharp"] svg.icon:not(.icon-card svg), .icon-card[data-icons="sharp"] svg.icon { stroke-width: 1.9; stroke-linecap: square; stroke-linejoin: miter; }
+:root[data-icons="duotone"] svg.icon:not(.icon-card svg) :is(rect, circle, ellipse, path[d$="z"], path[d$="Z"]),
+.icon-card[data-icons="duotone"] svg.icon :is(rect, circle, ellipse, path[d$="z"], path[d$="Z"]) { fill: color-mix(in srgb, currentColor 24%, transparent); }
+:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) > :not(.em), .icon-card[data-icons="emoji"] svg.icon.has-em > :not(.em) { display: none; }
+:root[data-icons="emoji"] svg.icon.has-em:not(.icon-card svg) .em, .icon-card[data-icons="emoji"] svg.icon.has-em .em { display: inline; }
+.icon-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
+.icon-row { display: flex; gap: 8px; justify-content: center; padding: 10px 4px; border-radius: 6px; background: var(--bg2); color: var(--fg); }
+:root[data-ui] .icon-card { display: flex; flex-direction: column; gap: 5px; padding: 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--ui-font); font-size: 12.5px; box-shadow: none; overflow: visible; }
+:root[data-ui] .icon-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

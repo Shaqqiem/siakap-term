@@ -52,10 +52,38 @@ const P: Record<string, string> = {
 
 export type IconName = keyof typeof P;
 
+/** Emoji for the Emoji icon pack (icons without one keep their outline). */
+const EMOJI: Record<string, string> = {
+  sessions: "🖥️", macros: "⚡", folder: "📁", "folder-plus": "📂", settings: "⚙️", key: "🔑", lock: "🔒", plus: "➕",
+  paste: "📋", copy: "📄", import: "📥", export: "📤", play: "▶️", edit: "✏️", trash: "🗑️", upload: "⬆️", download: "⬇️",
+  refresh: "🔄", bug: "🐛", image: "🖼️", file: "📄", link: "🔗", serial: "🔌", terminal: "💻", remote: "🌐", stop: "⏹️",
+  shield: "🛡️", palette: "🎨", keyboard: "⌨️", undo: "↩️", sound: "🔊", logo: "🐟", grid: "🔲", "arrow-up": "⬆️",
+};
+
 export function icon(name: string, size = 16, cls = ""): SVGSVGElement {
   const tpl = document.createElement("template");
-  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon ${cls}">${P[name] ?? ""}</svg>`;
+  const em = EMOJI[name];
+  // The emoji live in one hidden sprite and are referenced, so they never become part of a button's text.
+  if (em) emojiSprite();
+  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon ${em ? "has-em " : ""}${cls}" data-name="${name}">${P[name] ?? ""}${em ? `<use class="em" href="#em-${name}"/>` : ""}</svg>`;
   return tpl.content.firstElementChild as SVGSVGElement;
+}
+
+let sprite = false;
+function emojiSprite() {
+  if (sprite || typeof document === "undefined") return;
+  sprite = true;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0" aria-hidden="true" id="emoji-sprite">${Object.entries(EMOJI)
+    .map(([n, e]) => `<symbol id="em-${n}" viewBox="0 0 24 24"><text x="12" y="13" text-anchor="middle" dominant-baseline="central" font-size="18" stroke="none" fill="currentColor" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif">${e}</text></symbol>`)
+    .join("")}</svg>`;
+  document.body.prepend(tpl.content.firstElementChild!);
+}
+
+/** The icon pack a style uses by default. */
+export function iconPackFor(pack: string | undefined, style: string | undefined): string {
+  if (pack && pack !== "style") return pack;
+  return ({ standard: "outline", glass: "outline", material: "duotone", fluent: "thin", dot: "sharp", retro: "sharp", minimal: "thin" } as Record<string, string>)[style ?? "standard"] ?? "outline";
 }
 
 /** Fill every `[data-icon]` element in the static HTML. */

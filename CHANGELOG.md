@@ -4,6 +4,23 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.1] - 2026-11-28
+
+**Themes that colour the whole app, 23 new themes and icon packs.**
+
+### New
+- **The theme editor now edits the app too.** A new *App colours* group sets the window background, panels and
+  bars, cards and fields, hover, lines, text, quiet text, text on the accent, and the success, warning and error
+  colours. Each one is *auto* (worked out from the terminal colours) until you change it, and *Auto* puts it back.
+  Click any part of the preview to jump to its colour.
+- **23 more themes:** Catppuccin Mocha and Latte, Rosé Pine and Rosé Pine Dawn, Monokai, Ayu Dark and Light,
+  Everforest, Kanagawa, Night Owl, Synthwave, Palenight, Iceberg, Horizon, Oxocarbon and Material Ocean, plus Siakap
+  originals Laut Dalam, Teh Tarik, Pandan, Batik, Sunset, Paper and High Contrast. Many of them bring their own app
+  colours, shown as a strip on the left of each theme card.
+- **Icon packs** in Settings → Appearance → Icons: Outline, Bold, Thin, Sharp, Duotone and Emoji, or the style's
+  default.
+- Theme files keep their app colours when exported and imported.
+
 ## [0.8.0] - 2026-11-28
 
 **Wallpapers, a truly see-through Glass, and loading animations for every style.**
@@ -334,6 +351,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.8...v0.8.0
 [0.7.8]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.6...v0.7.7

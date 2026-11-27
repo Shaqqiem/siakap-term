@@ -2,8 +2,8 @@
 // tabs, side panel, terminal and a dialog). Nothing changes in the real app
 // until Save; Save as... keeps the colours as a new theme you can reuse.
 import type { Settings, TerminalTheme } from "./api";
-import { accentOf, skinVars } from "./skin";
-import { ANSI_NAMES, DEFAULT_PALETTE, hex6, isHex, withTheme } from "./themes";
+import { accentOf, appColours, skinVars, uiOverrides } from "./skin";
+import { ANSI_NAMES, DEFAULT_PALETTE, hex6, isHex, withTheme, type UiKey } from "./themes";
 import { h, modal, promptDialog } from "./ui";
 
 export type EditorResult = { mode: "save" | "saveAs"; theme: TerminalTheme } | null;
@@ -31,7 +31,22 @@ interface Draft {
   selection: string;
   accent: string; // "" = automatic
   palette: string[]; // always 16 here
+  ui: Record<string, string>; // app colours set by hand; missing = automatic
 }
+
+const UI_FIELDS: [UiKey, string, string][] = [
+  ["bg", "Window background", "--bg"],
+  ["panel", "Panels and bars", "--bg2"],
+  ["surface", "Cards and fields", "--bg3"],
+  ["hover", "Hover", "--hover"],
+  ["line", "Lines and borders", "--line"],
+  ["text", "App text", "--fg"],
+  ["muted", "Quiet text", "--muted"],
+  ["accentText", "Text on accent", "--accent-fg"],
+  ["ok", "Success", "--ok"],
+  ["warn", "Warning", "--warn"],
+  ["err", "Error", "--err"],
+];
 
 const draftOf = (t: TerminalTheme): Draft => ({
   background: hex6(t.background),
@@ -40,6 +55,7 @@ const draftOf = (t: TerminalTheme): Draft => ({
   selection: hex6(t.selection || "#264f78"),
   accent: t.accent && isHex(t.accent) ? hex6(t.accent) : "",
   palette: (t.palette.length === 16 ? t.palette : DEFAULT_PALETTE).map(hex6),
+  ui: { ...(t.ui ?? {}) },
 });
 
 const themeOf = (d: Draft, name: string): TerminalTheme => ({
@@ -51,6 +67,7 @@ const themeOf = (d: Draft, name: string): TerminalTheme => ({
   // The built-in terminal colours are stored as "none" so they keep following Siakap's defaults.
   palette: d.palette.every((c, i) => c.toLowerCase() === hex6(DEFAULT_PALETTE[i]).toLowerCase()) ? [] : [...d.palette],
   accent: d.accent,
+  ui: { ...d.ui },
 });
 
 export function openThemeEditor(o: EditorOptions): Promise<EditorResult> {
@@ -136,7 +153,8 @@ export function openThemeEditor(o: EditorOptions): Promise<EditorResult> {
         const pal = d.palette;
         const s = withTheme(o.settings, themeOf(d, "preview"));
         win.style.cssText = "";
-        const vars = o.settings.appSkin !== false ? skinVars(s) : null;
+        const own = uiOverrides(s);
+        const vars = o.settings.appSkin !== false ? appColours(s) : Object.keys(own).length ? own : null;
         if (vars) for (const [k, v] of Object.entries(vars)) win.style.setProperty(k, v);
         else win.style.setProperty("--accent", accentOf(s));
         win.style.setProperty("--tp-bg", d.background);
@@ -150,7 +168,15 @@ export function openThemeEditor(o: EditorOptions): Promise<EditorResult> {
           if (el.tagName === "I") el.style.background = c;
           else el.style.color = c;
         }
-        for (const [k, f] of fields) f.set(k.startsWith("p") ? pal[Number(k.slice(1))] : k === "accent" ? d.accent || accentOf(s) : d[k as Key]);
+        const derived = skinVars({ ...s, uiColors: {} }) ?? {};
+        for (const [k, f] of fields) {
+          if (k.startsWith("ui:")) {
+            const key = k.slice(3) as UiKey;
+            const cssVar = UI_FIELDS.find((x) => x[0] === key)![2];
+            f.set(d.ui[key] ?? derived[cssVar] ?? getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() ?? "#000000");
+            f.el.classList.toggle("is-auto", !d.ui[key]);
+          } else f.set(k.startsWith("p") ? pal[Number(k.slice(1))] : k === "accent" ? d.accent || accentOf(s) : d[k as Key]);
+        }
         autoAccent.checked = !d.accent;
         dirty.textContent = JSON.stringify(d) === original ? "" : "Not saved yet";
       };
@@ -159,7 +185,8 @@ export function openThemeEditor(o: EditorOptions): Promise<EditorResult> {
       const update = (key: string, v: string) => {
         if (!isHex(v)) return;
         v = hex6(v);
-        if (key.startsWith("p")) {
+        if (key.startsWith("ui:")) d = { ...d, ui: { ...d.ui, [key.slice(3)]: v } };
+        else if (key.startsWith("p")) {
           const pal = [...d.palette];
           pal[Number(key.slice(1))] = v;
           d = { ...d, palette: pal };
@@ -212,11 +239,37 @@ export function openThemeEditor(o: EditorOptions): Promise<EditorResult> {
         colour("selection", "Selection"),
         colour("accent", "App accent"),
         h("label", { class: "check small te-auto" }, autoAccent, " Pick the accent automatically"),
+        h("div", { class: "te-head" }, "App colours"),
+        h("p", { class: "muted small te-note" }, "Auto colours are worked out from the terminal colours. Change one to set it yourself; Auto puts it back."),
+        ...UI_FIELDS.map(([key, label]) => {
+          const el = colour(`ui:${key}`, label);
+          const auto = h("button", { type: "button", class: "te-autobtn", title: "Work this colour out automatically again" }, "Auto");
+          auto.addEventListener("click", (e) => {
+            e.preventDefault();
+            const ui = { ...d.ui };
+            delete ui[key];
+            d = { ...d, ui };
+            paint();
+          });
+          el.append(auto);
+          return el;
+        }),
         h("div", { class: "te-head" }, "Terminal colours"),
         h("div", { class: "te-ansi" }, ...ANSI_NAMES.slice(0, 8).map((n, i) => colour(`p${i}`, n))),
         h("div", { class: "te-head" }, "Bright terminal colours"),
         h("div", { class: "te-ansi" }, ...ANSI_NAMES.slice(8).map((n, i) => colour(`p${i + 8}`, n))),
       );
+
+      // App parts of the preview point at their app colour.
+      const tag = (sel: string, key: string) => win.querySelectorAll<HTMLElement>(sel).forEach((el) => (el.dataset.edit ??= key));
+      tag(".tp-item.hover", "ui:hover");
+      tag(".tp-search, .tp-dialog, .tp-btn:not(.primary)", "ui:surface");
+      tag(".tp-toast.ok", "ui:ok");
+      tag(".tp-toast.err", "ui:err");
+      tag(".tp-hint, .tp-folder, .tp-ctrls, .tp-plus", "ui:muted");
+      tag(".tp-panelhead, .tp-item", "ui:text");
+      tag(".tp-titlebar, .tp-rail, .tp-panel", "ui:panel");
+      tag(".tp-body, .tp-window", "ui:bg");
 
       // Click a part of the preview to jump to its colour.
       win.addEventListener("click", (e) => {

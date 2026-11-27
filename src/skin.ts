@@ -66,12 +66,29 @@ export function skinVars(s: Settings): Record<string, string> | null {
   };
 }
 
+/** Theme app-colour names and the CSS variables they set. */
+const UI_VARS: Record<string, string> = { bg: "--bg", panel: "--bg2", surface: "--bg3", hover: "--hover", line: "--line", text: "--fg", muted: "--muted", accentText: "--accent-fg", ok: "--ok", warn: "--warn", err: "--err" };
+
+/** The theme's own app colours as CSS variables. */
+export function uiOverrides(s: Settings): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(s.uiColors ?? {})) if (UI_VARS[k] && hex(v)) out[UI_VARS[k]] = v;
+  return out;
+}
+
+/** The app colours worked out from the terminal colours, with the theme's own on top. */
+export function appColours(s: Settings): Record<string, string> | null {
+  const base = skinVars(s);
+  return base ? { ...base, ...uiOverrides(s) } : null;
+}
+
 /** Apply (or remove) the skin on the document. */
 export function applySkin(s: Settings) {
   const root = document.documentElement;
-  const vars = s.appSkin !== false ? skinVars(s) : null;
+  const own = uiOverrides(s);
+  const vars = s.appSkin !== false ? appColours(s) : Object.keys(own).length ? own : null;
   for (const v of VARS) root.style.removeProperty(v);
-  const light = !!vars && lum(hex(vars["--bg"])!) > 0.4;
+  const light = !!vars?.["--bg"] && lum(hex(vars["--bg"])!) > 0.4;
   root.style.colorScheme = light ? "light" : "dark";
   root.classList.toggle("skin-light", light);
   if (vars) for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);

@@ -1,6 +1,6 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
-import { icon } from "./icons";
+import { icon, iconPackFor } from "./icons";
 import { api, Channel, messageOf, type AnimStyle, type UiStyle, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
 import { alertDialog, confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
@@ -10,7 +10,7 @@ import { loader } from "./loader";
 import DOTO_OFL from "./assets/fonts/Doto-OFL.txt?raw";
 import { openThemeEditor } from "./themeeditor";
 import { searchEgg, versionClicked } from "./eggs";
-import { accentOf, setGlass } from "./skin";
+import { accentOf, appColours, setGlass } from "./skin";
 import { wallpaperChanged } from "./wallpaper";
 import { version as APP_VERSION } from "../package.json";
 
@@ -311,9 +311,11 @@ export class SettingsPanel {
     const isCustom = (t: TerminalTheme) => s.customThemes.some((x) => x.name === t.name);
     const swatch = (t: TerminalTheme) => {
       const pal = t.palette.length === 16 ? t.palette : DEFAULT_PALETTE;
+      const app = appColours(withTheme(this.s, t));
       return h(
         "div",
         { class: "theme-swatch", style: `background:${t.background};color:${t.foreground}` },
+        app ? h("span", { class: "sw-app", style: `background:${app["--bg2"]};border-color:${app["--line"]}` }, h("i", { style: `background:${app["--accent"]}` })) : null,
         h("span", { class: "sw-text" }, "Aa ~$"),
         h("span", { class: "sw-dots" }, ...[1, 2, 3, 4, 5, 6].map((i) => h("i", { style: `background:${pal[i]}` }))),
       );
@@ -598,9 +600,38 @@ export class SettingsPanel {
       ...(["color", "image", "through"].includes(term) || (term === "style" && style === "glass")
         ? [this.row("Terminal transparency", "How much of the wallpaper shows through the terminal's own background. Keep it low if text gets hard to read.", slider("glassTerminal", 90, "%"))]
         : []),
+      this.sub("Icons"),
+      h("div", { class: "set-block", "data-search": "icons icon pack outline bold thin sharp duotone emoji" }, this.iconGallery()),
       this.sub("Interface font"),
       this.row("Font for menus, panels and settings", "The terminal has its own font under Terminal.", fontSel),
     ];
+  }
+
+  private iconGallery(): HTMLElement {
+    const s = this.s;
+    const packs: [Settings["iconPack"], string, string][] = [
+      ["style", "Style default", `${iconPackFor("style", s.uiStyle)[0].toUpperCase()}${iconPackFor("style", s.uiStyle).slice(1)} with this style`],
+      ["outline", "Outline", "Clean lines"],
+      ["bold", "Bold", "Thicker lines"],
+      ["thin", "Thin", "Light and airy"],
+      ["sharp", "Sharp", "Square ends and corners"],
+      ["duotone", "Duotone", "Lines with a soft fill"],
+      ["emoji", "Emoji", "Colourful emoji"],
+    ];
+    const sample = ["sessions", "macros", "folder", "settings", "lock"];
+    return h(
+      "div",
+      { class: "icon-gallery" },
+      ...packs.map(([id, name, sub]) =>
+        h(
+          "button",
+          { type: "button", class: `icon-card${(s.iconPack ?? "style") === id ? " active" : ""}`, "data-icons": iconPackFor(id, s.uiStyle), "data-pack": id, onclick: () => this.set({ iconPack: id }, true) },
+          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 18))),
+          h("span", { class: "look-name" }, name),
+          h("span", { class: "look-sub" }, sub),
+        ),
+      ),
+    );
   }
 
   private terminal(): HTMLElement[] {

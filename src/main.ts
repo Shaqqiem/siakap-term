@@ -3,7 +3,7 @@ import "./looks.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
-import { hydrateIcons } from "./icons";
+import { hydrateIcons, iconPackFor } from "./icons";
 import { installDiag } from "./diag";
 import { installEggs } from "./eggs";
 import { loader } from "./loader";
@@ -107,6 +107,7 @@ function applySettings(s: Settings) {
   void applyIcon(s);
   document.documentElement.dataset.ui = s.uiStyle ?? "standard";
   document.documentElement.dataset.anim = s.animations ?? "fluid";
+  document.documentElement.dataset.icons = iconPackFor(s.iconPack, s.uiStyle);
   setGlass(s.glassTransparency ?? 42, s.glassBlur ?? 30, s.glassTerminal ?? 30);
   void applyWallpaper(s);
   siakapAccent = accentOf(s);
@@ -337,6 +338,13 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.8.1",
+    title: "More themes, app colours and icon packs",
+    text: "There are 23 new themes, and the theme editor now sets the app's own colours too: panels, text, lines and more. Under Icons, pick Bold, Thin, Sharp, Duotone or even Emoji icons.",
+    target: "#set-appearance",
+    before: () => openSettings("appearance"),
   },
   {
     since: "0.8.0",

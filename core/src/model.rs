@@ -200,6 +200,16 @@ pub struct TerminalTheme {
     pub palette: Vec<String>,
     /// Accent colour for the app (buttons, highlights). Empty = default.
     pub accent: String,
+    /// The app's own colours (see UI_COLOUR_KEYS). Missing = worked out from the terminal colours.
+    pub ui: BTreeMap<String, String>,
+}
+
+/// Names of the app colours a theme can set.
+pub const UI_COLOUR_KEYS: [&str; 11] = ["bg", "panel", "surface", "hover", "line", "text", "muted", "accentText", "ok", "warn", "err"];
+
+/// Keep only known app colour names with valid colours.
+pub fn clean_ui_colours(ui: &mut BTreeMap<String, String>) {
+    ui.retain(|k, v| UI_COLOUR_KEYS.contains(&k.as_str()) && is_hex_colour(v));
 }
 
 impl TerminalTheme {
@@ -217,6 +227,7 @@ impl TerminalTheme {
         if self.palette.len() != 16 || !self.palette.iter().all(|c| is_hex_colour(c)) {
             self.palette.clear();
         }
+        clean_ui_colours(&mut self.ui);
         Some(self)
     }
 }
@@ -283,6 +294,10 @@ pub struct Settings {
     pub accent: String,
     /// Themes the user saved or imported.
     pub custom_themes: Vec<TerminalTheme>,
+    /// The app's own colours from the theme (see UI_COLOUR_KEYS).
+    pub ui_colors: BTreeMap<String, String>,
+    /// Icon pack: "style", "outline", "bold", "thin", "sharp", "duotone" or "emoji".
+    pub icon_pack: String,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     /// Line height in percent (100 = normal).
@@ -431,6 +446,8 @@ impl Default for Settings {
             palette: Vec::new(),
             accent: String::new(),
             custom_themes: Vec::new(),
+            ui_colors: BTreeMap::new(),
+            icon_pack: "style".into(),
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             line_height: 100,
@@ -581,6 +598,8 @@ impl Settings {
         pick(&mut self.animations, &["fluid", "bouncy", "slide", "subtle", "off"], "fluid");
         pick(&mut self.wallpaper, &["style", "color", "image", "desktop"], "style");
         pick(&mut self.desktop_effect, &["acrylic", "clear"], "acrylic");
+        clean_ui_colours(&mut self.ui_colors);
+        pick(&mut self.icon_pack, &["style", "outline", "bold", "thin", "sharp", "duotone", "emoji"], "style");
         pick(&mut self.term_wallpaper, &["style", "solid", "color", "image", "through"], "style");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
@@ -796,9 +815,12 @@ mod tests {
             selection: "#333".into(),
             palette: vec!["#111111".into(); 16],
             accent: "#12345g".into(),
+            ui: [("panel", "#202020"), ("text", "url(x)"), ("evil", "#000000")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         };
         let t = good.clone().sanitized().unwrap();
         assert_eq!(t.name, "Mine");
+        assert_eq!(t.ui.len(), 1, "only known app colours with valid values are kept");
+        assert_eq!(t.ui["panel"], "#202020");
         assert_eq!(t.cursor, "", "invalid colours are dropped");
         assert_eq!(t.accent, "");
         assert_eq!(t.palette.len(), 16);

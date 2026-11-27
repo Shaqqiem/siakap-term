@@ -63,9 +63,11 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   the app icon.
 - **Sound and fun.** A chime when long commands finish, soft interface sounds, a pixel-siakap screensaver and a
   welcome splash, all optional.
-- **Themes.** A gallery of colour themes (Campbell, One Half Dark, Dracula, Nord, Gruvbox, Tokyo Night, Solarized,
-  Orchid and more), a theme editor with a live preview of the whole app (Save, or Save as a new theme to reuse), and
-  import/export as JSON, including Windows Terminal colour schemes.
+- **Themes.** Nearly 40 colour themes (Catppuccin, Rosé Pine, Dracula, Nord, Gruvbox, Tokyo Night, Kanagawa,
+  Everforest, Solarized and Siakap originals such as Laut Dalam, Teh Tarik and Batik). A theme editor with a live
+  preview sets the terminal colours and the app's own colours (Save, or Save as a new theme to reuse), and themes
+  import and export as JSON, including Windows Terminal colour schemes.
+- **Icon packs.** Outline, Bold, Thin, Sharp, Duotone or Emoji.
 - **Styles and animations.** Pick a style for the whole interface (Standard, Glass, Material, Fluent, Dot matrix, Retro
   or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). Loading indicators match the style. All built in.
 - **Wallpapers.** A colour or your own picture behind the app and, separately, behind the terminal, or a see-through

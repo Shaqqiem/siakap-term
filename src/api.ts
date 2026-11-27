@@ -116,6 +116,8 @@ export interface Settings {
   glassBlur: number;
   glassTerminal: number;
   uiFont: string;
+  uiColors: Record<string, string>;
+  iconPack: "style" | "outline" | "bold" | "thin" | "sharp" | "duotone" | "emoji";
   wallpaper: "style" | "color" | "image" | "desktop";
   wallpaperColor: string;
   wallpaperDim: number;
@@ -167,6 +169,8 @@ export interface TerminalTheme {
   /** 16 colours (black..white, then bright), or empty for the built-in ones. */
   palette: string[];
   accent: string;
+  /** The app's own colours (UI_KEYS in skin.ts); missing = worked out from the terminal colours. */
+  ui?: Record<string, string>;
 }
 export interface KnownHost {
   host: string;
