@@ -1,15 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PIXEL, SOLID, pixelDots, pixelRects, tileColour } from "./iconsets.ts";
+import { BADGE, DOODLE, ISO, NEON, PIXEL, SOLID, TILEGLYPH, badgeSvg, doodleSvg, isoSvg, pixelDots, pixelRects, tileColour } from "./iconsets.ts";
 
 const names = [...readFileSync(new URL("./icons.ts", import.meta.url), "utf8").split("const P")[1].split("};")[0].matchAll(/^\s+"?([a-z-]+)"?:/gm)].map((m) => m[1]);
 
-test("every icon has its own pixel and solid drawing", () => {
+test("every icon has its own drawing in every pack", () => {
   assert.ok(names.length >= 40);
+  for (const n of names) for (const [pack, set] of Object.entries({ PIXEL, SOLID, NEON, TILEGLYPH, BADGE, DOODLE, ISO })) assert.ok((set as Record<string, unknown>)[n], `${pack} ${n}`);
+});
+
+test("3D, badge and doodle drawings come out as valid SVG pieces", () => {
   for (const n of names) {
-    assert.ok(PIXEL[n], `pixel ${n}`);
-    assert.ok(SOLID[n], `solid ${n}`);
+    for (const svg of [isoSvg(n), badgeSvg(n), doodleSvg(n)]) {
+      assert.ok(svg.length > 20, n);
+      assert.doesNotMatch(svg, /NaN|undefined/, n);
+      const open = (svg.match(/<(path|circle|rect|polygon|ellipse|text|g)\b/g) ?? []).length;
+      assert.ok(open > 0, n);
+    }
+  }
+});
+
+test("packs differ: no pack reuses another pack's drawing", () => {
+  for (const n of names) {
+    const tile = TILEGLYPH[n];
+    assert.ok(!tile.includes(SOLID[n]), `tile ${n} is the solid drawing`);
+    assert.notEqual(NEON[n], undefined);
   }
 });
 

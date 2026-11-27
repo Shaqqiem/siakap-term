@@ -1,8 +1,8 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
-import { icon, iconPackFor, type IconPack } from "./icons";
+import { icon, iconPackFor, iconVariant, type IconPack } from "./icons";
 
-const PACK_NAMES: Record<IconPack, string> = { line: "Line", solid: "Solid", pixel: "Pixel", dot: "Dot matrix", tiles: "Tiles", sketch: "Sketch", emoji: "Emoji" };
+const PACK_NAMES: Record<IconPack, string> = { line: "Line", solid: "Solid", pixel: "Pixel", tiles: "Tiles", neon: "Neon", iso: "Isometric 3D", badges: "Badges", doodle: "Doodle", emoji: "Emoji" };
 import { api, Channel, messageOf, type AnimStyle, type UiStyle, type KnownHost, type RedactedSession, type Settings, type ShellInfo, type TerminalTheme } from "./api";
 import { BUILTIN_THEMES, DEFAULT_PALETTE, currentTheme, exportTheme, parseThemes, uniqueName, withTheme } from "./themes";
 import { alertDialog, confirmDialog, field, h, modal, promptDialog, select, showMenu, toast } from "./ui";
@@ -603,8 +603,8 @@ export class SettingsPanel {
         ? [this.row("Terminal transparency", "How much of the wallpaper shows through the terminal's own background. Keep it low if text gets hard to read.", slider("glassTerminal", 90, "%"))]
         : []),
       this.sub("Icons"),
-      h("div", { class: "set-block", "data-search": "icons icon pack line solid pixel dot matrix tiles sketch emoji thickness bold thin" }, this.iconGallery()),
-      this.iconWeight(),
+      h("div", { class: "set-block", "data-search": "icons icon pack line solid pixel dot matrix tiles neon isometric 3d badges doodle sketch hand-drawn emoji thickness bold thin" }, this.iconGallery()),
+      ...this.iconOptions(),
       this.sub("Interface font"),
       this.row("Font for menus, panels and settings", "The terminal has its own font under Terminal.", fontSel),
     ];
@@ -618,9 +618,11 @@ export class SettingsPanel {
       ["line", "Line", "Clean outlines"],
       ["solid", "Solid", "Filled shapes"],
       ["pixel", "Pixel", "12×12 pixel art"],
-      ["dot", "Dot matrix", "Pixel art in dots"],
-      ["tiles", "Tiles", "Coloured app tiles"],
-      ["sketch", "Sketch", "Drawn by hand"],
+      ["tiles", "Tiles", "Symbols on coloured tiles"],
+      ["neon", "Neon", "Glowing tubes"],
+      ["iso", "Isometric 3D", "Little 3D objects"],
+      ["badges", "Badges", "Letter marks"],
+      ["doodle", "Doodle", "Hand-drawn cartoons"],
       ["emoji", "Emoji", "Colourful emoji"],
     ];
     const sample = ["sessions", "macros", "folder", "settings", "lock", "terminal"];
@@ -630,13 +632,22 @@ export class SettingsPanel {
       ...packs.map(([id, name, sub]) =>
         h(
           "button",
-          { type: "button", class: `icon-card${(s.iconPack ?? "style") === id ? " active" : ""}`, "data-icons": iconPackFor(id, s.uiStyle), "data-pack": id, onclick: () => this.set({ iconPack: id }, true) },
-          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 20))),
+          { type: "button", class: `icon-card${(s.iconPack ?? "style") === id ? " active" : ""}`, "data-iv": iconVariant(id, s.uiStyle, !!s.iconDots, !!s.iconHandDrawn), "data-pack": id, onclick: () => this.set({ iconPack: id }, true) },
+          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 22))),
           h("span", { class: "look-name" }, name),
           h("span", { class: "look-sub" }, sub),
         ),
       ),
     );
+  }
+
+  /** Options for the chosen pack: dots for Pixel, hand-drawn and thickness for Line. */
+  private iconOptions(): HTMLElement[] {
+    const pack = iconPackFor(this.s.iconPack, this.s.uiStyle);
+    const redraw = () => void this.render(true);
+    if (pack === "pixel") return [this.toggle("iconDots", "Draw the pixels as dots", "Round dots instead of squares, like a dot-matrix display.", redraw)];
+    if (pack === "line") return [this.toggle("iconHandDrawn", "Hand-drawn lines", "Rough pencil strokes instead of clean lines.", redraw), this.iconWeight()];
+    return [];
   }
 
   private iconWeight(): HTMLElement {
@@ -647,7 +658,7 @@ export class SettingsPanel {
       document.documentElement.style.setProperty("--icon-w", String(Number(input.value) / 10));
     });
     input.addEventListener("change", () => this.set({ iconWeight: Number(input.value) }));
-    return this.row("Line thickness", "For the Line and Sketch packs: from hairline to bold.", h("div", { class: "inline vol" }, input, out));
+    return this.row("Line thickness", "From hairline to bold.", h("div", { class: "inline vol" }, input, out));
   }
 
   private terminal(): HTMLElement[] {

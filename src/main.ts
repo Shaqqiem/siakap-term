@@ -3,7 +3,7 @@ import "./looks.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, messageOf, type KeyDevice, type Settings } from "./api";
-import { hydrateIcons, iconPackFor } from "./icons";
+import { hydrateIcons, iconPackFor, iconVariant } from "./icons";
 import { installDiag } from "./diag";
 import { installEggs } from "./eggs";
 import { loader } from "./loader";
@@ -108,6 +108,7 @@ function applySettings(s: Settings) {
   document.documentElement.dataset.ui = s.uiStyle ?? "standard";
   document.documentElement.dataset.anim = s.animations ?? "fluid";
   document.documentElement.dataset.icons = iconPackFor(s.iconPack, s.uiStyle);
+  document.documentElement.dataset.iv = iconVariant(s.iconPack, s.uiStyle, !!s.iconDots, !!s.iconHandDrawn);
   document.documentElement.style.setProperty("--icon-w", String((s.iconWeight || 18) / 10));
   setGlass(s.glassTransparency ?? 42, s.glassBlur ?? 30, s.glassTerminal ?? 30);
   void applyWallpaper(s);
@@ -343,7 +344,7 @@ const TOUR: TourStep[] = [
   {
     since: "0.8.2",
     title: "New icon packs",
-    text: "Under Icons, choose Solid, Pixel, Dot matrix, Tiles, Sketch or Emoji icons, each drawn on its own, and set how thick the line icons are.",
+    text: "Under Icons, choose from nine packs, each drawn on its own: Line, Solid, Pixel, Tiles, Neon, Isometric 3D, Badges, Doodle and Emoji. Pixel can be drawn as dots, and Line can be hand-drawn and thicker or thinner.",
     target: "#set-appearance",
     before: () => openSettings("appearance"),
   },

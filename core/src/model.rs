@@ -296,8 +296,12 @@ pub struct Settings {
     pub custom_themes: Vec<TerminalTheme>,
     /// The app's own colours from the theme (see UI_COLOUR_KEYS).
     pub ui_colors: BTreeMap<String, String>,
-    /// Icon pack: "style", "line", "solid", "pixel", "dot", "tiles", "sketch" or "emoji".
+    /// Icon pack: "style", "line", "solid", "pixel", "tiles", "neon", "iso", "badges", "doodle" or "emoji".
     pub icon_pack: String,
+    /// Pixel icons drawn as round dots.
+    pub icon_dots: bool,
+    /// Line icons drawn by hand (rough pencil lines).
+    pub icon_hand_drawn: bool,
     /// Line thickness of line and sketch icons, in tenths of a pixel (8..=32).
     pub icon_weight: u8,
     pub cursor_style: CursorStyle,
@@ -451,6 +455,8 @@ impl Default for Settings {
             ui_colors: BTreeMap::new(),
             icon_pack: "style".into(),
             icon_weight: 18,
+            icon_dots: false,
+            icon_hand_drawn: false,
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             line_height: 100,
@@ -607,13 +613,16 @@ impl Settings {
             "bold" => (self.icon_pack, self.icon_weight) = ("line".into(), 24),
             "thin" => (self.icon_pack, self.icon_weight) = ("line".into(), 12),
             "outline" | "sharp" | "duotone" => self.icon_pack = "line".into(),
+            // 0.8.2's Dot matrix and Sketch packs became options of Pixel and Line.
+            "dot" => (self.icon_pack, self.icon_dots) = ("pixel".into(), true),
+            "sketch" => (self.icon_pack, self.icon_hand_drawn) = ("line".into(), true),
             _ => {}
         }
         if self.icon_weight == 0 {
             self.icon_weight = 18;
         }
         self.icon_weight = self.icon_weight.clamp(8, 32);
-        pick(&mut self.icon_pack, &["style", "line", "solid", "pixel", "dot", "tiles", "sketch", "emoji"], "style");
+        pick(&mut self.icon_pack, &["style", "line", "solid", "pixel", "tiles", "neon", "iso", "badges", "doodle", "emoji"], "style");
         pick(&mut self.term_wallpaper, &["style", "solid", "color", "image", "through"], "style");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
@@ -838,6 +847,10 @@ mod tests {
         let old = Settings { icon_pack: "bold".into(), ..Default::default() }.sanitized();
         assert_eq!((old.icon_pack.as_str(), old.icon_weight), ("line", 24), "old bold pack becomes a thick line");
         assert_eq!(Settings { icon_weight: 200, ..Default::default() }.sanitized().icon_weight, 32);
+        let dot = Settings { icon_pack: "dot".into(), ..Default::default() }.sanitized();
+        assert!(dot.icon_pack == "pixel" && dot.icon_dots, "the old Dot matrix pack becomes Pixel drawn as dots");
+        let sk = Settings { icon_pack: "sketch".into(), ..Default::default() }.sanitized();
+        assert!(sk.icon_pack == "line" && sk.icon_hand_drawn);
         assert_eq!(t.cursor, "", "invalid colours are dropped");
         assert_eq!(t.accent, "");
         assert_eq!(t.palette.len(), 16);

@@ -4,6 +4,24 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.3] - 2026-11-28
+
+**Icon packs that each look different.**
+
+### New
+- **Four new icon packs**, drawn from scratch for every icon:
+  - **Neon:** glowing tubes in bright colours.
+  - **Isometric 3D:** little 3D objects, such as a server stack, a padlock, a monitor and a globe.
+  - **Badges:** letter marks on shapes that group the icons (round for actions, hexagons for system things, squares
+    for documents, pills for window and navigation buttons).
+  - **Doodle:** hand-drawn cartoon stickers, some with faces.
+- **Tiles** now has its own bold symbols made for the tiles.
+- **Options instead of look-alike packs:** *Draw the pixels as dots* for Pixel, and *Hand-drawn lines* plus the
+  thickness slider for Line.
+
+### Changed
+- The Dot matrix and Sketch packs from 0.8.2 became those options; your choice is kept.
+
 ## [0.8.2] - 2026-11-28
 
 **Real icon packs.**
@@ -371,6 +389,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.7.8...v0.8.0

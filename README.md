@@ -67,7 +67,8 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   Everforest, Solarized and Siakap originals such as Laut Dalam, Teh Tarik and Batik). A theme editor with a live
   preview sets the terminal colours and the app's own colours (Save, or Save as a new theme to reuse), and themes
   import and export as JSON, including Windows Terminal colour schemes.
-- **Icon packs.** Line (with a thickness slider), Solid, Pixel, Dot matrix, Tiles, Sketch or Emoji, each drawn on its own.
+- **Icon packs.** Line, Solid, Pixel, Tiles, Neon, Isometric 3D, Badges, Doodle or Emoji, each drawn on its own. Line can
+  be hand-drawn and thicker or thinner; Pixel can be drawn as dots.
 - **Styles and animations.** Pick a style for the whole interface (Standard, Glass, Material, Fluent, Dot matrix, Retro
   or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). Loading indicators match the style. All built in.
 - **Wallpapers.** A colour or your own picture behind the app and, separately, behind the terminal, or a see-through
