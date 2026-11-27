@@ -80,9 +80,11 @@
     --g-green: #30d158;
     letter-spacing: -.01em;
     background:
-      radial-gradient(60% 65% at 0% 0%, oklch(from var(--accent) .56 .18 h), transparent 72%),
-      radial-gradient(55% 60% at 100% 10%, oklch(from var(--accent) .5 .19 calc(h + 70)), transparent 72%),
-      radial-gradient(65% 65% at 55% 112%, oklch(from var(--accent) .48 .17 calc(h - 60)), transparent 72%),
+      radial-gradient(70% 75% at 0% 0%, oklch(from var(--accent) .56 .18 h), transparent 75%),
+      radial-gradient(65% 70% at 100% 0%, oklch(from var(--accent) .5 .19 calc(h + 70)), transparent 75%),
+      radial-gradient(70% 75% at 100% 100%, oklch(from var(--accent) .48 .17 calc(h - 60)), transparent 75%),
+      radial-gradient(65% 70% at 0% 100%, oklch(from var(--accent) .46 .16 calc(h + 150)), transparent 75%),
+      radial-gradient(45% 50% at 55% 50%, oklch(from var(--accent) .42 .14 calc(h + 30)), transparent 80%),
       var(--g-base);
   }
   .app { --rail-w: calc(70px * var(--ui-zoom, 1)); }
@@ -106,7 +108,15 @@
   .tab { border: 0; border-radius: 999px; margin: 0 2px 6px; padding: 0 8px 0 12px; color: color-mix(in srgb, var(--fg) 70%, transparent); }
   .tab:hover { background: var(--g-fill); }
   .tab.active { background: var(--g-glass); -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur); color: var(--fg); box-shadow: var(--g-rim), 0 4px 14px #0005; }
-  .workspace { margin: 0 8px 8px; border-radius: 18px; overflow: hidden; box-shadow: 0 10px 36px #0006, 0 0 0 .5px color-mix(in srgb, #fff 10%, transparent); }
+  .workspace {
+    margin: 0 8px 8px; border-radius: 18px; overflow: hidden;
+    box-shadow: 0 10px 36px #0006, 0 0 0 .5px color-mix(in srgb, #fff 10%, transparent);
+    /* The terminals are see-through: the tint and blur come from here. */
+    background: color-mix(in srgb, var(--term-bg) var(--g-term-opacity, 70%), transparent);
+    -webkit-backdrop-filter: blur(var(--g-blur-px, 30px)) saturate(160%);
+    backdrop-filter: blur(var(--g-blur-px, 30px)) saturate(160%);
+  }
+  .pane, .pane .xterm, .pane .xterm-viewport, .pane .xterm-scrollable-element { background-color: transparent !important; }
   .empty { background: color-mix(in srgb, var(--g-base) 55%, transparent); -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur); }
   .page-content { background: var(--g-base); }
 
@@ -194,9 +204,10 @@
     --g-shadow: 0 10px 30px #0002;
     --g-green: #34c759;
     background:
-      radial-gradient(55% 60% at 0% 0%, oklch(from var(--accent) .86 .09 h / .9), transparent 70%),
-      radial-gradient(50% 55% at 100% 15%, oklch(from var(--accent) .88 .08 calc(h + 70) / .8), transparent 70%),
-      radial-gradient(60% 60% at 60% 110%, oklch(from var(--accent) .86 .08 calc(h - 60) / .8), transparent 70%),
+      radial-gradient(70% 75% at 0% 0%, oklch(from var(--accent) .86 .09 h), transparent 75%),
+      radial-gradient(65% 70% at 100% 0%, oklch(from var(--accent) .88 .08 calc(h + 70)), transparent 75%),
+      radial-gradient(70% 75% at 100% 100%, oklch(from var(--accent) .86 .08 calc(h - 60)), transparent 75%),
+      radial-gradient(65% 70% at 0% 100%, oklch(from var(--accent) .87 .08 calc(h + 150)), transparent 75%),
       var(--g-base);
   }
   .modal-backdrop { background: #0003; }

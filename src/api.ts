@@ -114,6 +114,7 @@ export interface Settings {
   animations: AnimStyle;
   glassTransparency: number;
   glassBlur: number;
+  glassTerminal: number;
   tabCloseOnHover: boolean;
   termPadding: number;
   fontWeight: "300" | "normal" | "500" | "bold";

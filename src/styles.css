@@ -85,6 +85,7 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px;
 .rail button.busy { animation: pulse 1s infinite; }
 .rail-spacer { flex: 1; }
 .rail .rail-siakap { margin-bottom: 4px; color: var(--fg); }
+.rail-siakap .rail-logo { width: 28px; height: 28px; border-radius: 7px; }
 .rail-siakap .fish-icon { width: 30px; height: auto; image-rendering: pixelated; transition: transform .2s; }
 .rail-siakap:hover .fish-icon { transform: translateX(3px) rotate(-6deg); }
 .rail-siakap:active .fish-icon { transform: translateX(8px); }

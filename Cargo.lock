@@ -4565,7 +4565,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "siakap-core"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -4589,7 +4589,7 @@ dependencies = [
 
 [[package]]
 name = "siakap-terminal"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "arboard",
  "base64 0.22.1",
