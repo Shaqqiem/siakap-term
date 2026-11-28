@@ -121,7 +121,10 @@ pub fn check(current: &str) -> Result<UpdateInfo> {
     Ok(info)
 }
 
-fn check_any(current: &str) -> Result<UpdateInfo> {
+/// Like [`check`], but keeps the Windows installer on every platform. Only for
+/// debug-build tests of the download and checksum steps.
+#[doc(hidden)]
+pub fn check_any(current: &str) -> Result<UpdateInfo> {
     match agent(10).get(RELEASES_API).set("Accept", "application/vnd.github+json").call() {
         Ok(resp) => {
             let body = resp.into_string().map_err(|_| CoreError::invalid("Couldn't read GitHub's answer."))?;

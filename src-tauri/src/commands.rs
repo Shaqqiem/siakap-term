@@ -1442,7 +1442,17 @@ pub async fn update_check(st: State<'_, AppState>) -> Res<siakap_core::update::U
     let current = std::env::var("SIAKAP_TEST_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
     #[cfg(not(debug_assertions))]
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let info = tauri::async_runtime::spawn_blocking(move || siakap_core::update::check(&current))
+    // Debug builds pretending to be older (tests) still get the installer
+    // everywhere, so the download and checksum steps can be tested off Windows.
+    #[cfg(debug_assertions)]
+    let check = if std::env::var_os("SIAKAP_TEST_VERSION").is_some_and(|v| !v.is_empty()) {
+        siakap_core::update::check_any
+    } else {
+        siakap_core::update::check
+    };
+    #[cfg(not(debug_assertions))]
+    let check = siakap_core::update::check;
+    let info = tauri::async_runtime::spawn_blocking(move || check(&current))
         .await
         .map_err(|e| CoreError::invalid(e.to_string()))??;
     *st.update.lock().unwrap_or_else(|e| e.into_inner()) = (Some(info.clone()), None);
