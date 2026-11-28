@@ -26,14 +26,34 @@ fn allowed_url(url: &tauri::Url) -> bool {
 
 /// The last few internal crash messages (for "Report a problem"; memory only).
 pub static PANICS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// Where crash messages are kept: release builds stop on a panic, so a crash
+/// is only seen in "Report a problem" after the next start.
+pub static CRASH_LOG: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Crash messages from earlier runs (newest last, at most 20).
+pub fn earlier_crashes() -> Vec<String> {
+    CRASH_LOG
+        .get()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| t.lines().rev().take(20).map(String::from).collect::<Vec<_>>().into_iter().rev().collect())
+        .unwrap_or_default()
+}
 
 pub fn run() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let at = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
         let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        let line: String = format!("{msg}{at}").chars().filter(|c| !c.is_control()).take(500).collect();
+        if let Some(path) = CRASH_LOG.get() {
+            use std::io::Write;
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(f, "{stamp} {line}");
+            }
+        }
         if let Ok(mut p) = PANICS.lock() {
-            p.push(format!("{msg}{at}").chars().take(500).collect());
+            p.push(line);
             let n = p.len();
             if n > 20 {
                 p.drain(..n - 20);
@@ -60,6 +80,13 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            let crashes = dir.join("crashes.log");
+            if std::fs::metadata(&crashes).is_ok_and(|m| m.len() > 64 * 1024) {
+                let keep = std::fs::read_to_string(&crashes).unwrap_or_default();
+                let tail: Vec<&str> = keep.lines().rev().take(20).collect();
+                let _ = std::fs::write(&crashes, tail.into_iter().rev().map(|l| format!("{l}\n")).collect::<String>());
+            }
+            let _ = CRASH_LOG.set(crashes);
             app.manage(state::AppState::new(dir.join("vault.json")));
 
             // Auto-lock watchdog. Activity is reported by the UI (keyboard and

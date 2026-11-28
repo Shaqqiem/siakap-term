@@ -21,7 +21,7 @@ import { Sidebar } from "./sidebar";
 import { TabManager, chooseShell, type Pane, type Slot, type Where } from "./tabs";
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
-import { APP_VERSION, FIRST_SEEN, markSeen, pendingTour, readSeen, runTour, stepsSince, tourRunning, type TourStep } from "./tour";
+import { APP_VERSION, FIRST_SEEN, compareVersions, markSeen, pendingTour, readSeen, runTour, stepsSince, tourRunning, type TourStep } from "./tour";
 
 // Note unexpected errors for "Report a problem" (kept in memory only).
 let lastCrashNotice = 0;
@@ -531,8 +531,12 @@ const TOUR: TourStep[] = [
   { since: "0.1.0", frame: true, title: "You're all set", text: "You can replay this tour any time from Settings > Show the tour again." },
 ];
 
+/** Steps added up to this version are the basics; later ones only appear as "What's new". */
+const FULL_TOUR_UNTIL = "0.3.0";
+
 async function startTour(kind: "full" | "whatsNew", sinceVersion?: string) {
-  if (kind === "full") return runTour(TOUR, "Tour");
+  // The full tour covers the essentials; later additions are "What's new" steps.
+  if (kind === "full") return runTour(TOUR.filter((s) => s.frame || compareVersions(s.since, FULL_TOUR_UNTIL) <= 0), "Tour");
   const seen = sinceVersion ?? readSeen() ?? FIRST_SEEN;
   const fresh = stepsSince(TOUR.filter((s) => !s.frame), seen);
   if (!fresh.length) return markSeen();

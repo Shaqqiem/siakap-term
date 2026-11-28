@@ -48,7 +48,9 @@ function greeting() {
 export function showSplash(opts: { force?: boolean; date?: Date } = {}): Promise<void> {
   if (!opts.force && (!splashEnabled() || matchMedia("(prefers-reduced-motion: reduce)").matches)) return Promise.resolve();
   return new Promise((resolve) => {
-    const look = (storedLook() ?? {}) as Settings;
+    const stored = storedLook();
+    const firstRun = !stored; // nothing remembered yet: Siakap has never been opened here
+    const look = (stored ?? {}) as Settings;
     const day = specialDay(opts.date);
     const logo = drawIcon({ background: look.background ?? "#11151c", foreground: look.foreground ?? "#d8dee9", accent: look.accent ?? "", palette: look.palette ?? [] } as Settings, 192);
     logo.className = "splash-logo";
@@ -58,7 +60,7 @@ export function showSplash(opts: { force?: boolean; date?: Date } = {}): Promise
       "div",
       { class: "splash", role: "presentation" },
       sea,
-      h("div", { class: "splash-center" }, logo, h("div", { class: "splash-title" }, "Siakap Terminal"), h("div", { class: "splash-sub" }, day ? day.greeting : `${greeting()}. Welcome back.`)),
+      h("div", { class: "splash-center" }, logo, h("div", { class: "splash-title" }, "Siakap Terminal"), h("div", { class: "splash-sub" }, day ? day.greeting : firstRun ? `${greeting()}. Welcome to Siakap.` : `${greeting()}. Welcome back.`)),
       h("div", { class: "splash-version" }, `Version ${APP_VERSION}`),
     );
     document.body.append(el);

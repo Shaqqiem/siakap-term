@@ -8,7 +8,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde::Serialize;
 
 use crate::error::{CoreError, Result};
-use crate::process::{run_capture, which};
+use crate::process::{run_capture_timeout, which};
 
 /// Output event for a terminal (shared by local and SSH terminals).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +18,47 @@ pub enum TermEvent {
 }
 
 pub type EventSink = Arc<dyn Fn(TermEvent) + Send + Sync>;
+
+/// Writes on a background thread, in order. A terminal whose program isn't
+/// reading its input (or a slow serial line) fills the pipe and `write`
+/// would block; callers on the UI's thread must never wait for that.
+pub struct QueuedWriter {
+    tx: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+}
+
+impl QueuedWriter {
+    pub fn new(mut w: Box<dyn Write + Send>, name: &str) -> Result<Self> {
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        std::thread::Builder::new()
+            .name(name.into())
+            .spawn(move || {
+                for data in rx {
+                    if w.write_all(&data).and_then(|()| w.flush()).is_err() {
+                        break; // the program or device is gone
+                    }
+                }
+            })
+            .map_err(CoreError::from)?;
+        Ok(Self { tx: Mutex::new(Some(tx)) })
+    }
+
+    /// Queue `data`; returns at once.
+    pub fn write(&self, data: &[u8]) -> Result<()> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        let g = self.tx.lock().map_err(|_| CoreError::invalid("poisoned"))?;
+        let tx = g.as_ref().ok_or_else(|| CoreError::invalid("The terminal is closed."))?;
+        tx.send(data.to_vec()).map_err(|_| CoreError::invalid("The terminal is closed."))
+    }
+
+    /// Stop accepting writes; queued data is still written, then the thread ends.
+    pub fn close(&self) {
+        if let Ok(mut g) = self.tx.lock() {
+            g.take();
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,9 +90,30 @@ pub fn parse_wsl_list(out: &str) -> Vec<String> {
         .collect()
 }
 
-/// Detect available shells. The frontend only ever passes back an `id`;
-/// the program and arguments come from this list, never from the UI.
+/// Shells found by the last detection. Detecting runs `wsl -l` on Windows,
+/// which is slow, so opening a terminal uses this list and only refreshes it
+/// when the shell asked for isn't in it.
+static SHELLS: Mutex<Option<Vec<ShellInfo>>> = Mutex::new(None);
+
+/// Detect available shells again (and remember them). The frontend only ever
+/// passes back an `id`; the program and arguments come from this list.
 pub fn detect_shells() -> Vec<ShellInfo> {
+    let v = detect_now();
+    if let Ok(mut g) = SHELLS.lock() {
+        *g = Some(v.clone());
+    }
+    v
+}
+
+/// The remembered list, detecting it the first time.
+pub fn known_shells() -> Vec<ShellInfo> {
+    if let Some(v) = SHELLS.lock().ok().and_then(|g| g.clone()) {
+        return v;
+    }
+    detect_shells()
+}
+
+fn detect_now() -> Vec<ShellInfo> {
     let mut v = Vec::new();
     if cfg!(windows) {
         if let Some(p) = which("pwsh") {
@@ -65,7 +127,8 @@ pub fn detect_shells() -> Vec<ShellInfo> {
         }
         if let Some(wsl) = which("wsl") {
             let wsl = wsl.to_string_lossy().to_string();
-            if let Ok(out) = run_capture(&wsl, &["-l", "-q"]) {
+            // A stuck WSL service can hang `wsl -l` for ever; never wait long.
+            if let Ok(out) = run_capture_timeout(&wsl, &["-l", "-q"], Duration::from_secs(4)) {
                 if out.success {
                     for d in parse_wsl_list(&out.stdout) {
                         v.push(shell(&format!("wsl:{d}"), &format!("WSL: {d}"), wsl.clone(), &["-d", &d]));
@@ -91,7 +154,10 @@ pub fn detect_shells() -> Vec<ShellInfo> {
 }
 
 pub fn find_shell(id: &str) -> Result<ShellInfo> {
-    let all = detect_shells();
+    let mut all = known_shells();
+    if !id.is_empty() && !all.iter().any(|s| s.id == id) {
+        all = detect_shells(); // a WSL distro may have been installed since
+    }
     if id.is_empty() {
         return all.into_iter().next().ok_or_else(|| CoreError::not_found("no shell available"));
     }
@@ -99,7 +165,7 @@ pub fn find_shell(id: &str) -> Result<ShellInfo> {
 }
 
 pub struct LocalPty {
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: QueuedWriter,
     master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
 }
@@ -162,14 +228,12 @@ impl LocalPty {
             })
             .map_err(CoreError::from)?;
 
-        Ok(Self { writer: Mutex::new(writer), master, killer: Mutex::new(killer) })
+        Ok(Self { writer: QueuedWriter::new(writer, "pty-writer")?, master, killer: Mutex::new(killer) })
     }
 
+    /// Queue input for the program; never blocks.
     pub fn write(&self, data: &[u8]) -> Result<()> {
-        let mut w = self.writer.lock().map_err(|_| CoreError::invalid("poisoned"))?;
-        w.write_all(data)?;
-        w.flush()?;
-        Ok(())
+        self.writer.write(data)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
@@ -180,6 +244,7 @@ impl LocalPty {
     }
 
     pub fn close(&self) {
+        self.writer.close();
         if let Ok(mut k) = self.killer.lock() {
             let _ = k.kill();
         }
@@ -207,6 +272,20 @@ mod tests {
             parse_wsl_list("Ubuntu-22.04\r\n\u{feff}Debian\r\n\r\nbad name;x\n"),
             vec!["Ubuntu-22.04", "Debian"]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writes_never_block_when_the_program_is_not_reading() {
+        let sh = shell("sh", "sh", "/bin/sh", &[]);
+        let sink: EventSink = Arc::new(|_| {});
+        let p = LocalPty::spawn(&sh, 80, 24, sink).unwrap();
+        p.write(b"sleep 5\n").unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let t = std::time::Instant::now();
+        p.write(&vec![b'x'; 2 * 1024 * 1024]).unwrap();
+        assert!(t.elapsed() < Duration::from_millis(500), "write blocked for {:?}", t.elapsed());
+        p.close();
     }
 
     #[cfg(unix)]

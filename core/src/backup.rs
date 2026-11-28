@@ -387,20 +387,23 @@ fn session_from_profile(p: &Value, groups: &HashMap<String, String>) -> Option<S
 fn file_uri_to_path(k: &str) -> String {
     let Some(rest) = k.strip_prefix("file://") else { return k.to_string() };
     let rest = rest.strip_prefix('/').filter(|r| r.len() > 1 && r.as_bytes()[1] == b':').unwrap_or(rest);
-    let mut out = String::new();
+    // Percent-decode bytes, then read them as UTF-8 ("%C3%A9" is "é").
     let b = rest.as_bytes();
+    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+    let mut bytes = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(x) = u8::from_str_radix(&rest[i + 1..i + 3], 16) {
-                out.push(x as char);
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                bytes.push(h * 16 + l);
                 i += 3;
                 continue;
             }
         }
-        out.push(b[i] as char);
+        bytes.push(b[i]);
         i += 1;
     }
+    let out = String::from_utf8_lossy(&bytes).into_owned();
     if cfg!(windows) {
         out.replace('/', "\\")
     } else {
@@ -496,6 +499,17 @@ mod tests {
         assert!(import("not json", &mut d).is_err());
         assert!(import(r#"{"format":"other"}"#, &mut d).is_err());
         assert!(import(r#"{"format":"tabby-personal-sidebar","version":2,"macros":[]}"#, &mut d).is_err());
+    }
+
+    #[test]
+    fn key_paths_with_non_ascii_never_crash_and_decode_utf8() {
+        // A "%" followed by a multi-byte character used to panic (and abort the app).
+        let _ = file_uri_to_path("file:///C:/Users/%é/id");
+        let _ = file_uri_to_path("file:///C:/Users/%€x/id");
+        let _ = file_uri_to_path("file:///home/%");
+        let _ = file_uri_to_path("file:///home/%4");
+        let p = file_uri_to_path("file:///home/me/caf%C3%A9/id");
+        assert!(p.ends_with("café/id") || p.ends_with("café\\id"), "{p}");
     }
 
     #[test]

@@ -86,7 +86,7 @@ export function runTour(steps: TourStep[], heading: string): Promise<void> {
 
     const finish = () => {
       window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("resize", place);
+      window.removeEventListener("resize", onResize);
       document.removeEventListener("click", onClick, true);
       window.clearInterval(timer);
       [...blocks, ring, card].forEach((x) => x.remove());
@@ -122,6 +122,10 @@ export function runTour(steps: TourStep[], heading: string): Promise<void> {
     }
 
     let lastKey = "";
+    function onResize() {
+      lastKey = "";
+      place();
+    }
     function place() {
       const step = steps[i];
       target = step.target ? (document.querySelector(step.target) as HTMLElement | null) : null;
@@ -197,7 +201,7 @@ export function runTour(steps: TourStep[], heading: string): Promise<void> {
       i = n;
       void show();
     }
-    window.addEventListener("resize", () => ((lastKey = ""), place()));
+    window.addEventListener("resize", onResize);
     void show();
   });
 }

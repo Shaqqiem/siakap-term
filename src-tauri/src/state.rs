@@ -40,6 +40,9 @@ pub struct AppState {
     pending_host_keys: Mutex<HashMap<(String, u16), String>>,
     /// Failed unlock attempts since the last success.
     unlock_failures: AtomicU32,
+    /// Password attempts run one at a time, so firing many at once can't
+    /// skip the growing delay between them.
+    pub unlock_gate: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -55,6 +58,7 @@ impl AppState {
             grants: Mutex::new(HashSet::new()),
             pending_host_keys: Mutex::new(HashMap::new()),
             unlock_failures: AtomicU32::new(0),
+            unlock_gate: tokio::sync::Mutex::new(()),
         }
     }
 

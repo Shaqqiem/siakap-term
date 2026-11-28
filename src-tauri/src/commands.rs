@@ -148,6 +148,7 @@ pub async fn vault_set_remember(st: State<'_, AppState>, remember: bool, passwor
         return remember::clear(&path);
     }
     let password = Zeroizing::new(password.unwrap_or_default());
+    let _one_at_a_time = st.unlock_gate.lock().await;
     let delay = st.unlock_delay();
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
@@ -170,6 +171,7 @@ pub async fn vault_create(st: State<'_, AppState>, password: String) -> Res<()> 
 #[tauri::command]
 pub async fn vault_unlock(st: State<'_, AppState>, password: String) -> Res<()> {
     let password = Zeroizing::new(password);
+    let _one_at_a_time = st.unlock_gate.lock().await;
     // Slow down repeated guesses: 1 s, 2 s, 4 s, ... (max 30 s) after three failures.
     let delay = st.unlock_delay();
     if !delay.is_zero() {
@@ -190,7 +192,16 @@ pub fn vault_lock(st: State<'_, AppState>) {
 #[tauri::command]
 pub async fn vault_change_password(st: State<'_, AppState>, old: String, new: String) -> Res<()> {
     let (old, new) = (Zeroizing::new(old), Zeroizing::new(new));
-    st.vault().change_password(&old, &new)?;
+    let _one_at_a_time = st.unlock_gate.lock().await;
+    let delay = st.unlock_delay();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    let r = st.vault().change_password(&old, &new);
+    if matches!(r, Err(CoreError::WrongPassword { .. })) {
+        st.unlock_result(false);
+    }
+    r?;
     // Keep "open without the master password" working with the new key.
     let path = st.remember_path();
     if remember::exists(&path) {
@@ -617,7 +628,7 @@ pub fn debug_grant_path(st: State<'_, AppState>, path: String) {
 
 /// Export a Siakap backup: `scope` is "macros" or "all" (sessions without passwords too).
 #[tauri::command]
-pub fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) -> Res<usize> {
+pub async fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) -> Res<usize> {
     let path = granted_path(&st, &path)?;
     let (value, n) = {
         let v = st.vault();
@@ -631,7 +642,7 @@ pub fn backup_export_file(st: State<'_, AppState>, path: String, scope: String) 
 
 /// Import a Siakap backup (from Siakap Terminal or the Siakap Tabby plugin).
 #[tauri::command]
-pub fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportReport> {
+pub async fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportReport> {
     let path = granted_path(&st, &path)?;
     let meta = std::fs::metadata(&path)?;
     if meta.len() as usize > backup::MAX_BACKUP_BYTES {
@@ -639,7 +650,7 @@ pub fn backup_import_file(st: State<'_, AppState>, path: String) -> Res<ImportRe
     }
     let text = siakap_core::mobaxterm::decode(&std::fs::read(&path)?);
     if siakap_core::mobaxterm::looks_like_mobaxterm(&text) {
-        let shells: Vec<String> = pty::detect_shells().into_iter().map(|s| s.id).collect();
+        let shells: Vec<String> = pty::known_shells().into_iter().map(|s| s.id).collect();
         let r = st.vault().update(|d| siakap_core::mobaxterm::import(&text, d, &shells))?;
         return Ok(ImportReport {
             macros: r.macros,
@@ -753,9 +764,9 @@ fn sink_for(channel: Channel<TermOut>, log: LogSlot) -> EventSink {
 }
 
 #[tauri::command]
-pub fn shells_list(st: State<'_, AppState>) -> Res<Vec<ShellInfo>> {
+pub async fn shells_list(st: State<'_, AppState>) -> Res<Vec<ShellInfo>> {
     st.ensure_unlocked()?;
-    Ok(pty::detect_shells())
+    tauri::async_runtime::spawn_blocking(pty::detect_shells).await.map_err(|e| CoreError::invalid(e.to_string()))
 }
 
 #[tauri::command]
@@ -1074,7 +1085,7 @@ pub async fn clipboard_write(st: State<'_, AppState>, text: String) -> Res<()> {
 
 /// Start logging a terminal to a file the user picked in a save dialog.
 #[tauri::command]
-pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String, tz_offset: i32) -> Res<String> {
+pub async fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String, tz_offset: i32) -> Res<String> {
     st.ensure_unlocked()?;
     let path = granted_path(&st, &path)?;
     let slot = st.log_slot(id)?;
@@ -1087,7 +1098,7 @@ pub fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: Str
 
 /// Start logging into the log folder chosen in Settings (automatic logging).
 #[tauri::command]
-pub fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String, tz_offset: i32) -> Res<String> {
+pub async fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String, tz_offset: i32) -> Res<String> {
     st.ensure_unlocked()?;
     let (dir, stamps) = {
         let v = st.vault();
@@ -1145,7 +1156,7 @@ pub async fn log_folder_pick(app: tauri::AppHandle, st: State<'_, AppState>) -> 
 /// Read a colour theme file picked in an open dialog (parsed in the web view;
 /// only colours that pass validation are ever stored).
 #[tauri::command]
-pub fn theme_read_file(st: State<'_, AppState>, path: String) -> Res<String> {
+pub async fn theme_read_file(st: State<'_, AppState>, path: String) -> Res<String> {
     st.ensure_unlocked()?;
     let path = granted_path(&st, &path)?;
     if std::fs::metadata(&path)?.len() > 256 * 1024 {
@@ -1158,7 +1169,7 @@ pub fn theme_read_file(st: State<'_, AppState>, path: String) -> Res<String> {
 
 /// Save a snapshot of a terminal's text to a file picked in a save dialog.
 #[tauri::command]
-pub fn save_text_file(st: State<'_, AppState>, path: String, text: String) -> Res<()> {
+pub async fn save_text_file(st: State<'_, AppState>, path: String, text: String) -> Res<()> {
     st.ensure_unlocked()?;
     if text.len() > 64 * 1024 * 1024 {
         return Err(CoreError::invalid("That is too much text to save at once."));
@@ -1285,7 +1296,7 @@ pub async fn diag_info(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<se
         });
         (counts, serde_json::to_value(&d.settings).unwrap_or_default())
     };
-    let shells: Vec<String> = pty::detect_shells().into_iter().map(|s| s.label).collect();
+    let shells: Vec<String> = pty::known_shells().into_iter().map(|s| s.label).collect();
     Ok(serde_json::json!({
         "app": env!("CARGO_PKG_VERSION"),
         "os": os,
@@ -1298,7 +1309,7 @@ pub async fn diag_info(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<se
         "usbipd": siakap_core::process::which("usbipd").is_some() || cfg!(windows) && std::path::Path::new("C:\\Program Files\\usbipd-win\\usbipd.exe").exists(),
         "vault": vault,
         "settings": settings,
-        "crashes": crate::PANICS.lock().map(|p| p.clone()).unwrap_or_default(),
+        "crashes": crate::earlier_crashes(),
     }))
 }
 
@@ -1390,6 +1401,9 @@ pub fn wallpaper_clear(app: tauri::AppHandle, st: State<'_, AppState>, target: S
 #[tauri::command]
 pub fn window_backdrop(app: tauri::AppHandle, kind: String) -> Res<()> {
     use tauri::window::{Color, Effect, EffectsBuilder};
+    if !matches!(kind.as_str(), "acrylic" | "clear" | "none") {
+        return Err(CoreError::invalid("unknown backdrop"));
+    }
     let Some(w) = tauri::Manager::get_webview_window(&app, "main") else { return Ok(()) };
     let io = |e: tauri::Error| CoreError::Io { message: e.to_string() };
     // The window keeps a solid background unless the page wants to be see-through.
@@ -1404,9 +1418,10 @@ pub fn window_backdrop(app: tauri::AppHandle, kind: String) -> Res<()> {
 
 // ---------------------------------------------------------------- preview panel
 
+/// Argon2 takes about half a second: never on the UI's thread.
 #[tauri::command]
-pub fn admin_check(password: String) -> bool {
-    siakap_core::admin::check(&password)
+pub async fn admin_check(password: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || siakap_core::admin::check(&password)).await.unwrap_or(false)
 }
 
 // ---------------------------------------------------------------- fonts

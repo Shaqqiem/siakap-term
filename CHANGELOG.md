@@ -4,6 +4,27 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.5] - 2026-11-28
+
+**Reliability and security fixes from a full code review.**
+
+### Fixed
+- **The app could freeze** while pasting a lot of text into a program that wasn't reading its input (or into a slow
+  serial line): everything stopped until the program caught up. Input is now sent in the background, in order.
+- **Opening a terminal could hang** if the WSL service was stuck, because Siakap asked WSL for its distros (with no
+  time limit) every time a terminal opened. It now asks once, with a time limit, and only again when needed.
+- **Importing a backup could close the app** when a key file path contained a percent sign followed by certain
+  non-English characters. Non-English characters in imported key paths are now also read correctly.
+- New users got a 39-step tour; the full tour now covers the essentials, and later additions stay in *What's new*.
+- The welcome splash said "Welcome back" the very first time Siakap opened.
+- Small leaks when the tour or the screensaver closed.
+
+### Security
+- Master password attempts now run one at a time, so many attempts sent at once can't skip the growing delay
+  between wrong guesses. *Change master password* now has the same delay.
+- Unexpected errors are recorded in a small file in Siakap's data folder, so *Report a problem* can include a crash
+  from an earlier run.
+
 ## [0.8.4] - 2026-11-28
 
 ### Fixed
@@ -394,6 +415,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.5]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.1...v0.8.2

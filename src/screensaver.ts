@@ -207,6 +207,7 @@ export class Screensaver {
     };
     fit();
     window.addEventListener("resize", fit);
+    this.unfit = () => window.removeEventListener("resize", fit);
     const accent = this.s ? accentOf(this.s) : "#5aa9e6";
     this.fish = Array.from({ length: 9 }, (_, i) => this.newFish(c, i % 3 === 0 ? accent : null, true));
     this.bubbles = [];
@@ -233,7 +234,12 @@ export class Screensaver {
     this.raf = requestAnimationFrame(frame);
   }
 
+  /** Removes the running screensaver's resize listener. */
+  private unfit: () => void = () => {};
+
   stop() {
+    this.unfit();
+    this.unfit = () => {};
     cancelAnimationFrame(this.raf);
     this.el?.remove();
     this.el = null;

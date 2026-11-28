@@ -1,6 +1,6 @@
 //! Serial consoles (COM ports): port discovery and an interactive terminal.
 
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -164,6 +164,7 @@ pub fn validate_port(port: &str) -> Result<String> {
 
 pub struct SerialTerm {
     writer: Mutex<Box<dyn SerialPort>>,
+    queue: crate::pty::QueuedWriter,
     closed: Arc<AtomicBool>,
 }
 
@@ -240,14 +241,15 @@ impl SerialTerm {
                 sink(TermEvent::Exit(code));
             })
             .map_err(CoreError::from)?;
-        Ok(Self { writer: Mutex::new(port), closed })
+        let out = port.try_clone().map_err(|e| CoreError::Io { message: format!("Could not open {path}: {e}") })?;
+        let queue = crate::pty::QueuedWriter::new(Box::new(out), "serial-writer")?;
+        Ok(Self { writer: Mutex::new(port), queue, closed })
     }
 
+    /// Queue output for the line; never blocks (a slow line or flow control
+    /// would otherwise hold the caller for as long as the data takes to send).
     pub fn write(&self, data: &[u8]) -> Result<()> {
-        let mut w = self.writer.lock().map_err(|_| CoreError::invalid("poisoned"))?;
-        w.write_all(data)?;
-        w.flush()?;
-        Ok(())
+        self.queue.write(data)
     }
 
     /// Send a break signal (used for password recovery on network gear).
@@ -261,6 +263,7 @@ impl SerialTerm {
 
     pub fn close(&self) {
         self.closed.store(true, Ordering::Relaxed);
+        self.queue.close();
     }
 }
 
