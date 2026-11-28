@@ -346,8 +346,12 @@ impl SshConnection {
         Ok(s)
     }
 
+    /// Hang up, then hang up the jump hosts this connection ran through.
     pub async fn disconnect(&self) {
         let _ = self.handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        if let Some(j) = &self._jump {
+            Box::pin(j.disconnect()).await;
+        }
     }
 }
 
