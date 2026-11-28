@@ -625,7 +625,7 @@ export class SettingsPanel {
       ["doodle", "Doodle", "Hand-drawn cartoons"],
       ["emoji", "Emoji", "Colourful emoji"],
     ];
-    const sample = ["sessions", "macros", "folder", "settings", "lock", "terminal"];
+    const sample = ["sessions", "macros", "folder", "settings", "lock"];
     return h(
       "div",
       { class: "icon-gallery" },
@@ -633,7 +633,7 @@ export class SettingsPanel {
         h(
           "button",
           { type: "button", class: `icon-card${(s.iconPack ?? "style") === id ? " active" : ""}`, "data-iv": iconVariant(id, s.uiStyle, !!s.iconDots, !!s.iconHandDrawn), "data-pack": id, onclick: () => this.set({ iconPack: id }, true) },
-          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 22))),
+          h("div", { class: "icon-row" }, ...sample.map((n) => icon(n, 19))),
           h("span", { class: "look-name" }, name),
           h("span", { class: "look-sub" }, sub),
         ),

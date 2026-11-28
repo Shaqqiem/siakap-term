@@ -677,6 +677,8 @@ svg.icon > :is(.v-solid, .v-pixel, .v-dot, .v-tiles, .v-sketch, .v-neon, .v-iso,
 :root[data-iv="emoji"] svg.icon.has-em:not(.icon-card svg) > .v-emoji, .icon-card[data-iv="emoji"] svg.icon.has-em > .v-emoji { display: inline; }
 /* Cards in the gallery show the line pack at its normal weight unless they are another pack. */
 .icon-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
-.icon-row { display: flex; gap: 8px; justify-content: center; padding: 10px 4px; border-radius: 6px; background: var(--bg2); color: var(--fg); }
+.icon-row { display: flex; flex-wrap: nowrap; gap: 5px; justify-content: center; padding: 10px 4px; border-radius: 6px; background: var(--bg2); color: var(--fg); overflow: hidden; min-width: 0; }
+.icon-row svg.icon { flex: none; }
+.icon-gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 :root[data-ui] .icon-card { display: flex; flex-direction: column; gap: 5px; padding: 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--ui-font); font-size: 12.5px; box-shadow: none; overflow: visible; }
 :root[data-ui] .icon-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

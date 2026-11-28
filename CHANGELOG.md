@@ -4,6 +4,11 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.8.4] - 2026-11-28
+
+### Fixed
+- In Settings → Appearance → Icons, the sample icons on each pack's card spilled over into the next card.
+
 ## [0.8.3] - 2026-11-28
 
 **Icon packs that each look different.**
@@ -389,6 +394,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.8.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.0...v0.8.1
