@@ -43,11 +43,17 @@ pub fn run() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let at = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
-        let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_default();
         let line: String = format!("{msg}{at}").chars().filter(|c| !c.is_control()).take(500).collect();
         if let Some(path) = CRASH_LOG.get() {
             use std::io::Write;
-            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let stamp =
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
                 let _ = writeln!(f, "{stamp} {line}");
             }
@@ -141,6 +147,7 @@ pub fn run() {
             commands::serial_ports_list,
             commands::pick_files,
             commands::pick_save,
+            commands::pick_folder,
             #[cfg(debug_assertions)]
             commands::debug_grant_path,
             commands::term_open_serial,
@@ -152,6 +159,8 @@ pub fn run() {
             commands::sftp_remove,
             commands::sftp_download,
             commands::sftp_upload,
+            commands::sftp_download_tree,
+            commands::sftp_remove_tree,
             commands::sftp_cancel,
             commands::fonts_list,
             commands::update_check,
@@ -161,6 +170,7 @@ pub fn run() {
             commands::wallpaper_clear,
             commands::window_backdrop,
             commands::admin_check,
+            commands::ssh_prompt_answer,
             commands::update_download,
             commands::update_install,
             commands::open_release_page,

@@ -4,6 +4,34 @@ All notable changes to Siakap Terminal. Versions follow [Semantic Versioning](ht
 release dates. Each release on the [Releases page](https://github.com/Shaqqiem/siakap-term/releases) shows its section
 from this file.
 
+## [0.9.0] - 2026-11-28
+
+**Siakap on the Mac, two-step sign-in, whole-folder transfers, jump hosts and port forwarding.**
+
+### New
+- **macOS version.** One app for Apple silicon and Intel Macs (macOS 11 or later), as a `.dmg` on the Releases page.
+  It uses the Mac's own window buttons, ⌘ shortcuts (⌘T, ⌘C, ⌘V, ⌘F, ⌘W), zsh and bash, and the frosted
+  see-through window. See the README for the first launch (right-click → Open).
+- **Find in the terminal:** `Ctrl+Shift+F` (⌘F on a Mac), or *Find...* in the pane menu, searches everything the
+  terminal has shown. Enter and Shift+Enter step through the matches; options for match case, whole word and regular
+  expressions.
+- **Two-step sign-in (2FA, one-time codes).** Servers that ask questions at sign-in (keyboard-interactive login) now
+  work: Siakap shows the server's question and sends your answer. A saved password answers the usual "Password:"
+  question by itself. Answers are never saved.
+- **Whole folders over SFTP.** Upload a folder (from the upload button's menu, or drag it onto the panel), download a
+  folder, and delete a folder with everything in it, with progress per file. Uploading a folder that already exists
+  offers to merge it. Right-click a file or folder for Open, Download, Rename and Delete.
+- **Jump hosts.** In a session's Advanced settings, pick another saved SSH session to connect through (like
+  `ProxyJump`; jump hosts can chain, up to four). Each host's key is checked separately.
+- **Port forwarding.** Give a session local (`-L`), remote (`-R`) and SOCKS5 (`-D`) forwards, typed as fields or as
+  OpenSSH-style shorthand such as `-L 8080:db:5432`. They start when you connect, report any port that's already in
+  use, and stop when the tab closes. Ports listen only on this computer unless you choose otherwise.
+- Backups now include each session's jump host and port forwards (Tabby's `jumpHost` and `forwardedPorts`).
+
+### Fixed
+- Replacing a file on the server after Siakap asked *Replace file on the server?* failed with "Choose the file with
+  the file dialog first".
+
 ## [0.8.5] - 2026-11-28
 
 **Reliability and security fixes from a full code review.**
@@ -415,6 +443,7 @@ First release.
 - An encrypted vault for sessions, macros, known hosts and saved passwords.
 - Siakap-style macros, an SFTP panel and a security key button for WSL.
 
+[0.9.0]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.5...v0.9.0
 [0.8.5]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Shaqqiem/siakap-term/compare/v0.8.2...v0.8.3

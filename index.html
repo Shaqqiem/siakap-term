@@ -7,6 +7,8 @@
     <title>Siakap Terminal</title>
   </head>
   <body>
+    <!-- macOS: a strip to drag the window by, under the system's own window buttons. -->
+    <div class="mac-titlestrip" data-tauri-drag-region></div>
     <!-- Window controls: always top-right, also over the lock screen. -->
     <div class="win-controls" id="win-controls">
       <button id="win-min" title="Minimize" data-icon="win-min" data-icon-size="14"></button>

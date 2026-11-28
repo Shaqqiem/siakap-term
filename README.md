@@ -1,10 +1,10 @@
 # Siakap Terminal
 
-Siakap Terminal is an internal terminal and SSH client for Windows 10 and 11. I wanted something that looks as clean as Tabby,
+Siakap Terminal is an internal terminal and SSH client for Windows 10 and 11, and macOS 11 or later. I wanted something that looks as clean as Tabby,
 has MobaXterm's habit of putting an SFTP browser next to the terminal, and keeps the macros I've been using in
 Siakap. It also had to keep everything encrypted on disk and stay quiet on the network.
 
-It runs on Linux too. macOS will probably work, but I haven't tried it.
+It runs on Linux too (build it from source).
 
 **[⬇ Download the latest version](https://github.com/Shaqqiem/siakap-term/releases/latest)** · [How to install](#installing) · [What's new](CHANGELOG.md)
 
@@ -38,9 +38,15 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **Encrypted vault.** Sessions, folders, macros, known hosts, settings and saved passwords all live in one file,
   encrypted with Argon2id and XChaCha20-Poly1305. It locks itself after a configurable idle time, or when you click
   Lock.
-- **SSH.** Authentication tries the Windows OpenSSH agent first, then Pageant, then a key file (with a passphrase
-  prompt) or a password. FIDO security keys work through the agent. Host keys are trusted on first use, and a
-  changed key is refused, full stop.
+- **SSH.** Authentication tries the SSH agent first (the Windows OpenSSH agent, then Pageant; on a Mac the system
+  agent), then a key file (with a passphrase prompt) or a password. Servers that ask for a one-time code or other
+  2FA question at sign-in (keyboard-interactive) show you the question. FIDO security keys work through the agent.
+  Host keys are trusted on first use, and a changed key is refused, full stop.
+- **Jump hosts and port forwarding.** Reach a server through another saved session (like `ProxyJump`, up to four
+  hops), and give a session local (`-L`), remote (`-R`) and SOCKS (`-D`) forwards that start with it. Ports listen on
+  127.0.0.1 unless you choose otherwise, and stop when the tab closes.
+- **Find in the terminal.** `Ctrl+Shift+F` (⌘F on a Mac) searches everything a terminal has shown, with match case,
+  whole word and regular expression options.
 - **Macros (Siakap compatible).** A macro types a list of commands into the terminal you clicked last. Highlight a
   value and click *Make input* to be asked for it on every run (`{{Switch port}}`), with a live preview and a paste
   button. Optionally edit the whole command before a run without changing the saved macro. Organise them in folders
@@ -54,10 +60,11 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
   from a dropdown (9600 by default, up to 921600, or a custom rate), and data bits, parity, stop bits and flow
   control can be changed. `Ctrl+Shift+B` sends a break for password recovery.
 - **SFTP.** The side panel follows whichever SSH tab is focused and reuses its connection. Browse, create folders,
-  rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Transfers stream in
+  rename, delete, download and upload with the native file dialogs, or drag files onto the panel. Whole folders
+  upload, download and delete too (links inside are never followed). Transfers stream in
   chunks, show progress and can be cancelled. An interrupted upload never damages the file already on the server, and
   Siakap asks before replacing an existing file.
-- **Security keys in WSL.** The Key button lists your connected security keys, and lets you attach one to WSL or
+- **Security keys in WSL (Windows).** The Key button lists your connected security keys, and lets you attach one to WSL or
   detach it back to Windows with `usbipd`. Siakap checks afterwards that the key really moved.
 - **Themes that reskin everything.** A theme colours the terminals, the whole app (light themes give a light app) and
   the app icon.
@@ -72,7 +79,7 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 - **Styles and animations.** Pick a style for the whole interface (Standard, Glass, Material, Fluent, Dot matrix, Retro
   or Minimal) and how it moves (Fluid, Bouncy, Slide, Subtle or Off). Loading indicators match the style. All built in.
 - **Wallpapers.** A colour or your own picture behind the app and, separately, behind the terminal, or a see-through
-  window that shows your desktop (blurred or clear, Windows 10/11). Each style has its own default; Glass shows your
+  window that shows your desktop (blurred or clear; Windows 10/11 and macOS). Each style has its own default; Glass shows your
   desktop. You can also pick the interface font; Dot matrix uses the built-in Doto dot-matrix font.
 - **No phoning home.** There is no telemetry, no automatic update check and no analytics, and the app loads no remote
   fonts or scripts. The only network connections it makes are the SSH sessions you open, and a request to GitHub when
@@ -92,6 +99,21 @@ It runs on Linux too. macOS will probably work, but I haven't tried it.
 3. Run the file you downloaded. If Windows shows *"Windows protected your PC"*, click **More info**, then
    **Run anyway**. The installer isn't code-signed yet, which is why Windows asks.
 4. Open **Siakap Terminal** from the Start menu.
+
+**On a Mac** (macOS 11 Big Sur or later, Apple silicon or Intel):
+
+1. Download **`Siakap.Terminal_<version>_universal.dmg`** from the same Assets list.
+2. Open it and drag **Siakap Terminal** into **Applications**.
+3. The first time, right-click (or Control-click) Siakap Terminal in Applications and choose **Open**, then **Open**
+   again. The app is signed for your Mac but not notarised by Apple, so a plain double-click is refused the first
+   time. If macOS says the app "is damaged", run `xattr -dr com.apple.quarantine "/Applications/Siakap Terminal.app"`
+   in Terminal, then open it.
+
+To update on a Mac, use **Check for updates** in Settings → About, then **Open download page**, and drag the new
+version into Applications to replace the old one. Your vault in `~/Library/Application Support/dev.siakap.terminal`
+is kept. On a Mac, ⌘ replaces Ctrl+Shift in the shortcuts (⌘T new tab, ⌘C copy, ⌘V paste, ⌘F find, ⌘W close
+pane); Ctrl+C still goes to the terminal. The security-key button and *open without the master password* are
+Windows-only.
 
 **Updating:** click **Check for updates** in Settings → About, then **Download and install**: Siakap downloads the
 new version, checks it against the release's checksum, and after a 3-second countdown closes, updates itself and opens
@@ -254,6 +276,14 @@ npm run tauri dev
 
 `npm run tauri build` produces the installers in `target\release\bundle\nsis` and `target\release\bundle\msi`.
 
+On a Mac you need the Xcode command line tools (`xcode-select --install`), Rust and Node.js. For one app that runs on
+both Apple silicon and Intel:
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+npm run tauri build -- --target universal-apple-darwin
+```
+
 On Linux you'll also need the WebKitGTK and udev development packages:
 `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libudev-dev`.
 
@@ -277,9 +307,9 @@ $env:SIAKAP_TEST_SSH = "user:password@127.0.0.1:22"
 cargo test -p siakap-core --test ssh_live
 ```
 
-CI runs the tests on `windows-latest` and builds both installers on every push (see
+CI runs the tests on `windows-latest` and `macos-latest`, and builds the Windows installers and the Mac disk image on every push (see
 [`.github/workflows/build.yml`](.github/workflows/build.yml)). The first time a new version number reaches `main`,
-CI also publishes a release for it with the installers and `SHA256SUMS.txt`. To ship an update, bump `version` in
+CI also publishes a release for it with the installers, the `.dmg` and one `SHA256SUMS.txt` covering all of them. To ship an update, bump `version` in
 `src-tauri/tauri.conf.json` and `package.json`, then push to `main`.
 
 ## Project layout
@@ -295,7 +325,8 @@ core/              Rust library with no Tauri dependency
   fonts.rs           installed font list for the font picker
   process.rs         running programs with fixed arguments and time limits
   pty.rs             local shells (ConPTY on Windows)
-  ssh.rs             SSH client and host-key checks
+  ssh.rs             SSH client, host-key checks, jump hosts, 2FA questions
+  forward.rs         port forwarding (-L, -R, SOCKS5 -D)
   sftp.rs            SFTP over an existing SSH connection
   serial.rs          serial ports and consoles
   security_key.rs    usbipd integration
@@ -306,11 +337,12 @@ docs/screenshots/  images used in this README
 
 ## Known limitations
 
-- SFTP can only delete empty folders.
 - If an agent offers OpenSSH certificates, those are skipped; plain keys work.
 - Locking the vault hides your terminals but doesn't disconnect them, unless you turn on *Disconnect all sessions
   when Siakap locks* in Settings. SECURITY.md explains why.
-- Keyboard-interactive login (servers that prompt for a one-time code) isn't supported yet.
+- The Mac app isn't notarised by Apple yet, so the first launch needs right-click → Open.
+- A jump host signs in with its own saved password, key or agent; Siakap doesn't ask for the jump host's password
+  when connecting (2FA questions from the jump host are asked).
 
 ## Security
 

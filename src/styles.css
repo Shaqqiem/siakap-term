@@ -193,6 +193,7 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px;
 .transfers { display: grid; gap: 6px; }
 .transfer { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; align-items: center; padding: 6px; background: var(--bg3); border-radius: 6px; }
 .transfer .name { grid-column: 1 / 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer .name:empty { display: none; }
 .transfer progress { width: 100%; }
 .transfer > span { grid-column: 1; }
 
@@ -546,3 +547,35 @@ input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 
 /* Touch: the terminal handles its own swipes and pinches */
 .pane .xterm { touch-action: none; }
+
+/* Find in terminal */
+.find-bar { position: absolute; top: 6px; right: 34px; z-index: 7; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 8px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 6px 20px #0008; }
+.find-bar input { width: 190px; padding: 4px 7px; font-size: 12.5px; }
+.find-bar input.bad { outline: 1px solid var(--err); }
+.find-count { min-width: 64px; text-align: center; white-space: nowrap; }
+.find-opt { padding: 2px 6px; font: 600 11px/1.4 var(--mono); background: transparent; border: 1px solid transparent; color: var(--muted); }
+.find-opt.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+svg.icon.flip-up { transform: rotate(180deg); }
+
+/* ---------------------------------------------------------------- port forwards */
+.fwd { display: grid; gap: 6px; }
+.fwd-list { display: grid; gap: 6px; }
+.fwd-list:empty { display: none; }
+.fwd-row { display: grid; grid-template-columns: auto 112px minmax(70px, 1fr) 86px auto minmax(70px, 1fr) 86px auto; gap: 4px 6px; align-items: center; padding: 6px; background: var(--bg3); border-radius: 6px; }
+.fwd-row input, .fwd-row select { min-width: 0; }
+.fwd-row .fwd-note { grid-column: 2 / -1; }
+.fwd-row .fwd-note.warn { color: var(--warn, #e0a030); }
+.fwd-row .invisible { visibility: hidden; }
+.fwd .inline input { flex: 1; min-width: 0; }
+
+/* ---------------------------------------------------------------- macOS
+   The system draws its own close / minimise / zoom buttons at the top left
+   (see tauri.macos.conf.json), so ours are hidden and the top-left corner is
+   kept clear for them. */
+.mac-titlestrip { display: none; }
+:root[data-os="mac"] .win-controls { display: none; }
+:root[data-os="mac"] .tabbar { padding-right: 8px; }
+:root[data-os="mac"] .mac-titlestrip { display: block; position: fixed; top: 0; left: 0; width: 76px; height: 30px; z-index: 400; }
+:root[data-os="mac"] .rail { padding-top: 32px; }
+:root[data-os="mac"] .app:not(.panel-collapsed):not(.page-full) .panel { border-top: 30px solid var(--bg2); }
+:root[data-os="mac"] .app.panel-collapsed .tabbar, :root[data-os="mac"] .app.page-full .tabbar { padding-left: 28px; }

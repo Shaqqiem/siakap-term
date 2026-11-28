@@ -15,8 +15,17 @@ use siakap_core::{CoreError, Result};
 pub enum Term {
     Local(LocalPty),
     Serial(SerialTerm),
-    Ssh { shell: SshShell, conn: Arc<SshConnection>, sftp: tokio::sync::Mutex<Option<Arc<Sftp>>> },
+    Ssh {
+        shell: SshShell,
+        conn: Arc<SshConnection>,
+        sftp: tokio::sync::Mutex<Option<Arc<Sftp>>>,
+        /// Port forwards; stopped when the tab closes.
+        forwards: Mutex<Option<siakap_core::forward::Forwarder>>,
+    },
 }
+
+/// Where the user's answers to keyboard-interactive questions go (None = cancelled).
+pub type KbdReply = tokio::sync::oneshot::Sender<Option<Vec<zeroize::Zeroizing<String>>>>;
 
 /** Where a terminal's output is logged, if logging is on. */
 pub type LogSlot = Arc<Mutex<Option<SessionLog>>>;
@@ -43,6 +52,9 @@ pub struct AppState {
     /// Password attempts run one at a time, so firing many at once can't
     /// skip the growing delay between them.
     pub unlock_gate: tokio::sync::Mutex<()>,
+    /// Keyboard-interactive questions waiting for the user's answers.
+    pub kbd_waiters: Mutex<HashMap<u32, KbdReply>>,
+    next_kbd: AtomicU32,
 }
 
 impl AppState {
@@ -59,6 +71,8 @@ impl AppState {
             pending_host_keys: Mutex::new(HashMap::new()),
             unlock_failures: AtomicU32::new(0),
             unlock_gate: tokio::sync::Mutex::new(()),
+            kbd_waiters: Mutex::new(HashMap::new()),
+            next_kbd: AtomicU32::new(1),
         }
     }
 
@@ -160,6 +174,10 @@ impl AppState {
         self.terms.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Arc::new(t));
         self.logs.lock().unwrap_or_else(|e| e.into_inner()).insert(id, log);
         id
+    }
+
+    pub fn next_kbd_id(&self) -> u32 {
+        self.next_kbd.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn term_count(&self) -> usize {

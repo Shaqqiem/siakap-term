@@ -27,6 +27,9 @@ if tuple(int(x) for x in version.split(".")[:3]) >= (0, 7, 2):
     out.append("| **Already on 0.7.1 or later** | Settings → About → **Check for updates** → **Download and install**. Siakap updates itself and opens again. |")
 out.append(f"| **New install, or an older version** | Download **{setup}** below and run it. No admin rights needed; your sessions and settings are kept. |")
 out.append(f"| **IT-managed install** | `{msi}` |")
+if tuple(int(x) for x in version.split(".")[:3]) >= (0, 9, 0):
+    dmg = f"Siakap.Terminal_{version}_universal.dmg"
+    out.append(f"| **Mac (Apple silicon or Intel, macOS 11+)** | Download **{dmg}**, open it and drag Siakap Terminal into Applications. The first time, right-click the app and choose **Open** (it isn't notarised by Apple). |")
 if sums_path:
     sums = open(sums_path, encoding="utf-8").read().strip()
     out += ["", "<details><summary>SHA-256 checksums</summary>", "", "```text", sums, "```", "", "</details>"]

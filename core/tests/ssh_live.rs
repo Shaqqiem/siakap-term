@@ -43,6 +43,8 @@ fn params(t: &Target, known: Vec<KnownHost>, password: Option<&str>) -> ConnectP
         known_hosts: known,
         keepalive_secs: 30,
         connect_timeout_secs: 20,
+        prompter: None,
+        jump: None,
     }
 }
 
@@ -139,6 +141,7 @@ async fn live_ssh_tofu_shell_and_sftp() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
 
     data_safety(&sftp, &home).await;
+    folders(&sftp, &home).await;
 
     sftp.mkdir(&home, "siakap-dir").await.unwrap();
     sftp.rename(&format!("{home}/siakap-dir"), "siakap-dir2").await.unwrap();
@@ -155,6 +158,62 @@ async fn live_ssh_tofu_shell_and_sftp() {
     }
     assert!(exited.lock().unwrap().is_some(), "exit event");
     conn.disconnect().await;
+}
+
+/// Folder upload, download and recursive delete.
+async fn folders(sftp: &Sftp, home: &str) {
+    let flag = || Arc::new(AtomicBool::new(false));
+    let d = tempfile::tempdir().unwrap();
+    let name = format!("siakap-tree-{}", std::process::id());
+    let src = d.path().join(&name);
+    std::fs::create_dir_all(src.join("sub/deeper")).unwrap();
+    std::fs::create_dir_all(src.join("empty")).unwrap();
+    std::fs::write(src.join("top.txt"), b"top").unwrap();
+    std::fs::write(src.join("sub/deeper/x.bin"), vec![7u8; 700_000]).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/etc", src.join("etc-link")).unwrap();
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    let up = sftp.upload_tree(&src, home, false, flag(), move |p| s2.lock().unwrap().push(p)).await.unwrap();
+    assert_eq!((up.files, up.bytes), (2, 700_003));
+    #[cfg(unix)]
+    assert_eq!(up.skipped, vec!["etc-link".to_string()]);
+    let last = seen.lock().unwrap().last().cloned().unwrap();
+    assert_eq!((last.done, last.total, last.files, last.total_files), (700_003, 700_003, 2, 2));
+
+    // Same name again: asks first, merging replaces files.
+    let again = sftp.upload_tree(&src, home, false, flag(), |_| {}).await;
+    assert!(matches!(again, Err(CoreError::RemoteExists { .. })), "{again:?}");
+    std::fs::write(src.join("top.txt"), b"top v2").unwrap();
+    sftp.upload_tree(&src, home, true, flag(), |_| {}).await.unwrap();
+
+    let out = tempfile::tempdir().unwrap();
+    let remote_root = format!("{home}/{name}");
+    let down = sftp.download_tree(&remote_root, out.path(), flag(), |_| {}).await.unwrap();
+    let got = out.path().join(&name);
+    assert_eq!(down.files, 2);
+    assert_eq!(std::fs::read(got.join("top.txt")).unwrap(), b"top v2");
+    assert_eq!(std::fs::read(got.join("sub/deeper/x.bin")).unwrap().len(), 700_000);
+    assert!(got.join("empty").is_dir());
+    // Downloading into a folder that already has it refuses rather than merging.
+    assert!(sftp.download_tree(&remote_root, out.path(), flag(), |_| {}).await.is_err());
+
+    // A sibling folder must survive the delete.
+    let keep = format!("siakap-keep-{}", std::process::id());
+    sftp.mkdir(home, &keep).await.unwrap();
+    sftp.upload(&src.join("top.txt"), &format!("{home}/{keep}"), false, flag(), |_, _| {}).await.unwrap();
+    // Cancelled before it starts: nothing is deleted.
+    let r = sftp.remove_tree(&remote_root, Arc::new(AtomicBool::new(true)), |_, _| {}).await;
+    assert!(matches!(r, Err(CoreError::Cancelled { .. })));
+    assert!(sftp.list(&remote_root).await.is_ok());
+    let n = sftp.remove_tree(&remote_root, flag(), |_, _| {}).await.unwrap();
+    assert!(n >= 6, "removed {n}");
+    assert!(sftp.list(&remote_root).await.is_err());
+    assert!(sftp.remove_tree("/", flag(), |_, _| {}).await.is_err());
+    let kept = sftp.list(&format!("{home}/{keep}")).await.unwrap();
+    assert_eq!(kept.len(), 1, "the sibling folder was left alone");
+    sftp.remove_tree(&format!("{home}/{keep}"), flag(), |_, _| {}).await.unwrap();
 }
 
 /// Uploads never destroy an existing remote file; downloads never clobber a
@@ -254,4 +313,121 @@ async fn sftp_set_mode(
     attrs: russh_sftp::protocol::FileAttributes,
 ) -> siakap_core::Result<()> {
     sftp.set_metadata(path, attrs).await
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+async fn banner(mut s: tokio::net::TcpStream) -> String {
+    use tokio::io::AsyncReadExt;
+    let mut b = [0u8; 64];
+    let n = tokio::time::timeout(Duration::from_secs(10), s.read(&mut b)).await.unwrap().unwrap();
+    String::from_utf8_lossy(&b[..n]).to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn live_jump_host_and_port_forwards() {
+    use siakap_core::model::{Forward, ForwardKind};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Some(t) = target() else {
+        eprintln!("SIAKAP_TEST_SSH not set; skipping");
+        return;
+    };
+    let known = trusted(&t).await;
+
+    // Through a jump host (the same server, reached through itself).
+    let mut p = params(&t, known.clone(), Some(&t.pass));
+    p.jump = Some(Box::new(params(&t, known.clone(), Some(&t.pass))));
+    let conn = SshConnection::connect(p).await.expect("connect through jump host");
+    let sftp = Sftp::new(conn.open_sftp().await.unwrap());
+    assert!(sftp.home().await.unwrap().starts_with('/'));
+
+    // A failing jump host says which hop failed.
+    let mut p = params(&t, known.clone(), Some(&t.pass));
+    p.jump = Some(Box::new(params(&t, known.clone(), Some("wrong"))));
+    match SshConnection::connect(p).await {
+        Err(CoreError::Auth { message }) => assert!(message.starts_with("Jump host"), "{message}"),
+        Err(e) => panic!("{e:?}"),
+        Ok(_) => panic!("connected with a wrong jump password"),
+    }
+    // Unknown jump host key still asks first.
+    let mut p = params(&t, known.clone(), Some(&t.pass));
+    p.jump = Some(Box::new(params(&t, vec![], Some(&t.pass))));
+    assert!(matches!(SshConnection::connect(p).await, Err(CoreError::HostKeyUnknown { .. })));
+    // A chain longer than allowed is refused before connecting.
+    let mut p = params(&t, known.clone(), Some(&t.pass));
+    for _ in 0..6 {
+        let mut outer = params(&t, known.clone(), Some(&t.pass));
+        outer.jump = Some(Box::new(p));
+        p = outer;
+    }
+    assert!(matches!(SshConnection::connect(p).await, Err(CoreError::Invalid { .. })));
+
+    // Echo server on this side for the -R test.
+    let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let echo_port = echo.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = echo.accept().await {
+            tokio::spawn(async move {
+                let mut b = [0u8; 256];
+                while let Ok(n) = s.read(&mut b).await {
+                    if n == 0 || s.write_all(&b[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    let (l, d, r, l2, busy) = (free_port(), free_port(), free_port(), free_port(), free_port());
+    let _hold = std::net::TcpListener::bind(("127.0.0.1", busy)).unwrap();
+    let fwd = |kind, bind_port, dest_host: &str, dest_port| Forward {
+        kind,
+        bind_port,
+        dest_host: dest_host.into(),
+        dest_port,
+        ..Default::default()
+    };
+    let list = vec![
+        fwd(ForwardKind::Local, l, "127.0.0.1", t.port),
+        fwd(ForwardKind::Dynamic, d, "", 0),
+        fwd(ForwardKind::Remote, r, "127.0.0.1", echo_port),
+        fwd(ForwardKind::Local, l2, "127.0.0.1", r),
+        fwd(ForwardKind::Local, busy, "127.0.0.1", 1),
+        Forward { enabled: false, ..fwd(ForwardKind::Local, free_port(), "127.0.0.1", 1) },
+    ];
+    let (fw, status) = siakap_core::forward::start(&conn, &list).await;
+    assert_eq!(status.len(), 5, "disabled forwards are not started");
+    assert!(status[..4].iter().all(|s| s.ok), "{status:?}");
+    assert!(!status[4].ok && status[4].error.as_deref().unwrap().contains("already in use"));
+
+    // -L reaches the SSH port from the server side.
+    let s = tokio::net::TcpStream::connect(("127.0.0.1", l)).await.unwrap();
+    assert!(banner(s).await.starts_with("SSH-2.0"));
+    // -D: SOCKS5 with a host name.
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", d)).await.unwrap();
+    s.write_all(&[5, 1, 0]).await.unwrap();
+    let mut b = [0u8; 2];
+    s.read_exact(&mut b).await.unwrap();
+    assert_eq!(b, [5, 0]);
+    let mut req = vec![5, 1, 0, 3, 9];
+    req.extend(b"localhost");
+    req.extend(t.port.to_be_bytes());
+    s.write_all(&req).await.unwrap();
+    let mut rep = [0u8; 10];
+    s.read_exact(&mut rep).await.unwrap();
+    assert_eq!(rep[1], 0, "SOCKS reply {rep:?}");
+    assert!(banner(s).await.starts_with("SSH-2.0"));
+    // -R: server port r → our echo server (reached via -L l2 → r).
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", l2)).await.unwrap();
+    s.write_all(b"ping-42").await.unwrap();
+    let mut b = [0u8; 7];
+    tokio::time::timeout(Duration::from_secs(10), s.read_exact(&mut b)).await.unwrap().unwrap();
+    assert_eq!(&b, b"ping-42");
+
+    // Dropping the forwarder closes the local ports.
+    drop(fw);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(tokio::net::TcpStream::connect(("127.0.0.1", l)).await.is_err());
+    conn.disconnect().await;
 }

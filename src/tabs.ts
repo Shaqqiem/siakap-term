@@ -1,23 +1,30 @@
 // Tabs, each holding a binary split tree of terminal panes.
+import { appShortcut } from "./platform";
 import { icon } from "./icons";
 import { record } from "./diag";
 import { loader } from "./loader";
 import { Terminal, type FontWeight, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 
-import { api, b64ToBytes, Channel, errorOf, messageOf, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
+import { api, b64ToBytes, Channel, errorOf, messageOf, type ForwardStatus, type KbdRequest, type RedactedSession, type SerialConfig, type Settings, type TermOut } from "./api";
 import { serialSummary } from "./serial";
 import { xtermTheme } from "./themes";
 import { play } from "./sound";
 import { attachTouch } from "./touch";
 import { aggregate, TabCommandStatus } from "./status";
-import { $, alertDialog, confirmDialog, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
+import { $, alertDialog, confirmDialog, field, h, modal, promptDialog, showMenu, toast, type MenuEntry } from "./ui";
 
 export type PaneStatus = "connecting" | "connected" | "closed";
 
 export interface Pane {
   uid: number;
+  /** Find in the scrollback (Ctrl+Shift+F). */
+  search?: SearchAddon;
+  findBar?: HTMLElement;
+  /** Port forwards started with this SSH connection. */
+  forwards?: ForwardStatus[];
   termId: number | null;
   term: Terminal;
   fit: FitAddon;
@@ -340,8 +347,12 @@ export class TabManager {
     const s = this.settings;
     const term = new Terminal({
       ...this.termOptions(s),
-      allowProposedApi: false,
+      // Needed by the search highlights (xterm marks decorations as a "proposed" API:
+      // it may change between versions; it grants nothing extra).
+      allowProposedApi: true,
       macOptionIsMeta: true,
+      // macOS: Option+click selects text even when a program (tmux, vim) uses the mouse.
+      macOptionClickForcesSelection: true,
       rightClickSelectsWord: false,
       // Links printed by a program or server (OSC 8) are never opened: Siakap
       // makes no web requests. Show the address so it can be copied instead.
@@ -349,8 +360,10 @@ export class TabManager {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon({ highlightLimit: 2000 });
+    term.loadAddon(search);
     const el = h("div", { class: "pane" });
-    const pane: Pane = { uid: uidSeq++, termId: null, term, fit, el, kind, title, status: "connecting", tab: tab as Tab, disposed: false, pending: [], cmd: null, tail: "", decoder: new TextDecoder() };
+    const pane: Pane = { search, uid: uidSeq++, termId: null, term, fit, el, kind, title, status: "connecting", tab: tab as Tab, disposed: false, pending: [], cmd: null, tail: "", decoder: new TextDecoder() };
     this.attachStatus(pane);
 
     term.open(el);
@@ -452,6 +465,7 @@ export class TabManager {
         action: () => api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error")),
       },
       { label: "Select all", action: () => pane.term.selectAll() },
+      { label: "Find...", action: () => this.openFind(pane) },
       { label: "Clear screen", action: () => pane.term.clear() },
       { label: "Save output to file...", action: () => this.saveOutput(pane) },
       pane.logPath
@@ -552,7 +566,7 @@ export class TabManager {
   private keyHandler(pane: Pane, e: KeyboardEvent): boolean {
     if (e.type !== "keydown") return true;
     if (e.key === "Enter" && !e.repeat && pane.status === "connected") play("enter");
-    const ctrlShift = e.ctrlKey && e.shiftKey && !e.altKey;
+    const ctrlShift = appShortcut(e);
     if (ctrlShift && e.code === "KeyC") {
       if (pane.term.hasSelection()) api.clipboardWrite(this.copyText(pane.term.getSelection())).catch(() => {});
       e.preventDefault();
@@ -561,6 +575,11 @@ export class TabManager {
     if (ctrlShift && e.code === "KeyV") {
       e.preventDefault();
       api.clipboardRead().then((t) => this.guardedPaste(pane, t), () => toast("Clipboard is not available.", "error"));
+      return false;
+    }
+    if (ctrlShift && e.code === "KeyF") {
+      e.preventDefault();
+      this.openFind(pane);
       return false;
     }
     // Let app shortcuts bubble to the window handler.
@@ -572,6 +591,142 @@ export class TabManager {
     if (ctrlShift && ["KeyT", "KeyD", "KeyE", "KeyG", "KeyW"].includes(e.code)) return false;
     if (e.ctrlKey && e.code === "Tab") return false;
     return true;
+  }
+
+  /** Keyboard-interactive questions (one-time codes, 2FA) asked while signing in. */
+  /** Which port forwards started with this connection. */
+  private showForwards(pane: Pane, list: ForwardStatus[]) {
+    pane.forwards = list;
+    const ok = list.filter((f) => f.ok);
+    const bad = list.filter((f) => !f.ok);
+    if (ok.length) toast(`Forwarding for ${pane.title}:\n${ok.map((f) => f.text + (f.public ? " (open to the network)" : "")).join("\n")}`, "ok", 6000);
+    for (const f of bad) toast(`${f.text} didn't start: ${f.error ?? "unknown error"}`, "error", 10000);
+  }
+
+  private promptChannel(pane: Pane, session: RedactedSession): Channel<KbdRequest | { forwards: ForwardStatus[] }> {
+    const ch = new Channel<KbdRequest | { forwards: ForwardStatus[] }>();
+    ch.onmessage = async (msg) => {
+      if ("forwards" in msg) return this.showForwards(pane, msg.forwards);
+      const req = msg;
+      if (pane.disposed) return void api.sshPromptAnswer(req.id, null).catch(() => {});
+      const answers = await modal<string[] | null>(
+        req.name || "Sign-in question",
+        (close) => {
+          const inputs = req.prompts.map((p) => h("input", { type: p.echo ? "text" : "password", autocomplete: p.echo ? "off" : "one-time-code", spellcheck: "false" }) as HTMLInputElement);
+          const submit = () => close(inputs.map((i) => i.value));
+          inputs.forEach((i, n) => i.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            if (n < inputs.length - 1) inputs[n + 1].focus();
+            else submit();
+          }));
+          return {
+            body: h(
+              "div",
+              { class: "kbd-prompt" },
+              h("p", { class: "muted small" }, `${req.server || `${session.user}@${session.host}`} is asking:`),
+              req.instructions ? h("p", { class: "pre" }, req.instructions) : null,
+              ...req.prompts.map((p, n) => field(p.prompt.trim() || "Answer", inputs[n])),
+            ),
+            actions: [h("button", { type: "button", onclick: () => close(null) }, "Cancel"), h("button", { type: "button", class: "primary", onclick: submit }, "Sign in")],
+            focus: inputs[0],
+          };
+        },
+        { dismissValue: null },
+      );
+      api.sshPromptAnswer(req.id, answers).catch(() => {});
+    };
+    return ch;
+  }
+
+  /** Find in a terminal's output and scrollback. */
+  openFind(pane: Pane | null = this.focusedPane) {
+    if (!pane?.search) return;
+    if (pane.findBar) {
+      const input = pane.findBar.querySelector("input") as HTMLInputElement;
+      const sel = pane.term.getSelection();
+      if (sel && !sel.includes("\n")) input.value = sel;
+      input.focus();
+      input.select();
+      return;
+    }
+    const search = pane.search;
+    // xterm only takes #RRGGBB colours for search highlights.
+    const css = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+    const accent = /^#[0-9a-f]{6}$/i.test(css) ? css : "#5aa9e6";
+    const opts = { caseSensitive: false, wholeWord: false, regex: false };
+    const input = h("input", { type: "text", placeholder: "Find", spellcheck: "false", "aria-label": "Find in terminal" }) as HTMLInputElement;
+    const count = h("span", { class: "find-count muted small" });
+    const toggle = (key: keyof typeof opts, label: string, title: string) => {
+      const b = h("button", { type: "button", class: "find-opt", title, "aria-pressed": "false" }, label) as HTMLButtonElement;
+      b.addEventListener("click", () => {
+        opts[key] = !opts[key];
+        b.classList.toggle("on", opts[key]);
+        b.setAttribute("aria-pressed", String(opts[key]));
+        run(true);
+        input.focus();
+      });
+      return b;
+    };
+    const decorations = { matchBackground: "#6b5a1e", matchBorder: "#ffd166", matchOverviewRuler: "#ffd166", activeMatchBackground: accent, activeMatchBorder: "#ffffff", activeMatchColorOverviewRuler: accent };
+    const run = (forward: boolean, incremental = false) => {
+      const q = input.value;
+      if (!q) {
+        search.clearDecorations();
+        count.textContent = "";
+        input.classList.remove("bad");
+        return;
+      }
+      if (opts.regex) {
+        try {
+          new RegExp(q);
+        } catch {
+          input.classList.add("bad");
+          count.textContent = "Bad pattern";
+          return;
+        }
+      }
+      input.classList.remove("bad");
+      const o = { ...opts, decorations, incremental };
+      const found = forward ? search.findNext(q, o) : search.findPrevious(q, o);
+      if (!found) count.textContent = "No results";
+    };
+    const sub = search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      count.textContent = resultCount === 0 ? "No results" : resultIndex < 0 ? `${resultCount}+ matches` : `${resultIndex + 1} of ${resultCount}${resultCount >= 2000 ? "+" : ""}`;
+    });
+    const close = () => {
+      sub.dispose();
+      search.clearDecorations();
+      bar.remove();
+      pane.findBar = undefined;
+      pane.term.focus();
+    };
+    input.addEventListener("input", () => run(true, true));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") (e.preventDefault(), run(!e.shiftKey));
+      else if (e.key === "Escape") (e.preventDefault(), e.stopPropagation(), close());
+      else if (e.key === "F3") (e.preventDefault(), run(!e.shiftKey));
+    });
+    const bar = h(
+      "div",
+      { class: "find-bar", role: "search" },
+      input,
+      count,
+      toggle("caseSensitive", "Aa", "Match case"),
+      toggle("wholeWord", "ab", "Whole word"),
+      toggle("regex", ".*", "Regular expression"),
+      h("button", { type: "button", class: "icon", title: "Previous (Shift+Enter)", onclick: () => run(false) }, icon("chevron-down", 14, "flip-up")),
+      h("button", { type: "button", class: "icon", title: "Next (Enter)", onclick: () => run(true) }, icon("chevron-down", 14)),
+      h("button", { type: "button", class: "icon", title: "Close (Esc)", onclick: close }, icon("x", 14)),
+    );
+    pane.findBar = bar;
+    pane.el.append(bar);
+    const sel = pane.term.getSelection();
+    if (sel && !sel.includes("\n")) {
+      input.value = sel;
+      run(true);
+    }
+    input.focus();
   }
 
   /** Selected text as copied: optionally without spaces at line ends. */
@@ -719,7 +874,7 @@ export class TabManager {
     for (let attempt = 0; attempt < 6; attempt++) {
       try {
         const [cols, rows] = this.sizeForOpen(pane);
-        pane.termId = await api.termOpenSsh(session.id, cols, rows, this.wireChannel(pane), password, passphrase);
+        pane.termId = await api.termOpenSsh(session.id, cols, rows, this.wireChannel(pane), this.promptChannel(pane, session), password, passphrase);
         password = passphrase = undefined;
         this.markConnected(pane);
         return;
@@ -744,6 +899,7 @@ export class TabManager {
           await this.keyChanged(e.message, e.knownFingerprint ?? "", e.fingerprint ?? "", e.keyType ?? "");
           return;
         }
+        if (e.kind === "cancelled") return this.failPane(pane, "Sign-in cancelled.");
         if (e.kind === "passwordRequired") {
           const pw = await promptDialog("Password", e.message, { password: true });
           if (pw === null) return this.failPane(pane, "Cancelled.");

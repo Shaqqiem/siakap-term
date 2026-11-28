@@ -22,7 +22,7 @@ use siakap_core::pty::{self, EventSink, LocalPty, ShellInfo, TermEvent};
 use siakap_core::remember;
 use siakap_core::security_key;
 use siakap_core::serial::{self, SerialConfig, SerialTerm};
-use siakap_core::sftp::{Entry, Sftp};
+use siakap_core::sftp::{self, Entry, Sftp};
 use siakap_core::ssh::{self, ConnectParams, SshConnection};
 use siakap_core::termlog;
 use siakap_core::vault::atomic_write;
@@ -267,14 +267,27 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
                 return Err(CoreError::invalid("Invalid key path."));
             }
             session.shell.clear();
+            if session.forwards.len() > siakap_core::model::MAX_FORWARDS {
+                return Err(CoreError::invalid(format!(
+                    "At most {} port forwards per session.",
+                    siakap_core::model::MAX_FORWARDS
+                )));
+            }
+            session.forwards =
+                std::mem::take(&mut session.forwards).into_iter().map(|f| f.validated()).collect::<Res<Vec<_>>>()?;
+            session.jump_session = session.jump_session.take().filter(|j| !j.is_empty());
         }
         SessionKind::Local => {
+            session.forwards.clear();
+            session.jump_session = None;
             session.host.clear();
             session.user.clear();
             session.key_path.clear();
         }
         SessionKind::Serial => {
             session.serial = session.serial.validated()?;
+            session.forwards.clear();
+            session.jump_session = None;
             session.host.clear();
             session.user.clear();
             session.key_path.clear();
@@ -298,6 +311,25 @@ pub fn session_save(st: State<'_, AppState>, input: SessionInput) -> Res<String>
             } else if !d.macros.iter().any(|x| &x.id == m) {
                 return Err(CoreError::invalid("The post-connect macro does not exist."));
             }
+        }
+        // The jump host must be another SSH session, and following the chain
+        // from it must never come back to this one.
+        let mut next = session.jump_session.clone();
+        let mut hops = 0;
+        while let Some(j) = next {
+            if !session.id.is_empty() && j == session.id {
+                return Err(CoreError::invalid("A session can't be its own jump host (directly or through others)."));
+            }
+            let js = d
+                .sessions
+                .iter()
+                .find(|x| x.id == j && x.kind == SessionKind::Ssh)
+                .ok_or_else(|| CoreError::invalid("The jump host must be another saved SSH session."))?;
+            hops += 1;
+            if hops > ssh::MAX_JUMPS {
+                return Err(CoreError::invalid(format!("Too many jump hosts in a row (at most {}).", ssh::MAX_JUMPS)));
+            }
+            next = js.jump_session.clone();
         }
         if session.id.is_empty() {
             session.id = new_id();
@@ -556,7 +588,9 @@ fn dialog_for(app: &tauri::AppHandle, purpose: &str) -> Res<tauri_plugin_dialog:
         "log" => d.set_title("Log this session to a file").add_filter("Log file", &["log", "txt"]),
         "text" => d.set_title("Save terminal output").add_filter("Text file", &["txt", "log"]),
         "report" => d.set_title("Save problem report").add_filter("Text file", &["txt"]),
-        "image" => d.set_title("Choose a wallpaper picture").add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]),
+        "image" => d
+            .set_title("Choose a wallpaper picture")
+            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]),
         "theme" => d.set_title("Colour theme").add_filter("Theme (JSON)", &["json"]).add_filter("All files", &["*"]),
         _ => return Err(CoreError::invalid("unknown dialog")),
     })
@@ -591,6 +625,34 @@ pub async fn pick_files(
     let paths: Vec<PathBuf> = picked.into_iter().filter_map(|f| f.into_path().ok()).collect();
     st.grant(paths.clone());
     Ok(paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect())
+}
+
+/// Folder dialog. Returns the chosen folder (granted for one use), or null.
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle, st: State<'_, AppState>, purpose: String) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    st.ensure_unlocked()?;
+    let title = match purpose.as_str() {
+        "upload-folder" => "Upload a folder",
+        "download-folder" => "Download into this folder",
+        _ => return Err(CoreError::invalid("unknown dialog")),
+    };
+    // Debug builds only: automated tests can't click a native dialog.
+    #[cfg(debug_assertions)]
+    if let Some(dir) =
+        std::env::var_os(if purpose == "upload-folder" { "SIAKAP_TEST_OPEN_FOLDER" } else { "SIAKAP_TEST_SAVE_DIR" })
+    {
+        let p = PathBuf::from(dir);
+        st.grant([p.clone()]);
+        return Ok(Some(p.to_string_lossy().to_string()));
+    }
+    let dlg = app.dialog().file().set_title(title);
+    let picked = tauri::async_runtime::spawn_blocking(move || dlg.blocking_pick_folder())
+        .await
+        .map_err(|e| CoreError::Io { message: e.to_string() })?;
+    let Some(path) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+    st.grant([path.clone()]);
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 /// Save-file dialog. Returns the chosen path (granted for one use), or null.
@@ -787,7 +849,9 @@ pub async fn term_open_local(
 /// Connect a saved SSH session. `password`/`passphrase` are only for one-off
 /// prompts; saved passwords are looked up here and never leave the backend.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // each is a separate value from the web view
 pub async fn term_open_ssh(
+    app: tauri::AppHandle,
     st: State<'_, AppState>,
     session_id: String,
     cols: u16,
@@ -795,9 +859,11 @@ pub async fn term_open_ssh(
     channel: Channel<TermOut>,
     password: Option<String>,
     passphrase: Option<String>,
+    prompts: Channel<serde_json::Value>,
 ) -> Res<u32> {
     st.ensure_unlocked()?;
-    let params = {
+    let prompter = kbd_prompter(app.clone(), prompts.clone());
+    let (params, forwards) = {
         let v = st.vault();
         let d = v.data()?;
         let s = d.sessions.iter().find(|s| s.id == session_id).ok_or_else(|| CoreError::not_found("session"))?;
@@ -805,18 +871,29 @@ pub async fn term_open_ssh(
             return Err(CoreError::invalid("Not an SSH session."));
         }
         let saved = d.secrets.get(&s.id).and_then(|x| x.password.clone()).filter(|p| !p.is_empty());
-        ConnectParams {
-            host: s.host.clone(),
-            port: if s.port == 0 { 22 } else { s.port },
-            user: s.user.clone(),
-            auth: s.auth,
-            key_path: s.key_path.clone(),
-            password: password.filter(|p| !p.is_empty()).or(saved).map(Zeroizing::new),
-            passphrase: passphrase.filter(|p| !p.is_empty()).map(Zeroizing::new),
-            known_hosts: d.known_hosts.clone(),
-            keepalive_secs: d.settings.ssh_keepalive_secs,
-            connect_timeout_secs: d.settings.ssh_connect_timeout_secs,
+        let mut params = connect_params(d, s, password.filter(|p| !p.is_empty()).or(saved), passphrase, &prompter);
+        // Jump hosts, nearest to the target first. Each uses its own saved
+        // password (or agent / key); a loop or a missing session is an error.
+        let mut chain = vec![s.id.clone()];
+        let mut tail = &mut params;
+        let mut next = s.jump_session.clone();
+        while let Some(jid) = next {
+            if chain.contains(&jid) {
+                return Err(CoreError::invalid("The jump hosts of this session go round in a circle."));
+            }
+            if chain.len() > ssh::MAX_JUMPS {
+                return Err(CoreError::invalid(format!("Too many jump hosts in a row (at most {}).", ssh::MAX_JUMPS)));
+            }
+            let j = d.sessions.iter().find(|x| x.id == jid && x.kind == SessionKind::Ssh).ok_or_else(|| {
+                CoreError::invalid("This session's jump host no longer exists. Edit the session to pick another.")
+            })?;
+            let jpw = d.secrets.get(&j.id).and_then(|x| x.password.clone()).filter(|p| !p.is_empty());
+            tail.jump = Some(Box::new(connect_params(d, j, jpw, None, &prompter)));
+            tail = tail.jump.as_deref_mut().expect("just set");
+            chain.push(jid);
+            next = j.jump_session.clone();
         }
+        (params, s.forwards.clone())
     };
     let conn = match SshConnection::connect(params).await {
         Ok(c) => c,
@@ -829,7 +906,77 @@ pub async fn term_open_ssh(
     };
     let log = LogSlot::default();
     let shell = conn.open_shell(cols, rows, sink_for(channel, log.clone())).await?;
-    Ok(st.add_term(Term::Ssh { shell, conn, sftp: tokio::sync::Mutex::new(None) }, log))
+    let fw = if forwards.iter().any(|f| f.enabled) {
+        let (fw, status) = siakap_core::forward::start(&conn, &forwards).await;
+        let _ = prompts.send(serde_json::json!({ "forwards": status }));
+        Some(fw)
+    } else {
+        None
+    };
+    Ok(st.add_term(
+        Term::Ssh { shell, conn, sftp: tokio::sync::Mutex::new(None), forwards: std::sync::Mutex::new(fw) },
+        log,
+    ))
+}
+
+fn connect_params(
+    d: &siakap_core::model::VaultData,
+    s: &siakap_core::model::Session,
+    password: Option<String>,
+    passphrase: Option<String>,
+    prompter: &ssh::Prompter,
+) -> ConnectParams {
+    ConnectParams {
+        host: s.host.clone(),
+        port: if s.port == 0 { 22 } else { s.port },
+        user: s.user.clone(),
+        auth: s.auth,
+        key_path: s.key_path.clone(),
+        password: password.map(Zeroizing::new),
+        passphrase: passphrase.filter(|p| !p.is_empty()).map(Zeroizing::new),
+        known_hosts: d.known_hosts.clone(),
+        keepalive_secs: d.settings.ssh_keepalive_secs,
+        connect_timeout_secs: d.settings.ssh_connect_timeout_secs,
+        prompter: Some(prompter.clone()),
+        jump: None,
+    }
+}
+
+/// Ask the user the server's keyboard-interactive questions through the web
+/// view: `{id, name, instructions, prompts:[{prompt, echo}]}`; the answer comes
+/// back with `ssh_prompt_answer`. Unanswered questions give up after 5 minutes.
+fn kbd_prompter(app: tauri::AppHandle, ch: Channel<serde_json::Value>) -> ssh::Prompter {
+    use tauri::Manager;
+    Arc::new(move |req: ssh::KbdRequest| {
+        let ch = ch.clone();
+        let app = app.clone();
+        Box::pin(async move {
+            let st = app.state::<AppState>();
+            let id = st.next_kbd_id();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            st.kbd_waiters.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
+            let msg = serde_json::json!({ "id": id, "server": req.server, "name": req.name, "instructions": req.instructions, "prompts": req.prompts });
+            let answer = if ch.send(msg).is_ok() {
+                tokio::time::timeout(std::time::Duration::from_secs(300), rx).await.ok().and_then(Result::ok).flatten()
+            } else {
+                None
+            };
+            st.kbd_waiters.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            answer
+        })
+    })
+}
+
+/// The user's answers to keyboard-interactive questions (null = cancelled).
+#[tauri::command]
+pub fn ssh_prompt_answer(st: State<'_, AppState>, id: u32, answers: Option<Vec<String>>) -> Res<()> {
+    let tx = st.kbd_waiters.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    if let Some(tx) = tx {
+        let answers =
+            answers.map(|v| v.into_iter().take(16).map(|a| Zeroizing::new(a.chars().take(4096).collect())).collect());
+        let _ = tx.send(answers);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -858,8 +1005,9 @@ pub async fn term_close(st: State<'_, AppState>, id: u32) -> Res<()> {
         match &*t {
             Term::Local(p) => p.close(),
             Term::Serial(p) => p.close(),
-            Term::Ssh { shell, conn, sftp } => {
+            Term::Ssh { shell, conn, sftp, forwards } => {
                 shell.close();
+                drop(forwards.lock().unwrap_or_else(|e| e.into_inner()).take());
                 if let Some(s) = sftp.lock().await.take() {
                     s.close().await;
                 }
@@ -962,10 +1110,18 @@ pub async fn sftp_remove(st: State<'_, AppState>, id: u32, path: String, is_dir:
     sftp_for(&st, id).await?.remove(&path, is_dir).await
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct Progress {
     done: u64,
     total: u64,
+    /// Folder transfers only: files finished, files in all, current file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_files: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 fn progress_cb(ch: Channel<Progress>) -> impl Fn(u64, u64) {
@@ -974,7 +1130,25 @@ fn progress_cb(ch: Channel<Progress>) -> impl Fn(u64, u64) {
         // Throttle to ~every 1 MiB, plus the final update.
         if done == total || done - last.load(Ordering::Relaxed) >= 1024 * 1024 {
             last.store(done, Ordering::Relaxed);
-            let _ = ch.send(Progress { done, total });
+            let _ = ch.send(Progress { done, total, ..Default::default() });
+        }
+    }
+}
+
+/// Folder progress: every 1 MiB, whenever a file finishes, and at the end.
+fn tree_progress_cb(ch: Channel<Progress>) -> impl Fn(sftp::TreeProgress) {
+    let last = std::sync::Mutex::new((0u64, u64::MAX));
+    move |p| {
+        let mut g = last.lock().unwrap_or_else(|e| e.into_inner());
+        if p.done == p.total || p.files != g.1 || p.done.saturating_sub(g.0) >= 1024 * 1024 {
+            *g = (p.done, p.files);
+            let _ = ch.send(Progress {
+                done: p.done,
+                total: p.total,
+                files: Some(p.files),
+                total_files: Some(p.total_files),
+                name: Some(p.name),
+            });
         }
     }
 }
@@ -1015,11 +1189,77 @@ pub async fn sftp_upload(
     remote_dir: String,
     overwrite: bool,
     progress: Channel<Progress>,
-) -> Res<String> {
+) -> Res<UploadDone> {
     let local = granted_path(&st, &local)?;
     let s = sftp_for(&st, id).await?;
     let flag = register_transfer(&st, transfer_id);
-    let r = s.upload(&local, &remote_dir, overwrite, flag, progress_cb(progress)).await;
+    // A folder (picked, or dropped onto the panel) goes up with everything in it.
+    let is_dir = tokio::fs::symlink_metadata(&local).await.map(|m| m.is_dir()).unwrap_or(false);
+    let r = if is_dir {
+        s.upload_tree(&local, &remote_dir, overwrite, flag, tree_progress_cb(progress)).await.map(|t| UploadDone {
+            path: t.path,
+            files: t.files,
+            skipped: t.skipped,
+        })
+    } else {
+        s.upload(&local, &remote_dir, overwrite, flag, progress_cb(progress)).await.map(|path| UploadDone {
+            path,
+            files: 1,
+            skipped: vec![],
+        })
+    };
+    finish_transfer(&st, transfer_id);
+    // Nothing was sent: the UI asks "replace / merge?" and retries with the
+    // same path the user picked, so that one choice stays valid.
+    if matches!(r, Err(CoreError::RemoteExists { .. })) {
+        st.grant([local]);
+    }
+    r
+}
+
+#[derive(Serialize)]
+pub struct UploadDone {
+    path: String,
+    files: u64,
+    skipped: Vec<String>,
+}
+
+/// Download a remote folder into a new folder inside `local_dir` (picked in a folder dialog).
+#[tauri::command]
+pub async fn sftp_download_tree(
+    st: State<'_, AppState>,
+    id: u32,
+    transfer_id: u32,
+    remote: String,
+    local_dir: String,
+    progress: Channel<Progress>,
+) -> Res<sftp::TreeSummary> {
+    let local = granted_path(&st, &local_dir)?;
+    let s = sftp_for(&st, id).await?;
+    let flag = register_transfer(&st, transfer_id);
+    let r = s.download_tree(&remote, &local, flag, tree_progress_cb(progress)).await;
+    finish_transfer(&st, transfer_id);
+    r
+}
+
+/// Delete a folder and everything in it (the UI confirms first). Cancellable.
+#[tauri::command]
+pub async fn sftp_remove_tree(
+    st: State<'_, AppState>,
+    id: u32,
+    transfer_id: u32,
+    path: String,
+    progress: Channel<Progress>,
+) -> Res<u64> {
+    let s = sftp_for(&st, id).await?;
+    let flag = register_transfer(&st, transfer_id);
+    let r = s
+        .remove_tree(&path, flag, |done, total| {
+            if done == total || done % 50 == 0 {
+                let _ = progress.send(Progress { done, total, ..Default::default() });
+            }
+        })
+        .await;
     finish_transfer(&st, transfer_id);
     r
 }
@@ -1085,7 +1325,13 @@ pub async fn clipboard_write(st: State<'_, AppState>, text: String) -> Res<()> {
 
 /// Start logging a terminal to a file the user picked in a save dialog.
 #[tauri::command]
-pub async fn term_log_start(st: State<'_, AppState>, id: u32, path: String, title: String, tz_offset: i32) -> Res<String> {
+pub async fn term_log_start(
+    st: State<'_, AppState>,
+    id: u32,
+    path: String,
+    title: String,
+    tz_offset: i32,
+) -> Res<String> {
     st.ensure_unlocked()?;
     let path = granted_path(&st, &path)?;
     let slot = st.log_slot(id)?;
@@ -1098,7 +1344,13 @@ pub async fn term_log_start(st: State<'_, AppState>, id: u32, path: String, titl
 
 /// Start logging into the log folder chosen in Settings (automatic logging).
 #[tauri::command]
-pub async fn term_log_auto(st: State<'_, AppState>, id: u32, title: String, stamp: String, tz_offset: i32) -> Res<String> {
+pub async fn term_log_auto(
+    st: State<'_, AppState>,
+    id: u32,
+    title: String,
+    stamp: String,
+    tz_offset: i32,
+) -> Res<String> {
     st.ensure_unlocked()?;
     let (dir, stamps) = {
         let v = st.vault();
@@ -1275,12 +1527,15 @@ pub async fn diag_info(app: tauri::AppHandle, st: State<'_, AppState>) -> Res<se
         }
         #[cfg(not(windows))]
         {
-            std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| format!("Linux {}", s.trim())).unwrap_or_default()
+            std::fs::read_to_string("/proc/sys/kernel/osrelease")
+                .map(|s| format!("Linux {}", s.trim()))
+                .unwrap_or_default()
         }
     })
     .await
     .unwrap_or_default();
-    let data_dir = tauri::Manager::path(&app).app_data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let data_dir =
+        tauri::Manager::path(&app).app_data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let (vault, settings) = {
         let v = st.vault();
         let d = v.data()?;
@@ -1354,7 +1609,8 @@ pub async fn wallpaper_pick(app: tauri::AppHandle, st: State<'_, AppState>, targ
             return Err(CoreError::invalid("That picture is too large (the limit is 25 MB)."));
         }
         let bytes = std::fs::read(&path)?;
-        let (_, ext) = siakap_core::wallpaper::image_kind(&bytes).ok_or_else(|| CoreError::invalid("That file isn't a PNG, JPEG, GIF, WebP or BMP picture."))?;
+        let (_, ext) = siakap_core::wallpaper::image_kind(&bytes)
+            .ok_or_else(|| CoreError::invalid("That file isn't a PNG, JPEG, GIF, WebP or BMP picture."))?;
         std::fs::create_dir_all(&dir)?;
         for old in wallpaper_files(&dir, stem) {
             let _ = std::fs::remove_file(old);
@@ -1379,7 +1635,8 @@ pub async fn wallpaper_get(app: tauri::AppHandle, st: State<'_, AppState>, targe
         if bytes.len() > siakap_core::wallpaper::MAX_BYTES {
             return Ok(None);
         }
-        Ok(siakap_core::wallpaper::image_kind(&bytes).map(|(mime, _)| format!("data:{mime};base64,{}", B64.encode(&bytes))))
+        Ok(siakap_core::wallpaper::image_kind(&bytes)
+            .map(|(mime, _)| format!("data:{mime};base64,{}", B64.encode(&bytes))))
     })
     .await
     .map_err(|e| CoreError::Io { message: e.to_string() })?
@@ -1410,6 +1667,17 @@ pub fn window_backdrop(app: tauri::AppHandle, kind: String) -> Res<()> {
     let see_through = kind != "none";
     w.set_background_color(Some(if see_through { Color(0, 0, 0, 0) } else { Color(13, 17, 23, 255) })).map_err(io)?;
     match kind.as_str() {
+        // macOS has no Acrylic; its own frosted "under window" material is the match.
+        #[cfg(target_os = "macos")]
+        "acrylic" => w
+            .set_effects(
+                EffectsBuilder::new()
+                    .effect(Effect::UnderWindowBackground)
+                    .state(tauri::window::EffectState::FollowsWindowActiveState)
+                    .build(),
+            )
+            .map_err(io),
+        #[cfg(not(target_os = "macos"))]
         "acrylic" => w.set_effects(EffectsBuilder::new().effect(Effect::Acrylic).build()).map_err(io),
         "clear" | "none" => w.set_effects(None).map_err(io),
         _ => Err(CoreError::invalid("unknown backdrop")),

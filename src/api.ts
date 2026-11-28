@@ -13,6 +13,15 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 
 export type UiStyle = "standard" | "glass" | "material" | "fluent" | "dot" | "retro" | "minimal";
 export type AnimStyle = "fluid" | "bouncy" | "slide" | "subtle" | "off";
+/** Keyboard-interactive questions from an SSH server (one-time codes, 2FA). */
+export interface KbdRequest {
+  id: number;
+  server: string;
+  name: string;
+  instructions: string;
+  prompts: { prompt: string; echo: boolean }[];
+}
+
 export type SessionKind = "ssh" | "local" | "serial";
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 export type ValidationMode = "safe" | "unrestricted";
@@ -33,6 +42,24 @@ export interface Session {
   startupScript: string;
   startupEnabled: boolean;
   startupDir: string;
+  /** SSH: id of another saved SSH session to connect through. */
+  jumpSession?: string | null;
+  forwards?: Forward[];
+}
+export type ForwardKind = "local" | "remote" | "dynamic";
+export interface Forward {
+  kind: ForwardKind;
+  bindHost: string;
+  bindPort: number;
+  destHost: string;
+  destPort: number;
+  enabled: boolean;
+}
+export interface ForwardStatus {
+  text: string;
+  ok: boolean;
+  error: string | null;
+  public: boolean;
 }
 export interface SerialConfig {
   port: string;
@@ -283,9 +310,11 @@ export const api = {
     cols: number,
     rows: number,
     channel: Channel<TermOut>,
+    prompts: Channel<KbdRequest | { forwards: ForwardStatus[] }>,
     password?: string,
     passphrase?: string,
-  ) => invoke<number>("term_open_ssh", { sessionId, cols, rows, channel, password, passphrase }),
+  ) => invoke<number>("term_open_ssh", { sessionId, cols, rows, channel, prompts, password, passphrase }),
+  sshPromptAnswer: (id: number, answers: string[] | null) => invoke<void>("ssh_prompt_answer", { id, answers }),
   serialPortsList: () => invoke<{ ports: SerialPortInfo[]; baudRates: number[] }>("serial_ports_list"),
   termOpenSerial: (config: SerialConfig, channel: Channel<TermOut>) => invoke<number>("term_open_serial", { config, channel }),
   termSerialBreak: (id: number) => invoke<void>("term_serial_break", { id }),
@@ -301,10 +330,15 @@ export const api = {
   sftpDownload: (id: number, transferId: number, remote: string, local: string, progress: Channel<Progress>) =>
     invoke<number>("sftp_download", { id, transferId, remote, local, progress }),
   sftpUpload: (id: number, transferId: number, local: string, remoteDir: string, overwrite: boolean, progress: Channel<Progress>) =>
-    invoke<string>("sftp_upload", { id, transferId, local, remoteDir, overwrite, progress }),
+    invoke<{ path: string; files: number; skipped: string[] }>("sftp_upload", { id, transferId, local, remoteDir, overwrite, progress }),
+  sftpDownloadTree: (id: number, transferId: number, remote: string, localDir: string, progress: Channel<Progress>) =>
+    invoke<TreeSummary>("sftp_download_tree", { id, transferId, remote, localDir, progress }),
+  sftpRemoveTree: (id: number, transferId: number, path: string, progress: Channel<Progress>) =>
+    invoke<number>("sftp_remove_tree", { id, transferId, path, progress }),
   sftpCancel: (transferId: number) => invoke<void>("sftp_cancel", { transferId }),
 
   pickFiles: (purpose: "upload" | "key" | "import" | "theme", multiple: boolean) => invoke<string[]>("pick_files", { purpose, multiple }),
+  pickFolder: (purpose: "upload-folder" | "download-folder") => invoke<string | null>("pick_folder", { purpose }),
   pickSave: (purpose: "download" | "export" | "log" | "text" | "theme" | "report", defaultName: string) => invoke<string | null>("pick_save", { purpose, defaultName }),
   clipboardRead: () => invoke<string>("clipboard_read"),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
@@ -352,6 +386,17 @@ export interface ImportReport {
 export interface Progress {
   done: number;
   total: number;
+  /** Folder transfers only. */
+  files?: number;
+  totalFiles?: number;
+  name?: string;
+}
+
+export interface TreeSummary {
+  files: number;
+  bytes: number;
+  skipped: string[];
+  path: string;
 }
 
 export { Channel };
