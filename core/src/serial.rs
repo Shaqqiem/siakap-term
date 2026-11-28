@@ -324,7 +324,9 @@ mod tests {
         let _ = list_ports();
     }
 
-    #[cfg(unix)]
+    // Not on macOS: there, setting the line speed on a pseudo-terminal fails
+    // ("Not a typewriter"); real USB serial adapters (/dev/cu.*) accept it.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn talks_to_a_pty_device() {
         // A pseudo-terminal behaves like a serial device for reading/writing.
