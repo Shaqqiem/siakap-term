@@ -1,19 +1,20 @@
 {
   "name": "siakap-terminal",
   "private": true,
-  "version": "0.8.5",
+  "version": "0.9.0",
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --no-warnings --test src/macros.test.ts src/themes.test.ts src/diag.test.ts src/iconsets.test.ts",
+    "test": "node --experimental-strip-types --no-warnings --test src/macros.test.ts src/themes.test.ts src/diag.test.ts src/iconsets.test.ts src/forwards.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.5",
     "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
     "@xterm/xterm": "6.0.0"
   },
   "devDependencies": {

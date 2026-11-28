@@ -1,6 +1,7 @@
 // Sessions and Macros panels.
 import { icon } from "./icons";
 import { api, messageOf, type Macro, type RedactedSession, type SerialConfig, type Session, type ShellInfo } from "./api";
+import { forwardEditor } from "./forwardeditor";
 import { MacroPanel } from "./macropanel";
 import { DEFAULT_SERIAL, serialDialog, serialForm, serialSummary, type SerialForm } from "./serial";
 import type { MacroRunner } from "./runner";
@@ -402,6 +403,13 @@ export class Sidebar {
         h("small", { class: "muted" }, "Typed once the prompt is ready (not for serial consoles). If no prompt appears in time, they are skipped.")),
       field("Start in folder", startupDir, "Optional. Changes to this folder first."),
     );
+    // Jump host: any other saved SSH session.
+    const jump = select(
+      [["", "None (connect directly)"], ...this.sessions.filter((x) => x.kind === "ssh" && x.id !== s.id).map((x): [string, string] => [x.id, `${x.folder ? x.folder + "/" : ""}${x.name} (${x.user ? x.user + "@" : ""}${x.host})`])],
+      s.jumpSession ?? "",
+    );
+    jump.dataset.f = "jump";
+    const fwd = forwardEditor(s.forwards ?? []);
     const err = h("div", { class: "error" });
 
     // Basic fields first; everything else lives under "Advanced settings".
@@ -419,6 +427,8 @@ export class Sidebar {
       field("Sign-in method", auth, "Automatic tries your SSH agent, then a key file, then the password."),
       h("label", { class: "field span2" }, h("span", {}, "Key file"), h("div", { class: "inline" }, keyPath, browse), h("small", { class: "muted" }, "Only needed if you sign in with a private key file.")),
       existing?.hasPassword ? h("label", { class: "check span2" }, clearPw, " Forget the saved password") : null,
+      h("label", { class: "field span2" }, h("span", {}, "Jump host"), jump, h("small", { class: "muted" }, "Reach this server through another saved SSH session first (like ProxyJump). That session signs in with its own saved password, key or agent.")),
+      h("div", { class: "field span2" }, h("span", {}, "Port forwarding"), fwd.el),
     );
     const localFields = h("div", {}, field("Program", shell, "For example PowerShell, Command Prompt or a WSL distro."));
     const serialFields = h("div", {});
@@ -430,7 +440,7 @@ export class Sidebar {
       startupFields,
     );
     const nonDefault =
-      !!s.postConnectMacro || !!s.startupScript.trim() || !!s.startupDir || (s.kind === "ssh" && ((s.port && s.port !== 22) || s.auth !== "auto" || !!s.keyPath));
+      !!s.postConnectMacro || !!s.startupScript.trim() || !!s.startupDir || (s.kind === "ssh" && ((s.port && s.port !== 22) || s.auth !== "auto" || !!s.keyPath || !!s.jumpSession || !!s.forwards?.length));
     if (nonDefault) advanced.open = true;
 
     let sform: SerialForm | null = null;
@@ -462,6 +472,8 @@ export class Sidebar {
           }
           if (k === "ssh" && !host.value.trim()) return void (err.textContent = "Enter the server address.", host.focus());
           if (k === "ssh" && !user.value.trim()) return void (err.textContent = "Enter your username.", user.focus());
+          const forwards = k === "ssh" ? fwd.read() : [];
+          if (typeof forwards === "string") return void ((err.textContent = forwards), (advanced.open = true));
           // The name is optional: fall back to something sensible.
           const fallback =
             k === "ssh" ? host.value.trim() : k === "serial" ? `${serialCfg.port} (${serialCfg.baud})` : (this.shells.find((x) => x.id === shell.value)?.label ?? "Terminal");
@@ -481,6 +493,8 @@ export class Sidebar {
             startupEnabled: startupEnabled.checked,
             startupDir: startupDir.value,
             serial: serialCfg,
+            jumpSession: k === "ssh" && jump.value ? jump.value : null,
+            forwards,
           };
           try {
             const id = await api.sessionSave(out, pw.value ? pw.value : null, clearPw.checked);

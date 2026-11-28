@@ -4,7 +4,7 @@ import { loader } from "./loader";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, Channel, errorOf, messageOf, type Progress, type SftpEntry } from "./api";
 import type { Pane, TabManager } from "./tabs";
-import { $, fill, confirmDialog, fmtSize, h, modal, promptDialog, toast } from "./ui";
+import { $, fill, confirmDialog, fmtSize, h, modal, promptDialog, showMenu, toast } from "./ui";
 
 let transferSeq = 1;
 
@@ -12,6 +12,12 @@ function parentOf(p: string): string {
   const t = p.replace(/\/+$/, "");
   const i = t.lastIndexOf("/");
   return i <= 0 ? "/" : t.slice(0, i);
+}
+/** "Skipped 2 (links or special files): a, b". */
+function skippedNote(skipped: string[]): string {
+  if (!skipped.length) return "";
+  const shown = skipped.slice(0, 3).join(", ");
+  return ` Skipped ${skipped.length} (links, special files or names this side can't store): ${shown}${skipped.length > 3 ? ", ..." : ""}`;
 }
 function baseName(p: string): string {
   return p.split(/[\\/]/).pop() || p;
@@ -123,8 +129,20 @@ export class SftpPanel {
       h("button", { class: "tool", title: "Parent folder", onclick: () => this.refresh(parentOf(cwd)) }, icon("arrow-up", 15)),
       h("button", { class: "tool", title: "Refresh", onclick: () => this.refresh(cwd) }, icon("refresh", 15)),
       h("button", { class: "tool", title: "New folder", onclick: () => this.mkdir(cwd) }, icon("folder-plus", 15)),
-      h("button", { class: "tool", title: "Upload files", onclick: () => this.pickUpload() }, icon("upload", 15)),
-      h("button", { class: "tool", title: "Download selected file", disabled: !sel || sel.isDir, onclick: () => sel && this.download(sel) }, icon("download", 15)),
+      h(
+        "button",
+        {
+          class: "tool",
+          title: "Upload files or a folder",
+          onclick: (ev: Event) =>
+            showMenu(ev as MouseEvent, [
+              { label: "Upload files...", action: () => this.pickUpload() },
+              { label: "Upload a folder...", action: () => this.pickUploadFolder() },
+            ]),
+        },
+        icon("upload", 15),
+      ),
+      h("button", { class: "tool", title: sel?.isDir ? "Download selected folder" : "Download selected item", disabled: !sel, onclick: () => sel && this.download(sel) }, icon("download", 15)),
       h("button", { class: "tool", title: "Rename", disabled: !sel, onclick: () => sel && this.rename(sel) }, icon("edit", 15)),
       h("button", { class: "tool", title: "Delete", disabled: !sel, onclick: () => sel && this.remove(sel) }, icon("trash", 15)),
     );
@@ -139,6 +157,16 @@ export class SftpPanel {
             this.render();
           },
           ondblclick: () => (e.isDir ? this.refresh(e.path) : this.download(e)),
+          oncontextmenu: (ev: Event) => {
+            this.selected = e;
+            this.render();
+            showMenu(ev as MouseEvent, [
+              ...(e.isDir ? [{ label: "Open", action: () => this.refresh(e.path) }] : []),
+              { label: e.isDir ? "Download folder..." : "Download...", action: () => this.download(e) },
+              { label: "Rename...", action: () => this.rename(e) },
+              { label: e.isDir ? "Delete folder..." : "Delete...", danger: true, action: () => this.remove(e) },
+            ]);
+          },
           onkeydown: (ev: Event) => {
             const k = (ev as KeyboardEvent).key;
             if (k === "Enter") void (e.isDir ? this.refresh(e.path) : this.download(e));
@@ -167,7 +195,7 @@ export class SftpPanel {
         cwd !== "/" ? h("div", { class: "file-row", ondblclick: () => this.refresh(parentOf(cwd)) }, h("span", { class: "ico dir" }, icon("folder", 15)), h("span", { class: "name" }, "..")) : null,
         ...rows,
       ),
-      h("p", { class: "muted small" }, "Drop files here to upload them to this folder."),
+      h("p", { class: "muted small" }, "Drop files or folders here to upload them to this folder."),
       this.transfers,
     );
   }
@@ -187,34 +215,58 @@ export class SftpPanel {
   }
 
   private async remove(e: SftpEntry) {
+    // A link to a folder is removed as a link; what it points to stays.
+    const tree = e.isDir && !e.isSymlink;
     const ok = await confirmDialog(
-      e.isDir ? "Delete folder?" : "Delete file?",
-      `Permanently delete ${e.path}?${e.isDir ? "\n\nOnly empty folders can be deleted." : ""}`,
-      "Delete",
+      tree ? "Delete folder?" : "Delete file?",
+      tree
+        ? `Permanently delete ${e.path} and everything inside it?\n\nThis can't be undone. Links inside are removed as links; whatever they point to is left alone.`
+        : `Permanently delete ${e.path}?`,
+      tree ? "Delete folder" : "Delete",
       { danger: true },
     );
-    if (!ok || this.termId === null) return;
-    await api.sftpRemove(this.termId, e.path, e.isDir).catch((x) => toast(messageOf(x), "error"));
+    const id = this.termId;
+    if (!ok || id === null) return;
+    if (!tree) {
+      await api.sftpRemove(id, e.path, false).catch((x) => toast(messageOf(x), "error"));
+      return this.refresh();
+    }
+    const tid = transferSeq++;
+    const t = this.transferRow(`Delete ${e.name}`, tid, "items");
+    try {
+      const n = await api.sftpRemoveTree(id, tid, e.path, t.ch);
+      t.txt.textContent = "done";
+      toast(`Deleted ${e.name} (${n} item${n === 1 ? "" : "s"}).`, "ok", 2500);
+    } catch (x) {
+      t.txt.textContent = messageOf(x);
+      if (errorOf(x).kind !== "cancelled") toast(messageOf(x), "error");
+    } finally {
+      t.done();
+    }
     await this.refresh();
   }
 
-  private transferRow(label: string, transferId: number) {
+  private transferRow(label: string, transferId: number, unit: "bytes" | "items" = "bytes") {
     const bar = h("progress", { max: 1, value: 0 });
     const txt = h("span", { class: "small" }, "Starting");
-    const row = h("div", { class: "transfer" }, h("div", { class: "small name" }, label), bar, txt, h("button", { class: "icon", title: "Cancel", onclick: () => api.sftpCancel(transferId) }, icon("x", 14)));
+    const cur = h("div", { class: "small muted name" });
+    const row = h("div", { class: "transfer" }, h("div", { class: "small name" }, label), bar, txt, h("button", { class: "icon", title: "Cancel", onclick: () => api.sftpCancel(transferId) }, icon("x", 14)), cur);
     this.transfers.append(row);
     const ch = new Channel<Progress>();
     ch.onmessage = (p) => {
       bar.max = Math.max(1, p.total);
       bar.value = p.done;
-      txt.textContent = `${fmtSize(p.done)} / ${fmtSize(p.total)}`;
+      const amount = unit === "items" ? `${p.done} / ${p.total} items` : `${fmtSize(p.done)} / ${fmtSize(p.total)}`;
+      txt.textContent = p.totalFiles !== undefined ? `${amount} · ${p.files ?? 0} / ${p.totalFiles} files` : amount;
+      cur.textContent = p.name ?? "";
     };
     return { ch, done: () => setTimeout(() => row.remove(), 1500), txt };
   }
 
   private async download(e: SftpEntry) {
     const id = this.termId;
-    if (id === null || e.isDir) return;
+    if (id === null) return;
+    if (e.isDir) return this.downloadFolder(id, e);
     const local = await api.pickSave("download", e.name).catch((x) => (toast(messageOf(x), "error"), null));
     if (!local) return;
     const tid = transferSeq++;
@@ -231,10 +283,28 @@ export class SftpPanel {
     }
   }
 
+  /** The folder is created inside the folder the user picks. */
+  private async downloadFolder(id: number, e: SftpEntry) {
+    const dir = await api.pickFolder("download-folder").catch((x) => (toast(messageOf(x), "error"), null));
+    if (!dir) return;
+    const tid = transferSeq++;
+    const t = this.transferRow(`Download ${e.name}/`, tid);
+    try {
+      const r = await api.sftpDownloadTree(id, tid, e.path, dir, t.ch);
+      t.txt.textContent = "done";
+      toast(`Downloaded ${e.name}: ${r.files} file${r.files === 1 ? "" : "s"}, ${fmtSize(r.bytes)}.${skippedNote(r.skipped)}`, r.skipped.length ? "info" : "ok", r.skipped.length ? 8000 : 3000);
+    } catch (x) {
+      t.txt.textContent = messageOf(x);
+      if (errorOf(x).kind !== "cancelled") toast(messageOf(x), "error");
+    } finally {
+      t.done();
+    }
+  }
+
   /** Ask before replacing a file that already exists on the server. */
-  private askReplace(name: string, dir: string, many: boolean): Promise<"replace" | "skip" | "all-replace" | "all-skip" | "cancel"> {
+  private askReplace(name: string, dir: string, many: boolean, folder = false): Promise<"replace" | "skip" | "all-replace" | "all-skip" | "cancel"> {
     return modal<"replace" | "skip" | "all-replace" | "all-skip" | "cancel">(
-      "Replace file on the server?",
+      folder ? "Folder already on the server" : "Replace file on the server?",
       (close) => {
         const all = h("input", { type: "checkbox" });
         const pick = (c: "replace" | "skip") => close(all.checked ? (`all-${c}` as const) : c);
@@ -242,14 +312,20 @@ export class SftpPanel {
           body: h(
             "div",
             { class: "form" },
-            h("p", {}, `${name} already exists in ${dir}.`),
-            h("p", { class: "muted small" }, "If you replace it, the old file stays untouched until the new one has fully arrived."),
+            h("p", {}, `${folder ? "A folder named " : ""}${name} already exists in ${dir}.`),
+            h(
+              "p",
+              { class: "muted small" },
+              folder
+                ? "Merging copies your folder into it: files with the same name are replaced (each only once the new copy has fully arrived); other files on the server are kept."
+                : "If you replace it, the old file stays untouched until the new one has fully arrived.",
+            ),
             many ? h("label", { class: "check" }, all, " Do the same for the other files") : null,
           ),
           actions: [
             h("button", { onclick: () => close("cancel") }, "Cancel upload"),
             h("button", { onclick: () => pick("skip") }, "Skip"),
-            h("button", { class: "danger", onclick: () => pick("replace") }, "Replace"),
+            h("button", { class: "danger", onclick: () => pick("replace") }, folder ? "Merge" : "Replace"),
           ],
         };
       },
@@ -260,6 +336,11 @@ export class SftpPanel {
   private async pickUpload() {
     const p = await api.pickFiles("upload", true).catch((e) => (toast(messageOf(e), "error"), [] as string[]));
     if (p.length) await this.uploadMany(p);
+  }
+
+  private async pickUploadFolder() {
+    const p = await api.pickFolder("upload-folder").catch((e) => (toast(messageOf(e), "error"), null));
+    if (p) await this.uploadMany([p]);
   }
 
   async uploadMany(paths: string[]) {
@@ -276,16 +357,18 @@ export class SftpPanel {
         const tid = transferSeq++;
         const t = this.transferRow(`Upload ${name}`, tid);
         try {
-          await api.sftpUpload(id, tid, local, dir, overwrite, t.ch);
+          const r = await api.sftpUpload(id, tid, local, dir, overwrite, t.ch);
           t.txt.textContent = "done";
           t.done();
+          if (r.skipped.length) toast(`Uploaded ${name}: ${r.files} file${r.files === 1 ? "" : "s"}.${skippedNote(r.skipped)}`, "info", 8000);
           break;
         } catch (x) {
           t.done();
           if (errorOf(x).kind === "remoteExists" && !overwrite) {
             t.txt.textContent = "already exists";
             type Choice = "replace" | "skip" | "all-replace" | "all-skip" | "cancel";
-            const choice: Choice = remembered ?? (await this.askReplace(name, dir, paths.length > 1));
+            const isFolder = /folder/i.test(messageOf(x));
+            const choice: Choice = remembered ?? (await this.askReplace(name, dir, paths.length > 1, isFolder));
             if (choice.startsWith("all-")) remembered = choice === "all-replace" ? "replace" : "skip";
             if (choice === "cancel") return this.refresh(dir);
             if (choice.endsWith("replace")) {
@@ -295,6 +378,7 @@ export class SftpPanel {
             break; // skip this file
           }
           t.txt.textContent = messageOf(x);
+          if (errorOf(x).kind === "cancelled") return this.refresh(dir);
           toast(`${name}: ${messageOf(x)}`, "error");
           break;
         }

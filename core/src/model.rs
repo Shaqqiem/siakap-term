@@ -55,6 +55,103 @@ pub struct Session {
     pub startup_enabled: bool,
     /// Optional folder to `cd` into before the startup commands.
     pub startup_dir: String,
+    /// SSH: connect through this other saved SSH session (like ProxyJump).
+    pub jump_session: Option<String>,
+    /// SSH: port forwards started with the connection.
+    pub forwards: Vec<Forward>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ForwardKind {
+    /// -L: a port on this computer reaches `dest` from the server.
+    #[default]
+    Local,
+    /// -R: a port on the server reaches `dest` from this computer.
+    Remote,
+    /// -D: a SOCKS5 proxy on this computer; the server makes the connections.
+    Dynamic,
+}
+
+/// One port forward. `bind_host` is where the port listens (this computer for
+/// Local/Dynamic, the server for Remote); 127.0.0.1 unless the user opts in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Forward {
+    pub kind: ForwardKind,
+    pub bind_host: String,
+    pub bind_port: u16,
+    pub dest_host: String,
+    pub dest_port: u16,
+    pub enabled: bool,
+}
+
+impl Default for Forward {
+    fn default() -> Self {
+        Self {
+            kind: ForwardKind::Local,
+            bind_host: "127.0.0.1".into(),
+            bind_port: 0,
+            dest_host: String::new(),
+            dest_port: 0,
+            enabled: true,
+        }
+    }
+}
+
+pub const MAX_FORWARDS: usize = 32;
+
+impl Forward {
+    /// Normalise and check one forward.
+    pub fn validated(mut self) -> crate::error::Result<Self> {
+        use crate::error::CoreError;
+        let host_ok = |h: &str| {
+            !h.is_empty()
+                && h.len() <= 253
+                && h.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']' | '%'))
+        };
+        self.bind_host = self.bind_host.trim().to_string();
+        if self.bind_host.is_empty() {
+            self.bind_host = "127.0.0.1".into();
+        }
+        if !host_ok(&self.bind_host) {
+            return Err(CoreError::invalid(format!("Invalid listen address {:?}.", self.bind_host)));
+        }
+        if self.bind_port == 0 {
+            return Err(CoreError::invalid("Each forward needs a listen port (1-65535)."));
+        }
+        if self.kind == ForwardKind::Dynamic {
+            self.dest_host.clear();
+            self.dest_port = 0;
+        } else {
+            self.dest_host = self.dest_host.trim().to_string();
+            if !host_ok(&self.dest_host) {
+                return Err(CoreError::invalid(format!("Invalid destination host {:?}.", self.dest_host)));
+            }
+            if self.dest_port == 0 {
+                return Err(CoreError::invalid("Each forward needs a destination port (1-65535)."));
+            }
+        }
+        Ok(self)
+    }
+
+    /// True when the port is reachable from other machines, not just this one.
+    pub fn is_public(&self) -> bool {
+        !matches!(self.bind_host.as_str(), "127.0.0.1" | "localhost" | "::1" | "[::1]")
+    }
+
+    /// "L 127.0.0.1:8080 → db:5432", for messages.
+    pub fn describe(&self) -> String {
+        match self.kind {
+            ForwardKind::Local => {
+                format!("-L {}:{} → {}:{}", self.bind_host, self.bind_port, self.dest_host, self.dest_port)
+            }
+            ForwardKind::Remote => {
+                format!("-R server {}:{} → {}:{}", self.bind_host, self.bind_port, self.dest_host, self.dest_port)
+            }
+            ForwardKind::Dynamic => format!("-D SOCKS {}:{}", self.bind_host, self.bind_port),
+        }
+    }
 }
 
 impl Default for Session {
@@ -75,6 +172,8 @@ impl Default for Session {
             startup_script: String::new(),
             startup_enabled: true,
             startup_dir: String::new(),
+            jump_session: None,
+            forwards: Vec::new(),
         }
     }
 }
@@ -205,7 +304,8 @@ pub struct TerminalTheme {
 }
 
 /// Names of the app colours a theme can set.
-pub const UI_COLOUR_KEYS: [&str; 11] = ["bg", "panel", "surface", "hover", "line", "text", "muted", "accentText", "ok", "warn", "err"];
+pub const UI_COLOUR_KEYS: [&str; 11] =
+    ["bg", "panel", "surface", "hover", "line", "text", "muted", "accentText", "ok", "warn", "err"];
 
 /// Keep only known app colour names with valid colours.
 pub fn clean_ui_colours(ui: &mut BTreeMap<String, String>) {
@@ -622,7 +722,11 @@ impl Settings {
             self.icon_weight = 18;
         }
         self.icon_weight = self.icon_weight.clamp(8, 32);
-        pick(&mut self.icon_pack, &["style", "line", "solid", "pixel", "tiles", "neon", "iso", "badges", "doodle", "emoji"], "style");
+        pick(
+            &mut self.icon_pack,
+            &["style", "line", "solid", "pixel", "tiles", "neon", "iso", "badges", "doodle", "emoji"],
+            "style",
+        );
         pick(&mut self.term_wallpaper, &["style", "solid", "color", "image", "through"], "style");
         pick(&mut self.font_weight, &["300", "normal", "500", "bold"], "normal");
         pick(&mut self.cursor_inactive, &["outline", "block", "bar", "underline", "none"], "outline");
@@ -838,7 +942,10 @@ mod tests {
             selection: "#333".into(),
             palette: vec!["#111111".into(); 16],
             accent: "#12345g".into(),
-            ui: [("panel", "#202020"), ("text", "url(x)"), ("evil", "#000000")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            ui: [("panel", "#202020"), ("text", "url(x)"), ("evil", "#000000")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         };
         let t = good.clone().sanitized().unwrap();
         assert_eq!(t.name, "Mine");

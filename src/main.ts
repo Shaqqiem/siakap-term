@@ -1,4 +1,5 @@
 import "./styles.css";
+import { appShortcut, isMac, isWindows } from "./platform";
 import "./looks.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -22,6 +23,10 @@ import { TabManager, chooseShell, type Pane, type Slot, type Where } from "./tab
 import { $, alertDialog, closeAllModals, closeMenu, confirmDialog, h, isModalOpen, modal, showMenu, toast } from "./ui";
 import { icon } from "./icons";
 import { APP_VERSION, FIRST_SEEN, compareVersions, markSeen, pendingTour, readSeen, runTour, stepsSince, tourRunning, type TourStep } from "./tour";
+
+// Lets CSS adapt to the platform (e.g. macOS keeps its own window buttons).
+document.documentElement.dataset.os = isMac ? "mac" : isWindows ? "windows" : "linux";
+if (!isWindows) $("btn-security-key").classList.add("hidden");
 
 // Note unexpected errors for "Report a problem" (kept in memory only).
 let lastCrashNotice = 0;
@@ -292,7 +297,7 @@ showAdminButton();
 
 // ------------------------------------------------------------------ guided tour
 
-const TOUR: TourStep[] = [
+const ALL_STEPS: TourStep[] = [
   { since: "0.1.0", frame: true, title: "Welcome to Siakap Terminal", text: "A quick tour of the main parts. It takes about a minute. You can skip it and replay it any time from Settings." },
   {
     since: "0.1.0",
@@ -340,6 +345,30 @@ const TOUR: TourStep[] = [
     text: "In MobaXterm, export your sessions (.mxtsessions) and macros (.mxtmacros). Then click the import button here and pick both files at once. Folders, serial ports, WSL, SSH and login macros come across.",
     target: '#panel-macros button[title^="Import"]',
     before: () => showPanel("macros"),
+  },
+  {
+    since: "0.9.0",
+    title: "Find in the terminal",
+    text: `Press ${isMac ? "⌘F" : "Ctrl+Shift+F"} in a terminal to search everything it has shown. Enter goes to the next match, Shift+Enter to the previous one; Aa matches case, ab whole words, .* a regular expression.`,
+  },
+  {
+    since: "0.9.0",
+    title: "Two-step sign-in",
+    text: "Servers that ask for a one-time code, a token or another question at sign-in now work: Siakap shows the server's question and sends your answer. Nothing you type there is saved.",
+  },
+  {
+    since: "0.9.0",
+    title: "Whole folders over SFTP",
+    text: "Upload (the upload button or drag a folder in), download and delete whole folders. Right-click a file or folder for its menu. Links inside folders are never followed.",
+    target: ".rail button[data-panel=sftp]",
+    before: () => showPanel("sftp"),
+  },
+  {
+    since: "0.9.0",
+    title: "Jump hosts and port forwarding",
+    text: "Edit an SSH session and open Advanced settings: pick a Jump host to reach the server through another saved session, and add port forwards (-L, -R, or a SOCKS proxy with -D). They start when you connect and stop when the tab closes.",
+    target: "#panel-sessions",
+    before: () => showPanel("sessions"),
   },
   {
     since: "0.8.2",
@@ -533,6 +562,8 @@ const TOUR: TourStep[] = [
 
 /** Steps added up to this version are the basics; later ones only appear as "What's new". */
 const FULL_TOUR_UNTIL = "0.3.0";
+// The security key button (usbipd / WSL) and the custom window buttons are Windows-only.
+const TOUR = ALL_STEPS.filter((s) => isWindows || (s.target !== "#btn-security-key" && !/title bar|window buttons/i.test(s.title)));
 
 async function startTour(kind: "full" | "whatsNew", sinceVersion?: string) {
   // The full tour covers the essentials; later additions are "What's new" steps.
@@ -1033,7 +1064,7 @@ async function layout(kind: "h" | "v" | "grid") {
 
 window.addEventListener("keydown", (e) => {
   if (isModalOpen() || !$("lock").classList.contains("hidden")) return;
-  const cs = e.ctrlKey && e.shiftKey && !e.altKey;
+  const cs = appShortcut(e);
   if (cs && e.code === "KeyT") (e.preventDefault(), void newLocal());
   else if (cs && e.code === "KeyD") (e.preventDefault(), void layout("h"));
   else if (cs && e.code === "KeyE") (e.preventDefault(), void layout("v"));

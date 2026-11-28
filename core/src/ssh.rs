@@ -18,6 +18,32 @@ use crate::pty::{EventSink, TermEvent};
 /// Windows OpenSSH agent pipe.
 pub const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
 
+/// One round of keyboard-interactive questions from the server (one-time
+/// codes, 2FA, PAM passwords).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbdRequest {
+    /// Who is asking, "user@host" (with jump hosts this may not be the target).
+    pub server: String,
+    pub name: String,
+    pub instructions: String,
+    pub prompts: Vec<KbdPrompt>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KbdPrompt {
+    pub prompt: String,
+    /// Show what is typed (false for passwords and codes).
+    pub echo: bool,
+}
+
+/// Asks the user; resolves to the answers, or None if they cancelled.
+pub type Prompter = Arc<
+    dyn Fn(KbdRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<Zeroizing<String>>>> + Send>>
+        + Send
+        + Sync,
+>;
+
 pub struct ConnectParams {
     pub host: String,
     pub port: u16,
@@ -31,7 +57,17 @@ pub struct ConnectParams {
     pub keepalive_secs: u32,
     /// Give up connecting after this many seconds.
     pub connect_timeout_secs: u32,
+    /// Asks the user keyboard-interactive questions (None: don't offer it).
+    pub prompter: Option<Prompter>,
+    /// Reach this host through another SSH server first (ProxyJump).
+    pub jump: Option<Box<ConnectParams>>,
 }
+
+/// Most jump hosts in a chain (a → b → c → target).
+pub const MAX_JUMPS: usize = 4;
+
+/// Remote (-R) forwards: server port → where to connect on this side.
+pub(crate) type RemoteMap = Arc<Mutex<std::collections::HashMap<u32, (String, u16)>>>;
 
 /// The host key the server presented, ready to be stored on approval.
 #[derive(Debug, Clone)]
@@ -91,6 +127,7 @@ pub struct Client {
     port: u16,
     known: Vec<KnownHost>,
     rejection: Arc<Mutex<Option<CoreError>>>,
+    remote: RemoteMap,
 }
 
 impl client::Handler for Client {
@@ -136,15 +173,80 @@ impl client::Handler for Client {
         }
         Ok(false)
     }
+
+    /// The server hands us a connection for a -R forward. Only ports we asked
+    /// for are accepted, and they only ever reach the destination the user set.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let dest = self.remote.lock().ok().and_then(|m| m.get(&connected_port).cloned());
+        tokio::spawn(async move {
+            let Some((host, port)) = dest else {
+                reply.reject(russh::ChannelOpenFailure::AdministrativelyProhibited).await;
+                return;
+            };
+            match tokio::net::TcpStream::connect((host.as_str(), port)).await {
+                Ok(mut tcp) => {
+                    reply.accept().await;
+                    let mut stream = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
+                }
+                Err(_) => reply.reject(russh::ChannelOpenFailure::ConnectFailed).await,
+            }
+        });
+        Ok(())
+    }
+}
+
+/// Say which hop failed when a jump host can't be reached or signed in to.
+fn via_jump(e: CoreError, host: &str) -> CoreError {
+    match e {
+        CoreError::PasswordRequired { .. } => CoreError::auth(format!(
+            "The jump host {host} needs a password. Save it in that session, or sign in there with a key or the agent."
+        )),
+        CoreError::PassphraseRequired { .. } => CoreError::auth(format!(
+            "The key for the jump host {host} needs a passphrase. Load it into the agent, or use another sign-in method."
+        )),
+        CoreError::Auth { message } => CoreError::auth(format!("Jump host {host}: {message}")),
+        CoreError::Ssh { message } => CoreError::ssh(format!("Jump host {host}: {message}")),
+        other => other,
+    }
 }
 
 /// An authenticated SSH connection. Shells and SFTP open channels on it.
 pub struct SshConnection {
-    handle: Handle<Client>,
+    pub(crate) handle: Handle<Client>,
+    pub(crate) remote: RemoteMap,
+    /// The connection this one runs through, kept open while it is in use.
+    _jump: Option<Arc<SshConnection>>,
 }
 
 impl SshConnection {
-    pub async fn connect(p: ConnectParams) -> Result<Arc<Self>> {
+    pub async fn connect(mut p: ConnectParams) -> Result<Arc<Self>> {
+        // Count the chain so a loop of jump hosts can't recurse forever.
+        let mut depth = 0;
+        let mut j = p.jump.as_deref();
+        while let Some(x) = j {
+            depth += 1;
+            if depth > MAX_JUMPS {
+                return Err(CoreError::invalid(format!("Too many jump hosts in a row (at most {MAX_JUMPS}).")));
+            }
+            j = x.jump.as_deref();
+        }
+        let jump = match p.jump.take() {
+            Some(jp) => {
+                let jhost = format!("{}:{}", jp.host, jp.port);
+                Some(Box::pin(Self::connect(*jp)).await.map_err(|e| via_jump(e, &jhost))?)
+            }
+            None => None,
+        };
         let config = Arc::new(client::Config {
             inactivity_timeout: None,
             keepalive_interval: (p.keepalive_secs > 0).then(|| Duration::from_secs(u64::from(p.keepalive_secs))),
@@ -153,12 +255,31 @@ impl SshConnection {
             ..Default::default()
         });
         let rejection = Arc::new(Mutex::new(None));
-        let handler =
-            Client { host: p.host.clone(), port: p.port, known: p.known_hosts.clone(), rejection: rejection.clone() };
-        let connect = client::connect(config, (p.host.as_str(), p.port), handler);
-        let res = tokio::time::timeout(Duration::from_secs(u64::from(p.connect_timeout_secs.clamp(3, 120))), connect)
-            .await
-            .map_err(|_| CoreError::ssh(format!("Timed out connecting to {}:{}.", p.host, p.port)))?;
+        let remote: RemoteMap = Arc::default();
+        let handler = Client {
+            host: p.host.clone(),
+            port: p.port,
+            known: p.known_hosts.clone(),
+            rejection: rejection.clone(),
+            remote: remote.clone(),
+        };
+        let timeout = Duration::from_secs(u64::from(p.connect_timeout_secs.clamp(3, 120)));
+        let res = match &jump {
+            Some(j) => {
+                let ch = tokio::time::timeout(
+                    timeout,
+                    j.handle.channel_open_direct_tcpip(p.host.clone(), u32::from(p.port), "127.0.0.1", 0),
+                )
+                .await
+                .map_err(|_| {
+                    CoreError::ssh(format!("Timed out reaching {}:{} through the jump host.", p.host, p.port))
+                })?
+                .map_err(|e| CoreError::ssh(format!("The jump host could not reach {}:{}: {e}", p.host, p.port)))?;
+                tokio::time::timeout(timeout, client::connect_stream(config, ch.into_stream(), handler)).await
+            }
+            None => tokio::time::timeout(timeout, client::connect(config, (p.host.as_str(), p.port), handler)).await,
+        }
+        .map_err(|_| CoreError::ssh(format!("Timed out connecting to {}:{}.", p.host, p.port)))?;
         let mut handle = match res {
             Ok(h) => h,
             Err(e) => {
@@ -169,7 +290,7 @@ impl SshConnection {
             }
         };
         authenticate(&mut handle, &p).await?;
-        Ok(Arc::new(Self { handle }))
+        Ok(Arc::new(Self { handle, remote, _jump: jump }))
     }
 
     pub fn is_closed(&self) -> bool {
@@ -225,8 +346,12 @@ impl SshConnection {
         Ok(s)
     }
 
+    /// Hang up, then hang up the jump hosts this connection ran through.
     pub async fn disconnect(&self) {
         let _ = self.handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        if let Some(j) = &self._jump {
+            Box::pin(j.disconnect()).await;
+        }
     }
 }
 
@@ -254,6 +379,79 @@ impl SshShell {
 
 fn auth_ok(r: &AuthResult) -> bool {
     matches!(r, AuthResult::Success)
+}
+
+fn partial(r: &AuthResult) -> bool {
+    matches!(r, AuthResult::Failure { partial_success: true, .. })
+}
+
+const MAX_KBD_ROUNDS: usize = 8;
+
+/// Keyboard-interactive login. `password` answers the first password-looking
+/// question if the session has one. Ok(None): the server doesn't offer it.
+async fn keyboard_interactive(
+    h: &mut Handle<Client>,
+    user: &str,
+    password: Option<&Zeroizing<String>>,
+    prompter: &Prompter,
+    server: &str,
+) -> Result<Option<bool>> {
+    use russh::client::KeyboardInteractiveAuthResponse as K;
+    let mut resp = match h.authenticate_keyboard_interactive_start(user, None::<String>).await {
+        Ok(r) => r,
+        Err(_) => return Ok(None),
+    };
+    let mut used_password = false;
+    for round in 0..MAX_KBD_ROUNDS {
+        match resp {
+            K::Success => return Ok(Some(true)),
+            K::Failure { .. } => return Ok(if round == 0 { None } else { Some(false) }),
+            K::InfoRequest { name, instructions, prompts } => {
+                let answers: Vec<String> = if prompts.is_empty() {
+                    Vec::new() // some servers send an empty round first
+                } else if let (false, Some(pw), [p]) = (used_password, password, prompts.as_slice()) {
+                    if !p.echo && p.prompt.to_lowercase().contains("password") {
+                        used_password = true;
+                        vec![pw.to_string()]
+                    } else {
+                        ask(prompter, server, name, instructions, &prompts).await?
+                    }
+                } else {
+                    ask(prompter, server, name, instructions, &prompts).await?
+                };
+                resp = h.authenticate_keyboard_interactive_respond(answers).await?;
+            }
+        }
+    }
+    Err(CoreError::auth("The server kept asking questions; sign-in was stopped."))
+}
+
+async fn ask(
+    prompter: &Prompter,
+    server: &str,
+    name: String,
+    instructions: String,
+    prompts: &[russh::client::Prompt],
+) -> Result<Vec<String>> {
+    let req = KbdRequest {
+        server: server.chars().filter(|c| !c.is_control()).take(300).collect(),
+        name: name.chars().filter(|c| !c.is_control()).take(200).collect(),
+        instructions: instructions.chars().filter(|c| *c == '\n' || !c.is_control()).take(2000).collect(),
+        prompts: prompts
+            .iter()
+            .take(16)
+            .map(|p| KbdPrompt {
+                prompt: p.prompt.chars().filter(|c| !c.is_control()).take(500).collect(),
+                echo: p.echo,
+            })
+            .collect(),
+    };
+    let n = prompts.len();
+    match prompter(req).await {
+        Some(a) if a.len() == n => Ok(a.iter().map(|x| x.to_string()).collect()),
+        Some(_) => Err(CoreError::auth("The answers didn't match the server's questions.")),
+        None => Err(CoreError::cancelled()),
+    }
 }
 
 async fn authenticate(h: &mut Handle<Client>, p: &ConnectParams) -> Result<()> {
@@ -289,19 +487,33 @@ async fn authenticate(h: &mut Handle<Client>, p: &ConnectParams) -> Result<()> {
         }
     }
     if use_password {
-        match &p.password {
-            Some(pw) => {
-                tried.push("password");
-                let r = h.authenticate_password(&p.user, pw.as_str()).await?;
-                if auth_ok(&r) {
-                    return Ok(());
-                }
+        if let Some(pw) = &p.password {
+            tried.push("password");
+            let r = h.authenticate_password(&p.user, pw.as_str()).await?;
+            if auth_ok(&r) {
+                return Ok(());
+            }
+            // Wrong password: say so, unless the server wants a second step
+            // or only takes passwords through keyboard-interactive.
+            let allows_kbd = matches!(&r, AuthResult::Failure { remaining_methods, .. } if remaining_methods.contains(&russh::MethodKind::KeyboardInteractive));
+            let allows_pw = matches!(&r, AuthResult::Failure { remaining_methods, .. } if remaining_methods.contains(&russh::MethodKind::Password));
+            if !partial(&r) && (allows_pw || !allows_kbd || p.prompter.is_none()) {
                 return Err(CoreError::auth("Authentication failed: the password was rejected."));
             }
-            None => {
-                return Err(CoreError::PasswordRequired { message: format!("Password for {}@{}", p.user, p.host) });
-            }
         }
+    }
+    // Keyboard-interactive: one-time codes, 2FA, or passwords asked by PAM.
+    if let (true, Some(prompter)) = (matches!(p.auth, AuthMethod::Auto | AuthMethod::Password), &p.prompter) {
+        tried.push("keyboard-interactive");
+        match keyboard_interactive(h, &p.user, p.password.as_ref(), prompter, &format!("{}@{}", p.user, p.host)).await?
+        {
+            Some(true) => return Ok(()),
+            Some(false) => return Err(CoreError::auth("Authentication failed: the answers were not accepted.")),
+            None => {}
+        }
+    }
+    if use_password && p.password.is_none() {
+        return Err(CoreError::PasswordRequired { message: format!("Password for {}@{}", p.user, p.host) });
     }
     Err(CoreError::auth(format!(
         "Authentication failed (tried: {}).",

@@ -26,6 +26,14 @@ the new one moved in, and the old one restored if that fails. If a file already 
 and keeps its permissions. A failed or cancelled upload removes only its own temporary file. Downloads work the same
 way on your PC: an unpredictable temporary name, created exclusively, renamed over the target only when complete.
 
+**Folder transfers stay inside the folder you chose.** When a folder is downloaded, every name the server sends is
+checked before it becomes a local path: names with `/`, `\`, `:`, `..`, control characters, or that Windows would
+treat as a device (`CON`, `NUL`, `COM1`...) are skipped and listed, so a hostile server can't write outside the
+target folder. The download goes into a new folder and refuses to merge into one that already exists. Symlinks are
+never followed in either direction: links on the server aren't downloaded, links on this computer (including Windows
+junctions) aren't uploaded, and deleting a folder on the server removes links inside it as links, never what they
+point to. Deleting a folder asks first, says it includes everything inside, and refuses `/`.
+
 **Partial writes.** Saves go to a temporary file first, which is flushed to disk and then renamed over the old one. A
 crash or power cut leaves you with either the old vault or the new one, never half of each.
 
@@ -202,6 +210,23 @@ the preview before you share it.
   the vault is unlocked, but anyone who can read your files can see it. Don't use a picture you need to keep private.
 - **See-through window.** With the see-through wallpaper, whatever is behind the Siakap window shows through it
   (blurred or clear). The lock screen is always solid.
+- **Port forwards.** A forward is a door: a local (`-L`) or SOCKS (`-D`) port lets any program on this computer
+  reach what the server can reach, as you, while the tab is open. Ports listen on 127.0.0.1 unless you change the
+  listen address; another address (such as 0.0.0.0) lets other machines on your network use it too, and the session
+  editor warns you. Forwards in an imported backup that listen on another address are imported switched off. A
+  remote (`-R`) forward lets anyone who can reach that port on the server connect to the destination you set, from
+  this computer. Siakap only accepts server connections for the ports it asked for, and only connects them to the
+  destination you entered.
+- **Jump hosts.** The jump host sees that you connect onward and to which host and port, but not what you send:
+  the connection to the target is end-to-end encrypted through it, and the target's host key is checked against the
+  vault as usual. Each jump host's own key is checked too.
+- **Answers to sign-in questions.** One-time codes and other answers to a server's keyboard-interactive questions
+  are sent to that server and not saved. Like typed passwords, they pass through the web view as JavaScript strings.
+- **The Mac app is not notarised.** It is ad-hoc signed by CI (so macOS can check it hasn't been altered after
+  signing) but not signed with an Apple Developer ID. Check the `.dmg` against `SHA256SUMS.txt` before you open it
+  the first time (`shasum -a 256 Siakap.Terminal_*_universal.dmg`). On a Mac, *open without the master password* is
+  not available, and the vault lives in `~/Library/Application Support/dev.siakap.terminal`. Use FileVault for
+  full-disk encryption.
 
 ## Supply chain
 

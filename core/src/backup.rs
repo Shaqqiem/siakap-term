@@ -21,7 +21,10 @@ use serde_json::{json, Value};
 
 use crate::error::{CoreError, Result};
 use crate::macros::{check, signature};
-use crate::model::{new_id, normalize_folder, validate_name, AuthMethod, Macro, Session, SessionKind, VaultData};
+use crate::model::{
+    new_id, normalize_folder, validate_name, AuthMethod, Forward, ForwardKind, Macro, Session, SessionKind, VaultData,
+    MAX_FORWARDS,
+};
 use crate::serial::{FlowOpt, ParityOpt, SerialConfig};
 
 pub const FORMAT: &str = "tabby-personal-sidebar";
@@ -104,7 +107,22 @@ fn tabby_options(s: &Session) -> Value {
                 AuthMethod::Password => json!("password"),
             };
             let keys: Vec<String> = if s.key_path.is_empty() { vec![] } else { vec![s.key_path.clone()] };
-            json!({ "host": s.host, "port": s.port, "user": s.user, "auth": auth, "privateKeys": keys })
+            let mut o = json!({ "host": s.host, "port": s.port, "user": s.user, "auth": auth, "privateKeys": keys });
+            if !s.forwards.is_empty() {
+                o["forwardedPorts"] = s
+                    .forwards
+                    .iter()
+                    .map(|f| {
+                        json!({ "type": match f.kind { ForwardKind::Local => "Local", ForwardKind::Remote => "Remote", ForwardKind::Dynamic => "Dynamic" },
+                                "host": f.bind_host, "port": f.bind_port, "targetAddress": f.dest_host, "targetPort": f.dest_port,
+                                "description": "", "enabled": f.enabled })
+                    })
+                    .collect();
+            }
+            if let Some(j) = &s.jump_session {
+                o["jumpHost"] = json!(format!("siakap:{j}"));
+            }
+            o
         }
         SessionKind::Local => {
             let (command, args): (&str, Vec<String>) = match s.shell.as_str() {
@@ -258,10 +276,14 @@ pub fn import(json_text: &str, d: &mut VaultData) -> Result<ImportReport> {
         .iter()
         .filter_map(|g| Some((g.get("id")?.as_str()?.to_string(), g.get("name")?.as_str()?.to_string())))
         .collect();
+    // Profile id in the file → id of the session it became (or already was).
+    let mut new_ids: HashMap<String, String> = HashMap::new();
+    let first_new = d.sessions.len();
     for p in &sessions {
+        let pid = p.get("id").and_then(Value::as_str).unwrap_or("").to_string();
         match session_from_profile(p, &group_names) {
             Some(mut s) => {
-                let dup = d.sessions.iter().any(|x| {
+                let existing = d.sessions.iter().find(|x| {
                     x.kind == s.kind
                         && x.name == s.name
                         && x.host == s.host
@@ -270,10 +292,12 @@ pub fn import(json_text: &str, d: &mut VaultData) -> Result<ImportReport> {
                         && x.serial.port == s.serial.port
                         && x.shell == s.shell
                 });
-                if dup {
+                if let Some(x) = existing {
+                    new_ids.insert(pid.clone(), x.id.clone());
                     rep.skipped_sessions += 1;
                     continue;
                 }
+                new_ids.insert(pid.clone(), s.id.clone());
                 if let Some(pid) = p.get("id").and_then(Value::as_str) {
                     if let Some(st) = startup.get(pid) {
                         let script = st.get("postConnectScript").and_then(Value::as_str).unwrap_or("");
@@ -297,6 +321,11 @@ pub fn import(json_text: &str, d: &mut VaultData) -> Result<ImportReport> {
             }
             None => rep.skipped_sessions += 1,
         }
+    }
+    // Point jump hosts at the imported (or matching existing) sessions.
+    for i in first_new..d.sessions.len() {
+        let target = d.sessions[i].jump_session.take().and_then(|j| new_ids.get(&j).cloned());
+        d.sessions[i].jump_session = target.filter(|t| *t != d.sessions[i].id);
     }
     Ok(rep)
 }
@@ -332,6 +361,33 @@ fn session_from_profile(p: &Value, groups: &HashMap<String, String>) -> Option<S
             {
                 s.key_path = file_uri_to_path(k);
             }
+            for f in o.get("forwardedPorts").and_then(Value::as_array).into_iter().flatten().take(MAX_FORWARDS) {
+                let kind = match f.get("type").and_then(Value::as_str) {
+                    Some("Local") => ForwardKind::Local,
+                    Some("Remote") => ForwardKind::Remote,
+                    Some("Dynamic") => ForwardKind::Dynamic,
+                    _ => continue,
+                };
+                let port =
+                    |k: &str| f.get(k).and_then(Value::as_u64).filter(|p| (1..=65535).contains(p)).unwrap_or(0) as u16;
+                let txt = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                let fwd = Forward {
+                    kind,
+                    bind_host: txt("host"),
+                    bind_port: port("port"),
+                    dest_host: txt("targetAddress"),
+                    dest_port: port("targetPort"),
+                    enabled: f.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                };
+                if let Ok(mut fwd) = fwd.validated() {
+                    // A file shouldn't open ports to the network on its own.
+                    if fwd.is_public() {
+                        fwd.enabled = false;
+                    }
+                    s.forwards.push(fwd);
+                }
+            }
+            s.jump_session = o.get("jumpHost").and_then(Value::as_str).filter(|j| j.len() <= 200).map(String::from);
         }
         "local" => {
             s.kind = SessionKind::Local;

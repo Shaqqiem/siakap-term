@@ -144,8 +144,18 @@ fn detect_now() -> Vec<ShellInfo> {
                 v.push(shell("login", &format!("{name} (login shell)"), sh, &["-l"]));
             }
         }
-        for (id, path) in [("bash", "/bin/bash"), ("zsh", "/bin/zsh"), ("fish", "/usr/bin/fish"), ("sh", "/bin/sh")] {
-            if std::path::Path::new(path).is_file() {
+        let mut seen = std::collections::HashSet::new();
+        for (id, path) in [
+            ("zsh", "/bin/zsh"),
+            ("bash", "/opt/homebrew/bin/bash"), // newer bash from Homebrew (macOS)
+            ("bash", "/usr/local/bin/bash"),
+            ("bash", "/bin/bash"),
+            ("fish", "/opt/homebrew/bin/fish"),
+            ("fish", "/usr/local/bin/fish"),
+            ("fish", "/usr/bin/fish"),
+            ("sh", "/bin/sh"),
+        ] {
+            if std::path::Path::new(path).is_file() && seen.insert(id) {
                 v.push(shell(id, id, path, &[]));
             }
         }
@@ -183,6 +193,12 @@ impl LocalPty {
         cmd.args(&shell.args);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        // Apps opened from the Finder get no locale, so zsh and friends would
+        // fall back to ASCII and mangle accented text and box drawing.
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
+            cmd.env("LANG", "en_US.UTF-8");
+        }
         if let Some(home) = home_dir() {
             cmd.cwd(home);
         }

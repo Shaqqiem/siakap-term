@@ -110,7 +110,21 @@ pub fn parse_release(json: &str, current: &str) -> Result<UpdateInfo> {
 }
 
 /// Ask GitHub for the latest release. Uses the system's certificates and proxy.
+/// Installing from inside the app is Windows-only; elsewhere the user gets
+/// the release page.
 pub fn check(current: &str) -> Result<UpdateInfo> {
+    let mut info = check_any(current)?;
+    if !cfg!(windows) {
+        info.installer_url = None;
+        info.installer_size = 0;
+    }
+    Ok(info)
+}
+
+/// Like [`check`], but keeps the Windows installer on every platform. Only for
+/// debug-build tests of the download and checksum steps.
+#[doc(hidden)]
+pub fn check_any(current: &str) -> Result<UpdateInfo> {
     match agent(10).get(RELEASES_API).set("Accept", "application/vnd.github+json").call() {
         Ok(resp) => {
             let body = resp.into_string().map_err(|_| CoreError::invalid("Couldn't read GitHub's answer."))?;
@@ -133,7 +147,8 @@ pub fn check(current: &str) -> Result<UpdateInfo> {
 pub fn tag_from_location(location: &str) -> Option<String> {
     let tag = location.strip_prefix(&format!("{RELEASES_PAGE}/tag/"))?;
     let tag = tag.split(['?', '#']).next()?;
-    (parts(tag).is_some() && tag.len() < 32 && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')).then(|| tag.to_string())
+    (parts(tag).is_some() && tag.len() < 32 && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+        .then(|| tag.to_string())
 }
 
 /// Version notes from a CHANGELOG.md (the section for `version`).
@@ -376,7 +391,10 @@ mod tests {
 
     #[test]
     fn web_fallback_parsing() {
-        assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/v0.7.3").as_deref(), Some("v0.7.3"));
+        assert_eq!(
+            tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/v0.7.3").as_deref(),
+            Some("v0.7.3")
+        );
         assert_eq!(tag_from_location("https://github.com/evil/repo/releases/tag/v9.9.9"), None);
         assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/v1/../x"), None);
         assert_eq!(tag_from_location("https://github.com/Shaqqiem/siakap-term/releases/tag/nightly"), None);

@@ -1,5 +1,6 @@
 // Settings, shown as its own tab: a section list on the left (with search) and
 // compact rows on the right. Every change is saved straight away.
+import { isMac, keyLabel } from "./platform";
 import { icon, iconPackFor, iconVariant, type IconPack } from "./icons";
 
 const PACK_NAMES: Record<IconPack, string> = { line: "Line", solid: "Solid", pixel: "Pixel", tiles: "Tiles", neon: "Neon", iso: "Isometric 3D", badges: "Badges", doodle: "Doodle", emoji: "Emoji" };
@@ -35,6 +36,7 @@ const SHORTCUTS: [string, string][] = [
   ["Ctrl+Shift+W", "Close the focused pane"],
   ["Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"],
   ["Ctrl+Shift+C", "Copy the selection"],
+  ["Ctrl+Shift+F", "Find in the terminal (Enter next, Shift+Enter previous)"],
   ["Ctrl+Shift+V", "Paste"],
   ["Right-click", "Paste, or copy when text is selected (if turned on below)"],
   ["Shift+right-click", "Terminal menu"],
@@ -914,7 +916,7 @@ export class SettingsPanel {
   }
 
   private shortcuts(): HTMLElement[] {
-    return SHORTCUTS.map(([k, what]) => h("div", { class: "set-row compact", "data-search": `${k} ${what}`.toLowerCase() }, h("div", { class: "set-text" }, h("div", { class: "set-label" }, what)), h("div", { class: "set-control" }, h("kbd", {}, k))));
+    return SHORTCUTS.map(([raw, what]) => [keyLabel(raw), what]).map(([k, what]) => h("div", { class: "set-row compact", "data-search": `${k} ${what}`.toLowerCase() }, h("div", { class: "set-text" }, h("div", { class: "set-label" }, what)), h("div", { class: "set-control" }, h("kbd", {}, k))));
   }
 
   private about(): HTMLElement[] {
@@ -933,7 +935,7 @@ export class SettingsPanel {
         const copy = h("button", { type: "button", onclick: () => api.clipboardWrite(u.url).then(() => toast("Link copied.", "ok", 1500)) }, "Copy link");
         result.replaceChildren(
           u.newer
-            ? h("div", { class: "update-new" }, h("strong", {}, `Version ${u.latest} is available`), u.published ? h("span", { class: "muted small" }, ` (released ${u.published})`) : null, h("div", { class: "muted small" }, `You have ${u.current}. Download and install updates Siakap and opens it again; your sessions and settings are kept.`))
+            ? h("div", { class: "update-new" }, h("strong", {}, `Version ${u.latest} is available`), u.published ? h("span", { class: "muted small" }, ` (released ${u.published})`) : null, h("div", { class: "muted small" }, u.installerUrl ? `You have ${u.current}. Download and install updates Siakap and opens it again; your sessions and settings are kept.` : `You have ${u.current}. ${isMac ? "Open the download page and get the .dmg; drag Siakap into Applications to replace the old one." : "Open the download page to get it."} Your sessions and settings are kept.`))
             : h("div", { class: "update-ok" }, h("strong", {}, "You have the latest version"), h("span", { class: "muted small" }, ` (${u.current})`)),
           ...(u.newer && u.notes.trim() ? [h("details", {}, h("summary", { class: "small" }, "What's in it"), h("pre", { class: "update-notes" }, u.notes))] : []),
           h("div", { class: "inline" }, ...(u.newer ? (u.installerUrl ? [install, open, copy] : [open, copy]) : [])),

@@ -62,6 +62,57 @@ jobs:
           path: dist-installers/*
           if-no-files-found: error
 
+  # macOS: one universal .dmg (Apple silicon and Intel). Ad-hoc signed, not
+  # notarised: the first launch needs right-click > Open (see README).
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Core tests
+        run: cargo test -p siakap-core --locked
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Build the app and disk image
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Collect the disk image and checksums
+        run: |
+          mkdir -p dist-installers
+          ver=$(jq -r .version src-tauri/tauri.conf.json)
+          # Named like the Windows files; GitHub shows the space as a dot.
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist-installers/Siakap Terminal_${ver}_universal.dmg"
+          codesign --verify --deep --verbose=2 "target/universal-apple-darwin/release/bundle/macos/Siakap Terminal.app"
+          lipo -archs "target/universal-apple-darwin/release/bundle/macos/Siakap Terminal.app/Contents/MacOS/siakap-terminal"
+          cd dist-installers
+          shasum -a 256 *.dmg | tee SHA256SUMS-macos.txt
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: siakap-terminal-macos-universal
+          path: dist-installers/*
+          if-no-files-found: error
+
   # Known-vulnerability scan of Rust and npm dependencies (RustSec / npm advisories).
   audit:
     runs-on: ubuntu-latest
@@ -85,7 +136,7 @@ jobs:
   # new release, bump the version and push to main.
   release:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: windows
+    needs: [windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,10 +162,22 @@ jobs:
         with:
           name: siakap-terminal-windows-x64
           path: dist-installers
-      - name: Verify checksums
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         if: steps.ver.outputs.exists == 'false'
-        working-directory: dist-installers
-        run: sha256sum -c SHA256SUMS.txt
+        with:
+          name: siakap-terminal-macos-universal
+          path: dist-macos
+      - name: Verify and merge checksums
+        if: steps.ver.outputs.exists == 'false'
+        run: |
+          (cd dist-installers && sha256sum -c SHA256SUMS.txt)
+          (cd dist-macos && sha256sum -c SHA256SUMS-macos.txt)
+          cp dist-macos/*.dmg dist-installers/
+          cd dist-installers
+          rm SHA256SUMS.txt
+          sha256sum -- *.exe *.msi *.dmg | sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
       - name: Create GitHub release
         if: steps.ver.outputs.exists == 'false'
         env:
